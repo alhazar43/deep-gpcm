@@ -1,0 +1,19 @@
+{
+  "n_students": 200,
+  "n_questions": 30,
+  "n_categories": 4,
+  "response_type": "partial_credit",
+  "format": "PC",
+  "description": "Synthetic GPCM data with partial credit scores in [0,1]",
+  "score_range": [
+    0.0,
+    1.0
+  ],
+  "discretization": "4 levels: [0.0, 0.333, 0.667, 1.0]",
+  "train_students": 160,
+  "test_students": 40,
+  "sequence_length_range": [
+    10,
+    50
+  ]
+}
