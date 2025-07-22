@@ -17,8 +17,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from models.model import DeepGpcmModel
+from evaluation.metrics import GpcmMetrics
 from utils.gpcm_utils import (
-    OrdinalLoss, GpcmMetrics, load_gpcm_data, create_gpcm_batch,
+    OrdinalLoss, load_gpcm_data, create_gpcm_batch,
     CrossEntropyLossWrapper, MSELossWrapper
 )
 from train import GpcmDataLoader
@@ -153,7 +154,7 @@ def create_confusion_matrix(model, test_loader, device, n_cats, save_path):
             r_batch = r_batch.to(device)
             mask_batch = mask_batch.to(device)
             
-            _, _, _, _, gpcm_probs = model(q_batch, r_batch)
+            _, _, _, gpcm_probs = model(q_batch, r_batch)
             
             if mask_batch is not None:
                 valid_probs = gpcm_probs[mask_batch]
@@ -254,7 +255,7 @@ def evaluate_model_comprehensive(model_path, dataset_name, device=None):
                 r_batch = r_batch.to(device)
                 mask_batch = mask_batch.to(device)
                 
-                _, _, _, _, gpcm_probs = model(q_batch, r_batch)
+                _, _, _, gpcm_probs = model(q_batch, r_batch)
                 
                 if mask_batch is not None:
                     valid_probs = gpcm_probs[mask_batch]

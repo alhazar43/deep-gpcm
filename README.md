@@ -15,8 +15,13 @@ Deep-GPCM extends traditional binary knowledge tracing to handle:
 - **Dual Data Formats**: PC (partial credit) and OC (ordered categories) support
 - **Multiple Embedding Strategies**: Three neural embedding approaches (ordered, unordered, linear decay)
 - **Ordinal Loss Function**: Specialized loss function respecting category ordering
+- **Advanced Prediction Metrics**: New accuracy metrics designed for ordinal data
+  - **Prediction Consistency Accuracy**: Measures consistency with ordinal training (cumulative method)
+  - **Ordinal Ranking Accuracy**: Spearman correlation between predicted and true ordinal values
+  - **Distribution Consistency Score**: Alignment between probability distributions and ordinal structure
 - **Comprehensive Evaluation**: Cross-validation, baseline comparisons, and statistical analysis
-- **Performance Visualization**: Advanced plotting and analysis tools
+- **3-Column Visualization**: Embedding strategy comparison with clear performance differentiation
+- **Performance Analysis Tools**: Advanced plotting and analysis with embedding strategy insights
 
 ## Usage
 
@@ -66,28 +71,37 @@ python compare_strategies.py --dataset_path data/large --epochs 5
 python compare_strategies.py --strategies linear_decay ordered --formats OC PC --epochs 3
 ```
 
-### Comprehensive Strategy Analysis
+### Embedding Strategy Comparison
 ```bash
-# Full analysis across multiple K values and strategies
-python analyze_strategies.py --dataset synthetic_OC --quick
+# Run a comparison of all embedding strategies
+python run_embedding_strategy_comparison.py --dataset synthetic_OC --epochs 10
 
-# Detailed analysis with extended configurations
-python analyze_strategies.py --dataset synthetic_OC
+# Plot the results of the most recent comparison
+python plot_embedding_strategy_comparison.py
+
+# To plot specific metrics, provide them as arguments
+python plot_embedding_strategy_comparison.py --metrics categorical_acc ordinal_acc mae
+```
+
+### Advanced Analysis with New Prediction Accuracy Metrics
+```bash
+# Generate comprehensive analysis with new prediction accuracy metrics
+python comprehensive_analysis.py
+
+# Create detailed analysis including:
+# - Prediction Consistency Accuracy (cumulative method)
+# - Ordinal Ranking Accuracy (Spearman correlation)
+# - Distribution Consistency Score (ordinal structure alignment)
+python comprehensive_analysis.py --save_path results/analysis
 ```
 
 ### Visualization and Reporting
 ```bash
-# Create performance dashboard
-python visualize.py --dataset synthetic_OC --save_path results/plots
+# Generate 3-column embedding strategy comparison plots
+python plot_embedding_strategy_comparison.py
 
-# Generate comprehensive analysis plots
-python visualize.py --dataset synthetic_OC
-```
-
-### GPCM Model Analysis
-```bash
-# Analyze GPCM compliance and prediction behavior
-python gpcm_analysis.py
+# Create comprehensive analysis plots with new metrics
+python comprehensive_analysis.py --log_level INFO
 ```
 
 ## Data Formats

@@ -1,0 +1,10 @@
+{
+  "dataset": "synthetic_OC",
+  "epochs": 5,
+  "timestamp": "20250722_135147",
+  "results": {
+    "argmax": null,
+    "cumulative": null,
+    "expected": null
+  }
+}

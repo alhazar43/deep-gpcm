@@ -1,23 +1,16 @@
 # Deep-GPCM Implementation Plan
 
-## Phase 1: Core GPCM Components COMPLETED
+## Phase 1: Core GPCM Components 
 
-### 1.1 GPCM Embedding Strategies COMPLETED
+### 1.1 GPCM Embedding Strategies 
 **File**: `models/model.py` (consolidated implementation)
 
-#### Strategy 3: Linear Decay Embedding (R^(KQ)) - IMPLEMENTED
-```python
-def linear_decay_embedding(q_data, r_data, n_questions, n_cats):
-    """Strategy 3: x_t^(k) = max(0, 1 - |k-r_t|/(K-1)) * q_t"""
-    # Triangular weights around actual response - WORKING
-```
-
-**Future Strategies for Phase 2+ (if needed):**
 - Strategy 1: Ordered Embedding (R^(2Q)) - Most intuitive for partial credit
-- Strategy 2: Unordered Embedding (R^(KQ)) - For MCQ-style responses  
+- Strategy 2: Unordered Embedding (R^(KQ)) - For MCQ-style responses
+- Strategy 3: Linear Decay Embedding (R^(KQ)) - Triangular weights around actual response  
 - Strategy 4: Adjacent Weighted Embedding (R^(KQ)) - Focus on adjacent categories
 
-### 1.2 GPCM Predictor COMPLETED
+### 1.2 GPCM Predictor 
 **File**: `models/model.py` - `DeepGpcmModel`
 
 - IRT parameter generation (θ, α, β thresholds)
@@ -25,7 +18,7 @@ def linear_decay_embedding(q_data, r_data, n_questions, n_cats):
 - Integration with DKVMN memory
 - Following deep-2pl architecture patterns
 
-### 1.3 Ordinal Loss Function COMPLETED
+### 1.3 Ordinal Loss Function 
 **File**: `utils/gpcm_utils.py` - `OrdinalLoss`
 
 ```python
@@ -34,7 +27,7 @@ class OrdinalLoss(nn.Module):
     # Custom ordinal loss respecting category ordering - WORKING
 ```
 
-### 1.4 Data Pipeline COMPLETED
+### 1.4 Data Pipeline 
 **File**: `utils/gpcm_utils.py` + `train.py`
 
 - Auto-detect K categories from responses
@@ -42,7 +35,7 @@ class OrdinalLoss(nn.Module):
 - Metadata extraction and validation
 - Simple but effective data loading
 
-## Phase 2: Enhancement & Optimization COMPLETED
+## Phase 2: Optimization 
 
 ### 2.1 Training Pipeline ENHANCED
 **Files**: `train.py`, `train_cv.py`
@@ -55,7 +48,7 @@ class OrdinalLoss(nn.Module):
 - Embedding strategy selection support
 - Advanced hyperparameter configuration
 
-### 2.2 Evaluation Framework COMPLETED
+### 2.2 Evaluation Framework 
 **File**: `evaluate.py`
 
 - Comprehensive model evaluation script
@@ -64,7 +57,7 @@ class OrdinalLoss(nn.Module):
 - Statistical significance testing
 - Multiple loss function comparison (ordinal, CE, MSE)
 
-### 2.3 Alternative Embedding Strategies COMPLETED
+### 2.3 Alternative Embedding Strategies 
 **File**: `models/model.py` - Integrated implementation
 
 - Strategy 1 (Ordered Embedding) - R^(2Q) for partial credit
@@ -73,36 +66,50 @@ class OrdinalLoss(nn.Module):
 - Embedding strategy ablation study framework
 - Performance comparison across strategies and K values
 
-### 2.4 Analysis & Visualization Tools COMPLETED
+### 2.4 Analysis & Visualization Tools 
 **Files**: `analyze_strategies.py`, `visualize.py`
 
-- Comprehensive strategy comparison across K values
-- Advanced logging and metrics visualization
-- Training curves and learning progression analysis
-- Performance dashboard with automated reporting
-- Cross-validation visualization and statistics
-- Strategy performance heatmaps and comparative plots
+**PRIORITY FIX NEEDED**: Current visualization framework provides poor comparison capabilities
+
+**Requirements**:
+- **Two-Column Comparative Analysis**: OC vs PC format comprehensive comparison
+  - Left column: OC format (Ordered Categories {0,1,2,3})
+  - Right column: PC format (Partial Credit {0.000,0.333,0.667,1.000})
+  - Strategy performance across both formats with identical visualization scales
+  - Direct visual comparison capability with unified legends and axes
+
+- **Enhanced Comparison Framework**:
+  - Strategy performance matrices for both data formats
+  - Cross-format performance correlation analysis
+  - Statistical significance testing between OC and PC results
+  - Embedding strategy effectiveness across format types
+  - Training convergence comparison plots (side-by-side)
+
+**Current Issues to Address**:
+- Existing plots lack proper comparative structure
+- No unified scaling or formatting across data formats
+- Missing direct OC vs PC performance visualization
+- Insufficient strategy comparison depth
 
 ## Phase 3: Experimental Design & Validation
 
 ### 3.1 Benchmark Dataset Evaluation
 **Objective**: Validate Deep-GPCM on established educational datasets for comprehensive performance comparison
 
-**Priority Datasets**:
-- **ASSISTments 2009/2015**: Large-scale math tutoring data with partial credit responses
-- **EdNet**: Comprehensive educational interaction dataset from TOEIC preparation
+**Datasets**:
+- **ASSISTments 2009/2015**: Large-scale math tutoring data; need to convert to PC format
+- **EdNet**: Comprehensive educational interaction dataset; need to convert to PC format
 - **STATICS**: Engineering mechanics assessment with multi-level scoring
-- **ES-KT-24**: Multimodal educational gaming dataset (2024 release)
-- **SingPAD**: Music performance assessment dataset for domain generalization
 
-**Evaluation Protocol**:
+
+**Evaluation**:
 - Standardized 5-fold cross-validation across all datasets
 - Performance comparison against established baselines (BKT, DKT, DKVMN, SAKT)
 - Statistical significance testing with effect size analysis
-- Domain-specific metric evaluation (educational vs. general accuracy)
+
 
 ### 3.2 Comparative Model Analysis
-**Objective**: Position Deep-GPCM against recent state-of-the-art knowledge tracing models
+**Objective**: Position Deep-GPCM for multi-step prediction
 
 **Target Comparisons**:
 - **DKVMN&MRI (2024)**: Multi-relational information integration approach
@@ -131,7 +138,7 @@ class OrdinalLoss(nn.Module):
 - A/B testing in controlled educational environments
 - Qualitative analysis of teacher usage patterns
 
-### 3.4 Methodological Contributions
+### 3.4 Misc Remarks
 **Objective**: Establish theoretical and empirical contributions to educational measurement
 
 **Research Questions**:
@@ -140,10 +147,10 @@ class OrdinalLoss(nn.Module):
 3. How does ordinal loss function design affect educational prediction accuracy?
 4. What are the computational trade-offs of different embedding dimensions?
 
-**Publication Strategy**:
+<!-- **Publication Strategy**:
 - **Target Venue**: Educational Data Mining (EDM) 2025 or Learning Analytics & Knowledge (LAK) 2025
 - **Reproducibility Package**: Complete codebase with benchmark implementations
-- **Supplementary Materials**: Interactive visualization tools and educational case studies
+- **Supplementary Materials**: Interactive visualization tools and educational case studies -->
 
 ## Phase 4: Performance Optimization & Production Readiness
 
@@ -208,7 +215,7 @@ class OrdinalLoss(nn.Module):
 
 ## Implementation Status
 
-### Phase 1 COMPLETED
+### Phase 1 
 - [x] Project setup and structure
 - [x] Synthetic data generation (OC & PC formats)
 - [x] Data migration to deep-gpcm
@@ -219,7 +226,7 @@ class OrdinalLoss(nn.Module):
 - [x] Training pipeline adapted from deep-2pl
 - [x] Evaluation metrics and testing
 
-### Phase 2 COMPLETED
+### Phase 2 
 - [x] Comprehensive evaluation script (`evaluate.py`)
 - [x] Cross-validation support (`train_cv.py`)
 - [x] Baseline comparisons (random, frequency-based)
@@ -228,7 +235,31 @@ class OrdinalLoss(nn.Module):
 - [x] Advanced visualization tools (`visualize.py`)
 - [x] Performance analysis across different K values
 
-## Phase 1 & 2 COMPLETED
+### Phase 2.5: Advanced Metrics & Analysis (COMPLETED)
+- [x] **New Prediction Accuracy Metrics Implementation**
+  - [x] Prediction Consistency Accuracy (cumulative method for ordinal training consistency)
+  - [x] Ordinal Ranking Accuracy (Spearman correlation between predicted and true values)
+  - [x] Distribution Consistency Score (probability distribution vs ordinal structure alignment)
+- [x] **Comprehensive Analysis Framework Enhancement**
+  - [x] Replace QWK with new prediction accuracy metrics in comprehensive analysis
+  - [x] Update comprehensive_analysis.py with new metrics integration
+  - [x] Fallback mechanisms for backward compatibility with existing data
+- [x] **Embedding Strategy Comparison System**
+  - [x] 10-epoch training comparison across all embedding strategies (ordered, unordered, linear_decay)
+  - [x] 3-column visualization framework (categorical accuracy, ordinal accuracy, prediction consistency)
+  - [x] Performance ranking system with best performer identification
+  - [x] Training progression analysis and final epoch comparison
+- [x] **Advanced Visualization Tools**
+  - [x] 3-column embedding strategy comparison plots with clear differentiation
+  - [x] Training curve visualization showing strategy differences over epochs
+  - [x] Final epoch performance bars with gold highlighting for best performers
+  - [x] Comprehensive performance analysis and ranking system
+- [x] **Documentation and Usage Updates**
+  - [x] README.md updated with new use cases and advanced analysis examples
+  - [x] Key features section enhanced with new prediction metrics descriptions
+  - [x] Usage examples for embedding strategy comparison and advanced analysis
+
+## Phase 1 & 2 
 
 **Major Achievements:**
 
@@ -272,3 +303,146 @@ class OrdinalLoss(nn.Module):
 - Random baseline: 25% (4-category uniform)
 - Educational significance threshold: >50% categorical accuracy
 - Ordinal tolerance target: >75% accuracy within ±1 category
+
+---
+
+## Phase 5: Multi-Step Prediction Framework (FUTURE DEVELOPMENT)
+
+### 5.1 Multi-Step Prediction Architecture Design
+**Objective**: Extend Deep-GPCM for sequential multi-step response prediction
+
+**Core Components**:
+- **Sequence Extension**: Predict next N responses instead of single next response
+- **Temporal Modeling**: Enhanced memory architecture for longer prediction horizons
+- **Uncertainty Quantification**: Confidence intervals for multi-step predictions
+- **Adaptive Horizon**: Dynamic prediction length based on student performance patterns
+
+**Architecture Requirements**:
+- Modified DKVMN memory with extended temporal context
+- Multi-output GPCM predictor for sequence generation
+- Hierarchical attention mechanisms for long-term dependencies
+- Regularization strategies to prevent error accumulation
+
+### 5.2 Multi-Step Evaluation Metrics Framework
+**Primary Metrics**:
+
+**Sequence-Level Metrics**:
+- **Sequential Accuracy (SA_n)**: Exact sequence match for n-step predictions
+- **Partial Sequence Accuracy (PSA_n)**: Average accuracy across sequence positions
+- **Sequence Weighted Kappa (SWK_n)**: QWK extended to sequence evaluation
+- **Early Prediction Accuracy (EPA_k)**: Accuracy at position k in n-step sequence
+
+**Temporal Degradation Metrics**:
+- **Prediction Decay Rate (PDR)**: Accuracy decline rate over prediction steps
+- **Confidence Calibration (CC_n)**: Reliability of uncertainty estimates across steps
+- **Temporal Stability Index (TSI)**: Consistency of predictions over time horizons
+
+**Educational Impact Metrics**:
+- **Intervention Trigger Accuracy (ITA)**: Correct identification of students needing help
+- **Learning Trajectory Prediction (LTP)**: Accuracy of predicted skill development paths
+- **Adaptive Assessment Efficiency (AAE)**: Optimal stopping criteria for testing
+
+### 5.3 Research Questions for Multi-Step Extensions
+
+**Technical Research Questions**:
+1. **Optimal Prediction Horizon**: What is the maximum effective prediction length for different student populations?
+2. **Memory Architecture**: How should DKVMN memory be modified for multi-step temporal modeling?
+3. **Error Propagation**: How to minimize accumulating errors in sequential predictions?
+4. **Computational Efficiency**: What are the scalability limits for real-time multi-step prediction?
+
+**Educational Research Questions**:
+1. **Early Intervention**: How early can we reliably predict student struggle patterns?
+2. **Personalized Trajectories**: Can multi-step prediction enable truly adaptive learning paths?
+3. **Assessment Optimization**: How to balance prediction accuracy with assessment efficiency?
+4. **Interpretability**: How to make multi-step predictions educationally interpretable?
+
+### 5.4 Implementation Roadmap
+
+**Phase 5a: Foundation (3-4 months)**
+- Extend current DKVMN architecture for sequence prediction
+- Implement basic 2-step and 3-step prediction capabilities
+- Develop sequence evaluation metrics and testing framework
+- Validate on existing synthetic datasets with extended sequences
+
+**Phase 5b: Enhancement (4-6 months)**
+- Advanced temporal modeling with attention mechanisms
+- Uncertainty quantification and confidence interval estimation
+- Multi-horizon prediction with adaptive stopping criteria
+- Performance optimization for real-time deployment
+
+**Phase 5c: Validation (6-8 months)**
+- Large-scale evaluation on educational benchmark datasets
+- Comparison with state-of-the-art sequential prediction models
+- Educational impact studies with real classroom deployments
+- Publication and open-source release preparation
+
+**Success Criteria**:
+- **Technical**: >70% accuracy for 3-step predictions, <500ms inference time
+- **Educational**: Demonstrate improved student outcomes through early intervention
+- **Research**: Novel contributions to educational sequence modeling literature
+
+### 5.5 Educational Applications
+
+**Primary Applications**:
+- **Early Warning Systems**: Proactive identification of at-risk students
+- **Adaptive Learning Platforms**: Personalized learning paths based on predicted trajectories
+- **Computerized Adaptive Testing**: Dynamic test length optimization
+- **Curriculum Planning**: Data-driven insights for instructional design
+
+**Secondary Applications**:
+- **Student Dropout Prediction**: Early identification of disengagement patterns
+- **Cognitive Load Estimation**: Real-time assessment of student cognitive state
+- **Educational Resource Recommendation**: Personalized content delivery
+- **Teacher Support Tools**: Actionable insights for classroom instruction
+
+### 5.6 Dependencies & Compatibility
+
+**Dependencies**:
+- **Time Series Libraries**: Potentially `sktime` for advanced temporal analysis
+- **Probabilistic Modeling**: `pyro` or `edward` for Bayesian extensions
+- **High-Performance Computing**: `cupy` for GPU-accelerated computations
+
+**Compatibility**:
+- **Existing Framework**: Fully backward compatible with single-step prediction
+- **Educational Standards**: Aligned with xAPI and Caliper for data interoperability
+- **LMS Integration**: Designed for seamless integration with Moodle, Canvas, etc.
+
+### 5.7 Long-Term Vision
+
+**Goal**: Establish Deep-GPCM as the leading open-source framework for multi-step educational prediction, enabling a new generation of adaptive and personalized learning technologies.
+
+**Future Directions**:
+- **Reinforcement Learning Integration**: Optimal policy learning for educational interventions
+- **Causal Inference**: Understanding the causal impact of different learning activities
+- **Multi-Modal Learning**: Incorporating text, audio, and video data into predictions
+- **Ethical AI**: Ensuring fairness, accountability, and transparency in educational AI
+### Improvement Plan for `deep-gpcm`
+
+**[DONE]** 7. **Refactor for Separation of Concerns:** Move evaluation and metrics logic out of the model and utility files into a dedicated evaluation module to improve code clarity and maintainability.
+    *   **Action:** Create a new `evaluation/metrics.py` file.
+    *   **Action:** Move the `GpcmMetrics` class from `utils/gpcm_utils.py` to the new metrics file.
+    *   **Action:** Remove prediction-related methods (`gpcm_predict_*`) from the `DeepGpcmModel` in `models/model.py`. The model's `forward` method will now only output the raw probability distribution.
+    *   **Action:** Update `train.py` and `evaluate.py` to use the new metrics module and work with the refactored model.
+
+1.  **Align Training and Inference:** The most critical improvement is to use a prediction method that is consistent with the `OrdinalLoss` used during training.
+    *   **Action:** Change the default prediction method from `argmax` to `cumulative`. The `cumulative` method, which is based on cumulative probabilities, directly aligns with the `OrdinalLoss` function. This should lead to a significant improvement in prediction accuracy, especially for metrics that consider ordinality.
+    *   **Experiment:** Run experiments comparing the `argmax`, `cumulative`, and `expected` prediction methods to quantify the impact on accuracy. The `train.py` script already supports a `--prediction_method` argument, so this is straightforward to implement.
+
+2.  **Hyperparameter Tuning:** Systematically tune the model's hyperparameters to find the optimal configuration.
+    *   **Action:** Use a hyperparameter tuning library like Optuna or Hyperopt to search for the best combination of `learning_rate`, `batch_size`, `memory_size`, `key_dim`, `value_dim`, and `final_fc_dim`.
+    *   **Focus:** The tuning process should be guided by the `prediction_consistency_accuracy` and `ordinal_ranking_accuracy` metrics, as these are most relevant to the ordinal nature of the task.
+
+3.  **Embedding Strategy Analysis:** The `README.md` mentions four embedding strategies, but only three are implemented in `models/model.py`.
+    *   **Action:** Implement the fourth strategy, "Adjacent Weighted Embedding," as described in the `TODO.md`.
+    *   **Experiment:** Run a comprehensive comparison of all four embedding strategies to determine which one performs best for different datasets and numbers of categories.
+
+4.  **Loss Function Experimentation:** While `OrdinalLoss` is theoretically sound, it's worth exploring other loss functions.
+    *   **Action:** Experiment with other loss functions that are suitable for ordinal regression, such as the "Cumulative Link Loss" or "Focal Loss" adapted for ordinal data.
+    *   **Comparison:** Compare the performance of these loss functions against the existing `OrdinalLoss`, `CrossEntropyLoss`, and `MSELoss`.
+
+5.  **Regularization:** Introduce stronger regularization techniques to prevent overfitting and improve generalization.
+    *   **Action:** Increase the `dropout_rate` in the `DeepGpcmModel`. Experiment with other regularization techniques like L1/L2 weight decay or batch normalization.
+
+6.  **Architectural Enhancements:** Explore modifications to the model architecture.
+    *   **Action:** As suggested in the `TODO.md`, investigate more advanced memory architectures like the one used in DKVMN&MRI, which incorporates multi-relational information.
+    *   **Experiment:** Implement and evaluate the impact of these architectural changes on model performance.

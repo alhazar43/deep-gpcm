@@ -1,0 +1,10 @@
+{
+  "experiment_info": {
+    "timestamp": "2025-07-22T14:04:43.665182",
+    "description": "Prediction method comparison with new accuracy metrics",
+    "epochs": 10
+  },
+  "results_by_strategy": {
+    "linear_decay": {}
+  }
+}

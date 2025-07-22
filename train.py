@@ -16,8 +16,9 @@ from datetime import datetime
 from tqdm import tqdm
 
 from models.model import DeepGpcmModel
+from evaluation.metrics import GpcmMetrics
 from utils.gpcm_utils import (
-    OrdinalLoss, GpcmMetrics, load_gpcm_data, create_gpcm_batch,
+    OrdinalLoss, load_gpcm_data, create_gpcm_batch,
     CrossEntropyLossWrapper, MSELossWrapper
 )
 
@@ -90,7 +91,7 @@ def evaluate_model(model, data_loader, loss_fn, metrics, device, n_cats):
     """Evaluate model on dataset."""
     model.eval()
     total_loss = 0.0
-    all_predictions = []
+    all_probs = []
     all_targets = []
     
     with torch.no_grad():
@@ -100,7 +101,7 @@ def evaluate_model(model, data_loader, loss_fn, metrics, device, n_cats):
             mask_batch = mask_batch.to(device)
             
             # Forward pass
-            _, _, _, _, gpcm_probs = model(q_batch, r_batch)
+            _, _, _, gpcm_probs = model(q_batch, r_batch)
             
             # Compute loss only on valid positions
             if mask_batch is not None:
@@ -114,22 +115,25 @@ def evaluate_model(model, data_loader, loss_fn, metrics, device, n_cats):
             total_loss += loss.item()
             
             # Store for metrics
-            all_predictions.append(valid_probs.cpu())
+            all_probs.append(valid_probs.cpu())
             all_targets.append(valid_targets.cpu())
     
     # Compute metrics
-    all_predictions = torch.cat(all_predictions, dim=0).unsqueeze(1)  # Add seq_len dim
+    all_probs = torch.cat(all_probs, dim=0).unsqueeze(1)  # Add seq_len dim
     all_targets = torch.cat(all_targets, dim=0).unsqueeze(1)
     
     results = {
         'loss': total_loss / len(data_loader),
-        'categorical_acc': metrics.categorical_accuracy(all_predictions, all_targets),
-        'ordinal_acc': metrics.ordinal_accuracy(all_predictions, all_targets),
-        'mae': metrics.mean_absolute_error(all_predictions, all_targets),
-        'qwk': metrics.quadratic_weighted_kappa(all_predictions, all_targets, n_cats)
+        'categorical_acc': metrics.categorical_accuracy(all_probs, all_targets),
+        'ordinal_acc': metrics.ordinal_accuracy(all_probs, all_targets),
+        'mae': metrics.mean_absolute_error(all_probs, all_targets),
+        'qwk': metrics.quadratic_weighted_kappa(all_probs, all_targets, n_cats),
+        'prediction_consistency_acc': metrics.prediction_consistency_accuracy(all_probs, all_targets, method='cumulative'),
+        'ordinal_ranking_acc': metrics.ordinal_ranking_accuracy(all_probs, all_targets),
+        'distribution_consistency': metrics.distribution_consistency_score(all_probs, all_targets)
     }
     
-    per_cat_acc = metrics.per_category_accuracy(all_predictions, all_targets, n_cats)
+    per_cat_acc = metrics.per_category_accuracy(all_probs, all_targets, n_cats)
     results.update(per_cat_acc)
     
     return results
@@ -149,7 +153,7 @@ def train_epoch(model, train_loader, optimizer, loss_fn, device, n_cats):
         optimizer.zero_grad()
         
         # Forward pass
-        _, _, _, _, gpcm_probs = model(q_batch, r_batch)
+        _, _, _, gpcm_probs = model(q_batch, r_batch)
         
         # Compute loss only on valid positions
         if mask_batch is not None:
@@ -174,7 +178,7 @@ def train_epoch(model, train_loader, optimizer, loss_fn, device, n_cats):
 
 def train_model(dataset_name, n_epochs=30, batch_size=64, learning_rate=0.001, 
                 loss_type='ordinal', n_cats=4, memory_size=50, device=None,
-                embedding_strategy='linear_decay'):
+                embedding_strategy='linear_decay', prediction_method='argmax'):
     """Main training function."""
     
     if device is None:
@@ -223,7 +227,8 @@ def train_model(dataset_name, n_epochs=30, batch_size=64, learning_rate=0.001,
         key_dim=50,
         value_dim=200,
         final_fc_dim=50,
-        embedding_strategy=embedding_strategy
+        embedding_strategy=embedding_strategy,
+        prediction_method=prediction_method
     ).to(device)
     
     # Create loss function
@@ -265,6 +270,8 @@ def train_model(dataset_name, n_epochs=30, batch_size=64, learning_rate=0.001,
         logger.info(f"Train Loss: {train_loss:.4f}")
         logger.info(f"Valid Loss: {valid_results['loss']:.4f}, Cat Acc: {valid_results['categorical_acc']:.4f}")
         logger.info(f"Ord Acc: {valid_results['ordinal_acc']:.4f}, MAE: {valid_results['mae']:.4f}, QWK: {valid_results['qwk']:.4f}")
+        logger.info(f"Pred Consistency: {valid_results['prediction_consistency_acc']:.4f}, Ranking Acc: {valid_results['ordinal_ranking_acc']:.4f}")
+        logger.info(f"Dist Consistency: {valid_results['distribution_consistency']:.4f}")
         logger.info(f"Learning Rate: {current_lr:.6f}")
         
         # Save training history
@@ -276,6 +283,9 @@ def train_model(dataset_name, n_epochs=30, batch_size=64, learning_rate=0.001,
             'ordinal_acc': valid_results['ordinal_acc'],
             'mae': valid_results['mae'],
             'qwk': valid_results['qwk'],
+            'prediction_consistency_acc': valid_results['prediction_consistency_acc'],
+            'ordinal_ranking_acc': valid_results['ordinal_ranking_acc'],
+            'distribution_consistency': valid_results['distribution_consistency'],
             'learning_rate': current_lr
         }
         training_history.append(epoch_data)
@@ -321,8 +331,11 @@ def main():
     parser.add_argument('--memory_size', type=int, default=50,
                         help='Memory size for DKVMN (default: 50)')
     parser.add_argument('--embedding_strategy', type=str, default='linear_decay',
-                        choices=['ordered', 'unordered', 'linear_decay'],
+                        choices=['ordered', 'unordered', 'linear_decay', 'adjacent_weighted'],
                         help='Embedding strategy (default: linear_decay)')
+    parser.add_argument('--prediction_method', type=str, default='argmax',
+                        choices=['argmax', 'cumulative', 'expected'],
+                        help='Prediction method: argmax (current), cumulative (GPCM-consistent), expected (E[Y]) (default: argmax)')
     
     args = parser.parse_args()
     
@@ -339,7 +352,8 @@ def main():
         loss_type=args.loss_type,
         n_cats=args.n_cats,
         memory_size=args.memory_size,
-        embedding_strategy=args.embedding_strategy
+        embedding_strategy=args.embedding_strategy,
+        prediction_method=args.prediction_method
     )
 
 

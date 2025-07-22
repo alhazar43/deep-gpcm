@@ -1,0 +1,17 @@
+{
+  "ordered": {
+    "argmax": null,
+    "cumulative": null,
+    "expected": null
+  },
+  "unordered": {
+    "argmax": null,
+    "cumulative": null,
+    "expected": null
+  },
+  "linear_decay": {
+    "argmax": null,
+    "cumulative": null,
+    "expected": null
+  }
+}

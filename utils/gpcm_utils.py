@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from sklearn.metrics import accuracy_score, mean_absolute_error, cohen_kappa_score
+from scipy.stats import spearmanr
 
 
 class OrdinalLoss(nn.Module):
@@ -71,64 +72,7 @@ class OrdinalLoss(nn.Module):
             return loss
 
 
-class GpcmMetrics:
-    """
-    Evaluation metrics for GPCM including categorical and ordinal accuracy.
-    """
-    
-    @staticmethod
-    def categorical_accuracy(predictions, targets):
-        """Exact category match accuracy."""
-        pred_cats = torch.argmax(predictions, dim=-1)
-        correct = (pred_cats == targets).float()
-        return correct.mean().item()
-    
-    @staticmethod
-    def ordinal_accuracy(predictions, targets, tolerance=1):
-        """Accuracy within tolerance categories."""
-        pred_cats = torch.argmax(predictions, dim=-1)
-        diff = torch.abs(pred_cats - targets)
-        within_tolerance = (diff <= tolerance).float()
-        return within_tolerance.mean().item()
-    
-    @staticmethod
-    def mean_absolute_error(predictions, targets):
-        """MAE treating categories as ordinal values."""
-        pred_cats = torch.argmax(predictions, dim=-1)
-        mae = torch.abs(pred_cats.float() - targets.float()).mean()
-        return mae.item()
-    
-    @staticmethod
-    def quadratic_weighted_kappa(predictions, targets, n_cats):
-        """
-        Quadratic Weighted Kappa for ordinal data.
-        Uses sklearn implementation on flattened arrays.
-        """
-        pred_cats = torch.argmax(predictions, dim=-1)
-        
-        # Flatten and convert to numpy
-        y_true = targets.cpu().numpy().flatten()
-        y_pred = pred_cats.cpu().numpy().flatten()
-        
-        # Compute QWK
-        qwk = cohen_kappa_score(y_true, y_pred, weights='quadratic')
-        return qwk
-    
-    @staticmethod
-    def per_category_accuracy(predictions, targets, n_cats):
-        """Per-category accuracy scores."""
-        pred_cats = torch.argmax(predictions, dim=-1)
-        
-        accuracies = {}
-        for k in range(n_cats):
-            mask = (targets == k)
-            if mask.sum() > 0:
-                correct = (pred_cats[mask] == k).float().mean()
-                accuracies[f'cat_{k}_acc'] = correct.item()
-            else:
-                accuracies[f'cat_{k}_acc'] = 0.0
-        
-        return accuracies
+
 
 
 def detect_n_categories(data_path):

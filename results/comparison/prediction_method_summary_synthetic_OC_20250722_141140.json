@@ -1,0 +1,47 @@
+{
+  "experiment_info": {
+    "timestamp": "2025-07-22T14:11:40.166313",
+    "description": "Prediction method comparison with new accuracy metrics",
+    "epochs": 10
+  },
+  "results_by_strategy": {
+    "linear_decay": {
+      "argmax": {
+        "final_epoch": 10,
+        "train_loss": 1.2972990274429321,
+        "valid_loss": 1.4086309671401978,
+        "categorical_acc": 0.5017421841621399,
+        "ordinal_acc": 0.7865853905677795,
+        "mae": 0.8074913024902344,
+        "qwk": 0.551533821831633,
+        "prediction_consistency_acc": 0.5017421841621399,
+        "ordinal_ranking_acc": 0.6371404559095977,
+        "distribution_consistency": 0.6549355336026863
+      },
+      "cumulative": {
+        "final_epoch": 10,
+        "train_loss": 1.2972990274429321,
+        "valid_loss": 1.4086309671401978,
+        "categorical_acc": 0.37979093194007874,
+        "ordinal_acc": 0.7865853905677795,
+        "mae": 0.8074913024902344,
+        "qwk": 0.551533821831633,
+        "prediction_consistency_acc": 0.37979093194007874,
+        "ordinal_ranking_acc": 0.6371404559095977,
+        "distribution_consistency": 0.6549355336026863
+      },
+      "expected": {
+        "final_epoch": 10,
+        "train_loss": 1.2972990274429321,
+        "valid_loss": 1.4086309671401978,
+        "categorical_acc": 0.42247387766838074,
+        "ordinal_acc": 0.7865853905677795,
+        "mae": 0.8074913024902344,
+        "qwk": 0.551533821831633,
+        "prediction_consistency_acc": 0.42247387766838074,
+        "ordinal_ranking_acc": 0.6371404559095977,
+        "distribution_consistency": 0.6549355336026863
+      }
+    }
+  }
+}

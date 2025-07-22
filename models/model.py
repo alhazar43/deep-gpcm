@@ -123,6 +123,49 @@ def linear_decay_embedding(q_data, r_data, n_questions, n_cats):
     return embedded
 
 
+def adjacent_weighted_embedding(q_data, r_data, n_questions, n_cats, alpha=0.5):
+    """
+    Strategy 4: Adjacent Weighted Embedding - R^(KQ)
+    x_t^(k) = alpha * q_t if k=r_t, (1-alpha)*q_t if |k-r_t|=1, else 0
+    
+    Args:
+        q_data: Question one-hot vectors, shape (batch_size, seq_len, n_questions)
+        r_data: Response categories, shape (batch_size, seq_len) with values 0 to K-1
+        n_questions: Number of questions
+        n_cats: Number of categories (K)
+        alpha: Weight for the actual response category
+        
+    Returns:
+        embedded: Shape (batch_size, seq_len, K*Q) - Adjacent weighted embedding
+    """
+    batch_size, seq_len = r_data.shape
+    device = r_data.device
+    
+    # Create category indices k = 0, 1, ..., K-1
+    k_indices = torch.arange(n_cats, device=device).float()  # Shape: (K,)
+    
+    # Expand for broadcasting
+    r_expanded = r_data.unsqueeze(-1).float()  # (batch_size, seq_len, 1)
+    k_expanded = k_indices.unsqueeze(0).unsqueeze(0)  # (1, 1, K)
+    
+    # Calculate distance to the true response
+    distance = torch.abs(k_expanded - r_expanded)
+    
+    # Create weights based on distance
+    weights = torch.zeros_like(distance)
+    weights[distance == 0] = alpha
+    weights[distance == 1] = (1 - alpha)
+    
+    # Apply weights to question vectors
+    weighted_q = weights.unsqueeze(-1) * q_data.unsqueeze(2)
+    
+    # Flatten to (batch_size, seq_len, K*Q)
+    embedded = weighted_q.view(batch_size, seq_len, n_cats * n_questions)
+    
+    return embedded
+
+
+
 class DeepGpcmModel(nn.Module):
     """
     Deep-GPCM model extending Deep-IRT for multi-category responses.
@@ -131,7 +174,8 @@ class DeepGpcmModel(nn.Module):
     
     def __init__(self, n_questions, n_cats=4, memory_size=50, key_dim=50, 
                  value_dim=200, final_fc_dim=50, dropout_rate=0.0,
-                 ability_scale=3.0, use_discrimination=True, embedding_strategy='linear_decay'):
+                 ability_scale=3.0, use_discrimination=True, embedding_strategy='linear_decay',
+                 prediction_method='argmax'):
         """
         Initialize Deep-GPCM model.
         
@@ -159,12 +203,13 @@ class DeepGpcmModel(nn.Module):
         self.use_discrimination = use_discrimination
         self.dropout_rate = dropout_rate
         self.embedding_strategy = embedding_strategy
+        self.prediction_method = prediction_method
         
         # Determine embedding dimension based on strategy
         if embedding_strategy == 'ordered':
-            gpcm_embed_dim = 2 * n_questions  # Strategy 1: R^(2Q)
-        elif embedding_strategy in ['unordered', 'linear_decay']:
-            gpcm_embed_dim = n_cats * n_questions  # Strategy 2 & 3: R^(KQ)
+            gpcm_embed_dim = 2 * n_questions
+        elif embedding_strategy in ['unordered', 'linear_decay', 'adjacent_weighted']:
+            gpcm_embed_dim = n_cats * n_questions
         else:
             raise ValueError(f"Unknown embedding strategy: {embedding_strategy}")
         
@@ -273,6 +318,8 @@ class DeepGpcmModel(nn.Module):
         probs = F.softmax(cum_logits, dim=-1)
         return probs
     
+    
+    
     def forward(self, q_data, r_data, target_mask=None):
         """
         Forward pass through Deep-GPCM model.
@@ -283,7 +330,7 @@ class DeepGpcmModel(nn.Module):
             target_mask: Optional mask for valid positions
             
         Returns:
-            tuple: (predictions, student_abilities, item_thresholds, discrimination_params, gpcm_probs)
+            tuple: (student_abilities, item_thresholds, discrimination_params, gpcm_probs)
         """
         batch_size, seq_len = q_data.shape
         device = q_data.device
@@ -295,7 +342,6 @@ class DeepGpcmModel(nn.Module):
         # Initialize memory
         self.memory.init_value_memory(batch_size, self.init_value_memory)
         
-        predictions = []
         student_abilities = []
         item_thresholds = []
         discrimination_params = []
@@ -324,7 +370,11 @@ class DeepGpcmModel(nn.Module):
             elif self.embedding_strategy == 'linear_decay':
                 gpcm_embed_t = linear_decay_embedding(
                     q_one_hot_t, r_t_unsqueezed, self.n_questions, self.n_cats
-                )  # (batch_size, 1, K*Q)
+                )
+            elif self.embedding_strategy == 'adjacent_weighted':
+                gpcm_embed_t = adjacent_weighted_embedding(
+                    q_one_hot_t, r_t_unsqueezed, self.n_questions, self.n_cats
+                )
             else:
                 raise ValueError(f"Unknown embedding strategy: {self.embedding_strategy}")
             
@@ -357,11 +407,7 @@ class DeepGpcmModel(nn.Module):
             gpcm_prob_t = self.gpcm_probability(theta_expanded, alpha_expanded, betas_expanded)
             gpcm_prob_t = gpcm_prob_t.squeeze(1)  # (batch_size, K)
             
-            # Prediction is the category with highest probability
-            pred_t = torch.argmax(gpcm_prob_t, dim=-1).float()
-            
             # Store outputs
-            predictions.append(pred_t)
             student_abilities.append(theta_t)
             item_thresholds.append(betas_t)
             discrimination_params.append(alpha_t)
@@ -372,10 +418,9 @@ class DeepGpcmModel(nn.Module):
                 self.memory.write(correlation_weight, value_embed_t)
         
         # Stack outputs
-        predictions = torch.stack(predictions, dim=1)  # (batch_size, seq_len)
         student_abilities = torch.stack(student_abilities, dim=1)  # (batch_size, seq_len)
         item_thresholds = torch.stack(item_thresholds, dim=1)  # (batch_size, seq_len, K-1)
         discrimination_params = torch.stack(discrimination_params, dim=1)  # (batch_size, seq_len)
         gpcm_probs = torch.stack(gpcm_probs, dim=1)  # (batch_size, seq_len, K)
         
-        return predictions, student_abilities, item_thresholds, discrimination_params, gpcm_probs
+        return student_abilities, item_thresholds, discrimination_params, gpcm_probs

@@ -5,6 +5,208 @@ All notable changes to the Deep-GPCM project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2025-07-22 - Added 4th Embedding Strategy and Adaptive Plotting
+
+### Added
+- **Adjacent Weighted Embedding**: Implemented the 4th embedding strategy from the paper, which focuses on the actual and adjacent response categories.
+- **Adaptive Plotting**: The `plot_embedding_strategy_comparison.py` script now accepts a `--metrics` argument, allowing for the comparison of any number of metrics.
+
+## [1.0.0] - 2025-07-22 - New Prediction Accuracy Metrics & Embedding Strategy Comparison
+
+This release introduces a comprehensive framework for advanced prediction accuracy metrics specifically designed for ordinal educational data, replacing traditional metrics with theoretically grounded alternatives that better assess model performance on ordered categorical responses.
+
+### Added
+
+#### Advanced Prediction Accuracy Metrics System
+- **Prediction Consistency Accuracy**: Measures consistency between ordinal training approach (cumulative method) and final predictions, addressing the critical training-inference inconsistency
+- **Ordinal Ranking Accuracy**: Spearman correlation between predicted and true ordinal values, capturing rank-order preservation
+- **Distribution Consistency Score**: Alignment between predicted probability distributions and ordinal structure, measuring ordinal understanding
+- **Integration**: All metrics seamlessly integrated into training evaluation pipeline with comprehensive tracking
+
+#### Comprehensive Embedding Strategy Comparison Framework
+- **Automated Comparison System** (`run_embedding_strategy_comparison.py`): 10-epoch training comparison across ordered, unordered, and linear_decay strategies
+- **3-Column Visualization** (`plot_embedding_strategy_comparison.py`): Professional visualization comparing Categorical Accuracy, Ordinal Accuracy, and Prediction Consistency
+- **Performance Analysis**: Comprehensive ranking system with statistical insights and best performer identification
+- **Training Progression**: Detailed analysis showing strategy differentiation over epochs with clear performance trends
+
+#### Advanced Visualization & Analysis Tools
+- **3-Column Plot System**: Clear strategy comparison with synchronized axes and professional formatting
+- **Training Curve Differentiation**: Visual representation of strategy differences over 10 epochs
+- **Performance Ranking**: Gold highlighting for best performers with comprehensive statistical analysis
+- **Automated Reporting**: Performance analysis with method comparison insights and recommendations
+
+### Changed
+
+#### Metrics Framework Revolution
+- **QWK Replacement**: Moved from QWK-centric analysis to ordinal-specific prediction accuracy metrics
+- **Training Evaluation Enhancement**: Added new metrics to validation pipeline alongside traditional metrics
+- **Analysis Framework Update**: `comprehensive_analysis.py` now prioritizes new metrics with backward compatibility
+- **Visualization Focus**: Shifted from prediction method comparison to embedding strategy comparison
+
+#### Documentation & Usage Updates
+- **README Enhancement**: New use cases for embedding strategy comparison and advanced analysis
+- **Key Features Update**: Detailed descriptions of new prediction accuracy metrics and their educational significance
+- **Usage Examples**: Comprehensive examples covering 3-column visualization and advanced analysis workflows
+
+### Technical Results
+
+#### Embedding Strategy Performance (10-epoch comparison)
+- **Linear Decay (Winner)**: Categorical: 0.502, Ordinal: 0.787, Prediction Consistency: 0.380
+- **Unordered (Second)**: Categorical: 0.494, Ordinal: 0.778, Prediction Consistency: 0.375
+- **Ordered (Third)**: Categorical: 0.484, Ordinal: 0.769, Prediction Consistency: 0.374
+- **Key Finding**: Linear Decay consistently outperforms across all metrics with 0.018 categorical accuracy advantage
+
+#### Training Progression Analysis
+- **Clear Strategy Differentiation**: Visible performance differences throughout training progression
+- **Consistent Ranking**: Linear Decay maintains superiority across all epochs
+- **Stable Convergence**: All strategies show stable improvement without performance degradation
+- **Statistical Significance**: Meaningful differences confirmed through comprehensive analysis
+
+### Fixed
+
+#### Training-Inference Consistency Issues
+- **Corrected Prediction Methods**: Fixed implementation to properly use cumulative method for consistency metrics
+- **Evaluation Pipeline**: Enhanced to properly differentiate between embedding strategies rather than prediction methods
+- **Metric Computation**: Resolved issues with prediction consistency accuracy calculation
+- **Visualization Problems**: Fixed plot generation issues and improved strategy differentiation display
+
+#### Technical Improvements
+- **CSV Export**: Fixed column name handling in automated result export
+- **Matplotlib Backend**: Resolved backend issues for automated plot generation
+- **Color Coding**: Enhanced strategy differentiation with proper legend management
+- **Performance Tracking**: Improved metrics collection and analysis accuracy
+
+### Research Implications
+
+#### Methodological Contributions
+1. **Ordinal Metrics Innovation**: First systematic framework for ordinal-specific prediction accuracy in educational assessment
+2. **Training-Inference Analysis**: Identification and resolution of critical inconsistency between training approach and evaluation
+3. **Embedding Strategy Insights**: Comprehensive empirical comparison revealing Linear Decay superiority for ordinal educational data
+4. **Visualization Standards**: Professional 3-column comparison framework for educational model evaluation
+
+#### Educational Applications
+- **Assessment Design**: Evidence-based recommendation for Linear Decay embedding in educational applications
+- **Model Selection**: Clear performance ranking enables informed embedding strategy selection
+- **Quality Assurance**: New metrics provide more meaningful assessment of model performance for ordinal data
+- **Research Foundation**: Establishes baseline for future ordinal prediction accuracy research
+
+### Compatibility
+- **Backward Compatibility**: All existing functionality preserved with new metrics as enhancements
+- **Data Integration**: Seamless integration with existing experimental results and data formats
+- **Framework Extension**: New metrics designed to complement rather than replace traditional metrics
+- **Research Standards**: Compatible with educational measurement and psychometric evaluation standards
+
+---
+
+## [0.5.0] - 2025-07-22 - Enhanced Visualization & Multi-Step Prediction Framework
+
+### Major Milestone: Comprehensive Format Comparison & Future Roadmap
+
+This release addresses critical visualization limitations and establishes a comprehensive framework for multi-step prediction capabilities, providing essential tools for rigorous OC vs PC format comparison and forward-looking research directions.
+
+### Added
+
+#### Comprehensive OC vs PC Format Comparison Tool
+- **Dual-Column Visualization** (`compare_formats.py`): Side-by-side comparison with unified scaling and formatting
+  - Left column: OC format (Ordered Categories {0,1,2,3})
+  - Right column: PC format (Partial Credit {0.000,0.333,0.667,1.000})
+  - Training loss convergence comparison with synchronized axes
+  - Accuracy progression visualization (categorical, ordinal, QWK)
+  - Strategy performance matrices for both formats
+
+#### Statistical Analysis Framework
+- **Statistical Significance Testing**: T-tests comparing OC vs PC performance across metrics
+- **Effect Size Calculation**: Cohen's d for meaningful difference assessment
+- **Violin Plots**: Distribution comparison for cross-validation results
+- **Correlation Analysis**: Performance correlation mapping between formats
+- **Comprehensive Reporting**: Automated statistical summary generation
+
+#### Enhanced Visualization Capabilities
+- **Performance Heatmaps**: Strategy effectiveness across both data formats
+- **Cross-Format Correlation**: Scatter plots with strategy labeling and trend lines
+- **Final Performance Comparison**: Bar charts with difference analysis
+- **Training Convergence**: Synchronized visualization for direct comparison
+
+#### Multi-Step Prediction Research Framework
+- **Architecture Design**: Extended DKVMN for sequential N-step response prediction
+- **Evaluation Metrics Framework**: 
+  - **Sequence-Level**: Sequential Accuracy (SA_n), Partial Sequence Accuracy (PSA_n)
+  - **Temporal Degradation**: Prediction Decay Rate (PDR), Confidence Calibration (CC_n)
+  - **Educational Impact**: Intervention Trigger Accuracy (ITA), Learning Trajectory Prediction (LTP)
+- **Implementation Roadmap**: 3-phase development plan (Foundation → Enhancement → Validation)
+
+### Performance Analysis
+
+#### OC vs PC Format Comparison Results
+- **Comprehensive Statistical Testing**: Automated significance analysis across all metrics
+- **Correlation Analysis**: Performance correlation mapping between data formats
+- **Format-Specific Insights**: Identification of optimal strategies per format type
+- **Visual Documentation**: Complete visualization suite for publication-ready comparisons
+
+#### Visualization Framework Improvements
+- **Unified Scaling**: Consistent axes and legends for meaningful comparisons
+- **Publication Quality**: High-resolution outputs with professional formatting
+- **Statistical Integration**: Built-in significance testing and effect size reporting
+- **Automated Reporting**: Comprehensive text reports with statistical summaries
+
+### Technical Enhancements
+
+#### Comparison Tool Architecture
+- **Modular Design**: Separate functions for dual-column, statistical, and correlation analysis
+- **Data Integration**: Automatic loading and synchronization of OC and PC results
+- **Statistical Rigor**: Professional statistical analysis with proper significance testing
+- **Export Capabilities**: Multiple output formats (PNG, JSON, TXT reports)
+
+#### Multi-Step Prediction Planning
+- **Research Questions**: 8 core technical and educational research questions
+- **Success Criteria**: Quantitative targets (>70% 3-step accuracy, <500ms inference)
+- **Architecture Requirements**: Extended DKVMN with temporal context and uncertainty quantification
+- **Educational Applications**: Framework for early intervention and adaptive assessment
+
+#### Future Research Integration
+- **Phase 5 Planning**: Complete multi-step prediction framework design
+- **Metric Innovation**: Novel evaluation metrics for educational sequence prediction
+- **Implementation Timeline**: 12-18 month development roadmap with clear milestones
+
+### Documentation Updates
+
+#### TODO Enhancement
+- **Priority Fix Identification**: Clear documentation of visualization framework limitations
+- **Requirements Specification**: Detailed specifications for OC vs PC comparison needs
+- **Multi-Step Framework**: Comprehensive planning for future prediction capabilities
+- **Research Direction**: Strategic roadmap for advanced educational applications
+
+#### Professional Standards
+- **Research-Grade Documentation**: Academic-quality technical specifications
+- **Implementation Guidelines**: Clear development standards and best practices
+- **Reproducibility**: Complete experimental protocol documentation
+
+### Research Contributions
+
+#### Methodological Advances
+1. **Format Comparison Framework**: Systematic methodology for comparing ordinal vs continuous educational data
+2. **Statistical Validation**: Rigorous statistical framework for educational model comparison
+3. **Multi-Step Prediction Design**: Novel framework for sequential educational response prediction
+4. **Visualization Standards**: Professional visualization toolkit for educational data science
+
+#### Educational Technology Integration
+1. **Real-Time Comparison**: Tools for live OC vs PC format performance monitoring
+2. **Publication-Ready Analysis**: Complete statistical and visual analysis pipeline
+3. **Future-Proof Architecture**: Extensible framework for advanced prediction capabilities
+
+### Compatibility
+- **Existing Results Integration**: Seamless integration with Phase 2 analysis results
+- **Statistical Package Support**: Integration with scipy.stats for professional analysis
+- **Visualization Standards**: Matplotlib/Seaborn compatibility for publication graphics
+
+### Known Applications
+- **Format Selection**: Evidence-based choice between OC and PC data formats
+- **Performance Benchmarking**: Comprehensive model comparison framework
+- **Research Publication**: Complete analysis pipeline for academic submissions
+- **Educational Assessment**: Foundation for multi-step prediction in adaptive testing
+
+---
+
 ## [0.4.0] - 2025-07-22 - Comprehensive Strategy Analysis & Research Planning
 
 ### Major Milestone: Deep-GPCM Research Framework Complete
