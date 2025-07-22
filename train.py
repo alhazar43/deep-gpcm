@@ -122,18 +122,21 @@ def evaluate_model(model, data_loader, loss_fn, metrics, device, n_cats):
     all_probs = torch.cat(all_probs, dim=0).unsqueeze(1)  # Add seq_len dim
     all_targets = torch.cat(all_targets, dim=0).unsqueeze(1)
     
+    # PHASE 1 FIX: Use cumulative prediction method by default for proper train/inference alignment
+    prediction_method = 'cumulative'  # Changed from implicit 'argmax' to explicit 'cumulative'
+    
     results = {
         'loss': total_loss / len(data_loader),
-        'categorical_acc': metrics.categorical_accuracy(all_probs, all_targets),
-        'ordinal_acc': metrics.ordinal_accuracy(all_probs, all_targets),
-        'mae': metrics.mean_absolute_error(all_probs, all_targets),
-        'qwk': metrics.quadratic_weighted_kappa(all_probs, all_targets, n_cats),
-        'prediction_consistency_acc': metrics.prediction_consistency_accuracy(all_probs, all_targets, method='cumulative'),
+        'categorical_acc': metrics.categorical_accuracy(all_probs, all_targets, method=prediction_method),
+        'ordinal_acc': metrics.ordinal_accuracy(all_probs, all_targets, method=prediction_method),
+        'mae': metrics.mean_absolute_error(all_probs, all_targets, method=prediction_method),
+        'qwk': metrics.quadratic_weighted_kappa(all_probs, all_targets, n_cats, method=prediction_method),
+        'prediction_consistency_acc': metrics.prediction_consistency_accuracy(all_probs, all_targets, method=prediction_method),
         'ordinal_ranking_acc': metrics.ordinal_ranking_accuracy(all_probs, all_targets),
         'distribution_consistency': metrics.distribution_consistency_score(all_probs, all_targets)
     }
     
-    per_cat_acc = metrics.per_category_accuracy(all_probs, all_targets, n_cats)
+    per_cat_acc = metrics.per_category_accuracy(all_probs, all_targets, n_cats, method=prediction_method)
     results.update(per_cat_acc)
     
     return results

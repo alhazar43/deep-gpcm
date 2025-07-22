@@ -1,0 +1,93 @@
+{
+  "experiment_info": {
+    "timestamp": "20250722_215917",
+    "dataset": "synthetic_OC",
+    "description": "CORAL integration benchmarking vs original GPCM"
+  },
+  "gpcm_results": {
+    "argmax": {
+      "method": "argmax",
+      "categorical_accuracy": 0.4216027855873108,
+      "ordinal_accuracy": 0.6864111423492432,
+      "mean_absolute_error": 1.0278745889663696,
+      "quadratic_weighted_kappa": 0.3703207905369227,
+      "prediction_consistency": 0.4216027855873108,
+      "ordinal_ranking": 0.40821779900115235,
+      "distribution_consistency": 0.5729551404610743,
+      "cat_0_acc": 0.720588207244873,
+      "cat_1_acc": 0.07999999821186066,
+      "cat_2_acc": 0.0223214291036129,
+      "cat_3_acc": 0.6016713380813599
+    },
+    "cumulative": {
+      "method": "cumulative",
+      "categorical_accuracy": 0.2482578456401825,
+      "ordinal_accuracy": 0.8266550302505493,
+      "mean_absolute_error": 0.9268292784690857,
+      "quadratic_weighted_kappa": 0.2857820017538454,
+      "prediction_consistency": 0.24390244483947754,
+      "ordinal_ranking": 0.40821779900115235,
+      "distribution_consistency": 0.5729551404610743,
+      "cat_0_acc": 0.03235294297337532,
+      "cat_1_acc": 0.6666666865348816,
+      "cat_2_acc": 0.46875,
+      "cat_3_acc": 0.05292478948831558
+    },
+    "improvement_analysis": {
+      "categorical_accuracy_improvement": -0.1733449399471283,
+      "categorical_accuracy_improvement_pct": -41.11570081436994,
+      "prediction_consistency_improvement": -0.17770034074783325,
+      "prediction_consistency_improvement_pct": -42.14875869481959,
+      "ordinal_accuracy_improvement": 0.14024388790130615,
+      "mae_improvement": 0.10104531049728394
+    }
+  },
+  "coral_results": {
+    "argmax": {
+      "method": "argmax",
+      "categorical_accuracy": 0.296167254447937,
+      "ordinal_accuracy": 0.49216029047966003,
+      "mean_absolute_error": 1.5243902206420898,
+      "quadratic_weighted_kappa": 0.0,
+      "prediction_consistency": 0.296167254447937,
+      "ordinal_ranking": 0.11757073810140013,
+      "distribution_consistency": 0.5416217355206868,
+      "cat_0_acc": 1.0,
+      "cat_1_acc": 0.0,
+      "cat_2_acc": 0.0,
+      "cat_3_acc": 0.0
+    },
+    "cumulative": {
+      "method": "cumulative",
+      "categorical_accuracy": 0.296167254447937,
+      "ordinal_accuracy": 0.49216029047966003,
+      "mean_absolute_error": 1.5243902206420898,
+      "quadratic_weighted_kappa": 0.0,
+      "prediction_consistency": 0.19599303603172302,
+      "ordinal_ranking": 0.11757073810140013,
+      "distribution_consistency": 0.5416217355206868,
+      "cat_0_acc": 1.0,
+      "cat_1_acc": 0.0,
+      "cat_2_acc": 0.0,
+      "cat_3_acc": 0.0
+    },
+    "improvement_analysis": {
+      "categorical_accuracy_improvement": 0.0,
+      "categorical_accuracy_improvement_pct": 0.0,
+      "prediction_consistency_improvement": -0.10017421841621399,
+      "prediction_consistency_improvement_pct": -33.82352941176471,
+      "ordinal_accuracy_improvement": 0.0,
+      "mae_improvement": 0.0
+    }
+  },
+  "rank_consistency": {
+    "gpcm_violations": 0,
+    "coral_violations": 0,
+    "total_samples": 3444
+  },
+  "coral_thresholds": [
+    0.6931471824645996,
+    1.3862943649291992,
+    2.079441547393799
+  ]
+}

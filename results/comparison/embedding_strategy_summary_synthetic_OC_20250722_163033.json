@@ -1,8 +1,0 @@
-{
-  "experiment_info": {
-    "timestamp": "2025-07-22T16:30:33.426481",
-    "description": "Embedding strategy comparison with new accuracy metrics",
-    "epochs": 10
-  },
-  "results_by_strategy": {}
-}
