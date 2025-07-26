@@ -148,16 +148,19 @@ def adjacent_weighted_embedding(q_data, r_data, n_questions, n_cats, alpha=0.5):
     r_expanded = r_data.unsqueeze(-1).float()  # (batch_size, seq_len, 1)
     k_expanded = k_indices.unsqueeze(0).unsqueeze(0)  # (1, 1, K)
     
-    # Calculate distance to the true response
-    distance = torch.abs(k_expanded - r_expanded)
+    # Compute distance |k - r_t|
+    distance = torch.abs(k_expanded - r_expanded)  # (batch_size, seq_len, K)
     
-    # Create weights based on distance
+    # Create weight matrix
     weights = torch.zeros_like(distance)
-    weights[distance == 0] = alpha
-    weights[distance == 1] = (1 - alpha)
+    weights[distance == 0] = alpha  # Exact match
+    weights[distance == 1] = 1 - alpha  # Adjacent categories
+    # weights[distance > 1] = 0  # Already zeros
     
-    # Apply weights to question vectors
-    weighted_q = weights.unsqueeze(-1) * q_data.unsqueeze(2)
+    # Apply weights to question vectors for each category
+    # q_data: (batch_size, seq_len, Q), weights: (batch_size, seq_len, K)
+    # Result: (batch_size, seq_len, K, Q)
+    weighted_q = weights.unsqueeze(-1) * q_data.unsqueeze(2)  # (batch_size, seq_len, K, Q)
     
     # Flatten to (batch_size, seq_len, K*Q)
     embedded = weighted_q.view(batch_size, seq_len, n_cats * n_questions)
@@ -165,32 +168,27 @@ def adjacent_weighted_embedding(q_data, r_data, n_questions, n_cats, alpha=0.5):
     return embedded
 
 
-
 class DeepGpcmModel(nn.Module):
     """
-    Deep-GPCM model extending Deep-IRT for multi-category responses.
-    Uses DKVMN memory with GPCM probability prediction.
+    Deep-GPCM model extending Deep-IRT with GPCM support.
+    
+    Args:
+        n_questions: Number of questions
+        n_cats: Number of response categories (K)
+        memory_size: Size of DKVMN memory
+        key_dim: Dimension of memory keys
+        value_dim: Dimension of memory values
+        final_fc_dim: Dimension of final fully connected layer
+        ability_scale: Scaling factor for student ability
+        use_discrimination: Whether to use discrimination parameters
+        dropout_rate: Dropout rate
+        embedding_strategy: Embedding strategy ('ordered', 'unordered', 'linear_decay', 'adjacent_weighted')
+        prediction_method: Method for generating predictions ('cumulative', 'argmax', 'expected')
     """
     
-    def __init__(self, n_questions, n_cats=4, memory_size=50, key_dim=50, 
-                 value_dim=200, final_fc_dim=50, dropout_rate=0.0,
-                 ability_scale=3.0, use_discrimination=True, embedding_strategy='linear_decay',
-                 prediction_method='argmax'):
-        """
-        Initialize Deep-GPCM model.
-        
-        Args:
-            n_questions: Number of unique questions
-            n_cats: Number of response categories (K)
-            memory_size: Size of memory matrix
-            key_dim: Dimension of key embeddings
-            value_dim: Dimension of value embeddings  
-            final_fc_dim: Hidden dimension for prediction networks
-            dropout_rate: Dropout rate
-            ability_scale: IRT ability scaling factor
-            use_discrimination: Whether to use discrimination parameters
-            embedding_strategy: Which embedding strategy to use ('ordered', 'unordered', 'linear_decay')
-        """
+    def __init__(self, n_questions, n_cats, memory_size=50, key_dim=50, value_dim=200, 
+                 final_fc_dim=50, ability_scale=1.0, use_discrimination=True, 
+                 dropout_rate=0.2, embedding_strategy='linear_decay', prediction_method='cumulative'):
         super(DeepGpcmModel, self).__init__()
         
         self.n_questions = n_questions
@@ -317,8 +315,6 @@ class DeepGpcmModel(nn.Module):
         # Convert to probabilities via softmax
         probs = F.softmax(cum_logits, dim=-1)
         return probs
-    
-    
     
     def forward(self, q_data, r_data, target_mask=None):
         """

@@ -13,63 +13,35 @@ from scipy.stats import spearmanr
 
 class OrdinalLoss(nn.Module):
     """
-    Custom ordinal loss for GPCM following paper formulation:
-    L = -Σ Σ Σ [I(y≤k)log(P(Y≤k)) + I(y>k)log(1-P(Y≤k))]
-    
-    Respects the ordering of categories unlike CrossEntropyLoss.
+    Custom ordinal loss function for GPCM.
+    Respects the ordering of categories.
     """
     
-    def __init__(self, n_cats, reduction='mean'):
+    def __init__(self, n_cats):
         super(OrdinalLoss, self).__init__()
         self.n_cats = n_cats
-        self.reduction = reduction
     
     def forward(self, predictions, targets):
         """
-        Compute ordinal loss.
-        
         Args:
-            predictions: GPCM probabilities, shape (batch_size, seq_len, K)
-            targets: True categories, shape (batch_size, seq_len) with values 0 to K-1
-            
-        Returns:
-            loss: Ordinal loss value
+            predictions: Predicted probabilities, shape (batch_size, n_cats)
+            targets: Ground truth labels, shape (batch_size,)
         """
-        batch_size, seq_len, K = predictions.shape
-        device = predictions.device
+        batch_size, K = predictions.shape
         
-        # Compute cumulative probabilities P(Y ≤ k)
-        cum_probs = torch.cumsum(predictions, dim=-1)  # (batch_size, seq_len, K)
+        # Create cumulative probabilities P(Y <= k)
+        cum_probs = torch.cumsum(predictions, dim=1)
         
-        loss = 0.0
+        # Create mask for I(y <= k)
+        mask = torch.arange(K, device=targets.device).expand(batch_size, K) <= targets.unsqueeze(1)
         
-        # For each threshold k = 0, ..., K-2
-        for k in range(K - 1):
-            # Indicator I(y ≤ k): 1 if target ≤ k, 0 otherwise
-            indicator_leq = (targets <= k).float()  # (batch_size, seq_len)
-            
-            # Indicator I(y > k): 1 if target > k, 0 otherwise  
-            indicator_gt = (targets > k).float()  # (batch_size, seq_len)
-            
-            # Get cumulative probability P(Y ≤ k)
-            cum_prob_k = cum_probs[:, :, k]  # (batch_size, seq_len)
-            
-            # Avoid log(0) by clamping
-            cum_prob_k = torch.clamp(cum_prob_k, min=1e-8, max=1-1e-8)
-            
-            # Compute loss components
-            loss_leq = indicator_leq * torch.log(cum_prob_k)
-            loss_gt = indicator_gt * torch.log(1 - cum_prob_k)
-            
-            loss = loss - (loss_leq + loss_gt)
+        # Calculate ordinal loss
+        loss = -torch.sum(
+            mask * torch.log(cum_probs + 1e-9) + 
+            (1 - mask.float()) * torch.log(1 - cum_probs + 1e-9)
+        )
         
-        # Apply reduction
-        if self.reduction == 'mean':
-            return loss.mean()
-        elif self.reduction == 'sum':
-            return loss.sum()
-        else:
-            return loss
+        return loss / (batch_size * (K - 1))
 
 
 

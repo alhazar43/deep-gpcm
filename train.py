@@ -81,7 +81,7 @@ class GpcmDataLoader:
         
         self.current_idx = end_idx
         
-        return q_batch, r_batch, mask_batch
+        return torch.LongTensor(q_batch), torch.LongTensor(r_batch), torch.BoolTensor(mask_batch)
     
     def __len__(self):
         return (self.n_samples + self.batch_size - 1) // self.batch_size
@@ -197,8 +197,8 @@ def train_model(dataset_name, n_epochs=30, batch_size=64, learning_rate=0.001,
     os.makedirs("results/valid", exist_ok=True)
     
     # Load data
-    train_path = f"data/{dataset_name}/synthetic_oc_train.txt"
-    test_path = f"data/{dataset_name}/synthetic_oc_test.txt"
+    train_path = "/home/steph/dirt-new/deep-gpcm/data/synthetic_OC/synthetic_oc_train.txt"
+    test_path = "/home/steph/dirt-new/deep-gpcm/data/synthetic_OC/synthetic_oc_test.txt"
     
     logger.info("Loading training data...")
     train_seqs, train_questions, train_responses, detected_cats = load_gpcm_data(train_path)
