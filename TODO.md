@@ -158,4 +158,30 @@ Transform Deep-GPCM from a research prototype with fundamental issues into a pro
 
 ---
 
+## ✅ COMPLETED: Unified Analysis Infrastructure (2025-01-23)
+
+**Successfully implemented comprehensive embedding strategy analysis system:**
+
+### Infrastructure Improvements
+- **Unified Analysis Tool**: Created `embedding_strategy_analysis.py` combining training, comparison, and visualization
+- **Fully Adaptive System**: Automatically detects all available metrics and strategies
+- **Clear Metric Names**: Updated to intuitive names (Exact Match (argmax), Match w/ Tolerance, etc.)
+- **7-Metric Analysis**: Now analyzes all metrics by default instead of subset
+- **Clean Codebase**: Removed redundant scripts, consolidated functionality
+
+### Analysis Capabilities  
+- **Dynamic Visualization**: Adaptive column layouts (2-col, 3-col, up to 7-col plots)
+- **Comprehensive Reporting**: Best performers, overall rankings, detailed analysis
+- **Plot-Only Mode**: Generate visualizations from existing results without re-training
+- **Custom Configuration**: Flexible strategy and metric selection
+
+### Key Findings from Analysis
+- **Embedding Strategy Ranking**: Ordered > Unordered > Linear Decay > Adjacent Weighted (typical pattern)
+- **Performance Consistency**: All strategies show similar performance (~1-3% variation)
+- **Critical Issue Confirmed**: Exact Match (cumulative) ~37% < Exact Match (argmax) ~50% indicates training/inference mismatch
+
+**Next Priority**: Address the fundamental training/inference alignment issue before further embedding strategy optimization.
+
+---
+
 **Note**: The current ~50% categorical accuracy and ~37% prediction consistency represent fundamental algorithmic issues that must be resolved before any other improvements. This TODO prioritizes critical fixes that will provide immediate, substantial performance gains.

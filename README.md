@@ -1,6 +1,6 @@
 # Deep-GPCM: Generalized Partial Credit Model for Knowledge Tracing
 
-Extension of Deep-IRT with support for polytomous (K-category) responses using the Generalized Partial Credit Model (GPCM).
+Deep-GPCM extends traditional knowledge tracing to handle polytomous responses using the Generalized Partial Credit Model (GPCM) with specialized embedding strategies.
 
 ## Overview
 
@@ -11,97 +11,51 @@ Deep-GPCM extends traditional binary knowledge tracing to handle:
 
 ## Key Features
 
-- **GPCM Model**: Proper IRT-based polytomous prediction with 100% mathematical compliance
+- **GPCM Implementation**: IRT-based polytomous prediction for K-category responses
 - **Dual Data Formats**: PC (partial credit) and OC (ordered categories) support
-- **Multiple Embedding Strategies**: Three neural embedding approaches (ordered, unordered, linear decay)
+- **Embedding Strategy Analysis**: Comprehensive comparison of neural embedding approaches
 - **Ordinal Loss Function**: Specialized loss function respecting category ordering
 - **Advanced Prediction Metrics**: New accuracy metrics designed for ordinal data
   - **Prediction Consistency Accuracy**: Measures consistency with ordinal training (cumulative method)
   - **Ordinal Ranking Accuracy**: Spearman correlation between predicted and true ordinal values
   - **Distribution Consistency Score**: Alignment between probability distributions and ordinal structure
-- **Comprehensive Evaluation**: Cross-validation, baseline comparisons, and statistical analysis
-- **3-Column Visualization**: Embedding strategy comparison with clear performance differentiation
-- **Performance Analysis Tools**: Advanced plotting and analysis with embedding strategy insights
+- **Cross-Validation Pipeline**: Robust 5-fold validation with statistical analysis
 
 ## Usage
 
-### Generate Synthetic Data
+### Data Generation
 ```bash
 # Generate both PC and OC formats with 4 categories
 python data_gen.py --format both --categories 4 --students 800 --questions 50
-
-# Generate larger datasets for comprehensive analysis
-python data_gen.py --format both --categories 4 --students 800 --output_dir data/large
 ```
 
-### Train GPCM Model
+### Training
 ```bash
-# Basic training with specific embedding strategy
+# Single strategy training
 python train.py --dataset synthetic_OC --embedding_strategy linear_decay --epochs 30
 
-# Train with different strategies for comparison
-python train.py --dataset synthetic_OC --embedding_strategy ordered --loss_type ordinal
-python train.py --dataset synthetic_OC --embedding_strategy unordered --n_cats 4
+# Cross-validation training
+python train_cv.py --dataset synthetic_OC --n_folds 5 --epochs 20
 ```
 
-### Cross-Validation Training
+### Embedding Strategy Analysis
 ```bash
-# 5-fold cross-validation training
-python train_cv.py --dataset synthetic_OC --n_folds 5 --epochs 20
+# Run comparison experiment (training + analysis + visualization)
+python embedding_strategy_analysis.py --dataset synthetic_OC --epochs 10
 
-# Cross-validation with specific strategy
-python train_cv.py --dataset synthetic_OC --embedding_strategy linear_decay --n_folds 5
+# All 4 strategies and all 7 metrics by default
+python embedding_strategy_analysis.py --dataset synthetic_OC --epochs 5
+
+# Generate plots only from existing results (adaptive column layout)
+python embedding_strategy_analysis.py --plot-only
+
+# Specify custom metrics and strategies
+python embedding_strategy_analysis.py --strategies ordered linear_decay --metrics categorical_acc ordinal_acc prediction_consistency_acc
 ```
 
 ### Model Evaluation
 ```bash
-# Comprehensive model evaluation
 python evaluate.py --model_path save_models/best_model_synthetic_OC.pth --dataset synthetic_OC
-
-# Evaluation with baseline comparisons
-python evaluate.py --model_path save_models/best_model_synthetic_OC.pth --dataset synthetic_OC
-```
-
-### Strategy Comparison Analysis
-```bash
-# Compare all strategies on both PC and OC formats
-python compare_strategies.py --dataset_path data/large --epochs 5
-
-# Quick comparison with specific strategies
-python compare_strategies.py --strategies linear_decay ordered --formats OC PC --epochs 3
-```
-
-### Embedding Strategy Comparison
-```bash
-# Run a comparison of all embedding strategies
-python run_embedding_strategy_comparison.py --dataset synthetic_OC --epochs 10
-
-# Plot the results of the most recent comparison
-python plot_embedding_strategy_comparison.py
-
-# To plot specific metrics, provide them as arguments
-python plot_embedding_strategy_comparison.py --metrics categorical_acc ordinal_acc mae
-```
-
-### Advanced Analysis with New Prediction Accuracy Metrics
-```bash
-# Generate comprehensive analysis with new prediction accuracy metrics
-python comprehensive_analysis.py
-
-# Create detailed analysis including:
-# - Prediction Consistency Accuracy (cumulative method)
-# - Ordinal Ranking Accuracy (Spearman correlation)
-# - Distribution Consistency Score (ordinal structure alignment)
-python comprehensive_analysis.py --save_path results/analysis
-```
-
-### Visualization and Reporting
-```bash
-# Generate 3-column embedding strategy comparison plots
-python plot_embedding_strategy_comparison.py
-
-# Create comprehensive analysis plots with new metrics
-python comprehensive_analysis.py --log_level INFO
 ```
 
 ## Data Formats
@@ -123,38 +77,36 @@ python comprehensive_analysis.py --log_level INFO
 ## Architecture
 
 ```
-Input: (questions, responses) → Embedding → DKVMN → GPCM Predictor → K-category probabilities
+Input: (questions, responses) → Embedding Strategy → DKVMN Memory → GPCM Predictor → K-category probabilities
 ```
 
-### Embedding Strategies
-1. **Ordered (2Q)**: `[low_component, high_component]` - Most intuitive for partial credit
-2. **Unordered (KQ)**: One-hot style for each category
-3. **Linear Decay (KQ)**: Triangular weights around actual response  
-4. **Adjacent Weighted (KQ)**: Focus on actual + adjacent categories
+## Embedding Strategies
 
-## Implementation Status
+1. **Ordered (2Q)**: Binary components `[correctness, score]`
+2. **Unordered (KQ)**: One-hot category encoding
+3. **Linear Decay (KQ)**: Triangular weights around response
+4. **Adjacent Weighted (KQ)**: Focus on response and neighbors
 
-### Phase 1 & 2 COMPLETED
-- [x] Project setup and synthetic data generation
-- [x] GPCM embedding strategies (ordered, unordered, linear decay)
-- [x] GPCM predictor with proper probability calculation
-- [x] Custom ordinal loss function and comprehensive metrics
-- [x] Complete training pipeline with cross-validation support
-- [x] Advanced evaluation framework with baseline comparisons
-- [x] Strategy analysis and visualization tools
-- [x] Model persistence and performance tracking
+## Current Status
 
-### Phase 3 PLANNED: Experimental Design & Validation
-- [ ] Benchmark dataset evaluation (ASSISTments, EdNet, STATICS)
-- [ ] Comparative analysis with state-of-the-art models
-- [ ] Educational impact studies and interpretability analysis
-- [ ] Publication-ready research contributions
+**Completed**
+- GPCM model implementation with multiple embedding strategies
+- Ordinal loss functions and comprehensive evaluation metrics
+- Unified embedding strategy analysis and visualization pipeline
+- Cross-validation training with statistical analysis
 
-### Phase 4 PLANNED: Performance Optimization
-- [ ] Computational efficiency enhancements
-- [ ] Advanced model accuracy improvements  
-- [ ] Production deployment optimization
-- [ ] Advanced research extensions
+**Performance Issues Identified** (See IMPROVEMENT_PLAN.md and TODO.md)
+- Categorical accuracy: ~50% (random-level performance)
+- Prediction consistency: ~37% (critical training/inference mismatch)
+- Need for CORAL/CORN ordinal classification improvements
+
+## Next Phase Implementation
+
+Critical improvements needed:
+1. Fix training/inference alignment (cumulative vs argmax prediction)
+2. Implement CORAL framework for rank consistency
+3. Advanced ordinal embeddings with distance-aware components
+4. Probability calibration and uncertainty quantification
 
 ## Requirements
 
@@ -162,5 +114,8 @@ Input: (questions, responses) → Embedding → DKVMN → GPCM Predictor → K-c
 torch>=1.9.0
 numpy>=1.20.0
 scikit-learn>=0.24.0
+matplotlib>=3.0.0
+seaborn>=0.11.0
+pandas>=1.3.0
 tqdm>=4.60.0
 ```

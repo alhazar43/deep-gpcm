@@ -1,0 +1,97 @@
+{
+  "dataset": "synthetic_OC",
+  "timestamp": "20250723_132559",
+  "metrics_analyzed": 7,
+  "embedding_strategies": [
+    "ordered",
+    "unordered",
+    "linear_decay",
+    "adjacent_weighted"
+  ],
+  "summary_by_metric": {
+    "categorical_acc": {
+      "gpcm_best_strategy": "adjacent_weighted",
+      "gpcm_best_value": 0.5247139930725098,
+      "coral_best_strategy": "linear_decay",
+      "coral_best_value": 0.4353550672531128,
+      "overall_best_strategy": "adjacent_weighted",
+      "overall_best_model": "GPCM",
+      "overall_best_value": 0.5247139930725098,
+      "gpcm_wins": 4,
+      "coral_wins": 0,
+      "avg_difference": 0.11963089555501938
+    },
+    "ordinal_acc": {
+      "gpcm_best_strategy": "unordered",
+      "gpcm_best_value": 0.8845240473747253,
+      "coral_best_strategy": "linear_decay",
+      "coral_best_value": 0.8631556034088135,
+      "overall_best_strategy": "unordered",
+      "overall_best_model": "GPCM",
+      "overall_best_value": 0.8845240473747253,
+      "gpcm_wins": 4,
+      "coral_wins": 0,
+      "avg_difference": 0.03270021080970764
+    },
+    "prediction_consistency_acc": {
+      "gpcm_best_strategy": "adjacent_weighted",
+      "gpcm_best_value": 0.3490179181098938,
+      "coral_best_strategy": "linear_decay",
+      "coral_best_value": 0.2769263982772827,
+      "overall_best_strategy": "adjacent_weighted",
+      "overall_best_model": "GPCM",
+      "overall_best_value": 0.3490179181098938,
+      "gpcm_wins": 4,
+      "coral_wins": 0,
+      "avg_difference": 0.0964277982711792
+    },
+    "ordinal_ranking_acc": {
+      "gpcm_best_strategy": "unordered",
+      "gpcm_best_value": 0.7018793444073849,
+      "coral_best_strategy": "unordered",
+      "coral_best_value": 0.6304644116754431,
+      "overall_best_strategy": "unordered",
+      "overall_best_model": "GPCM",
+      "overall_best_value": 0.7018793444073849,
+      "gpcm_wins": 4,
+      "coral_wins": 0,
+      "avg_difference": 0.09186042116671567
+    },
+    "mae": {
+      "gpcm_best_strategy": "unordered",
+      "gpcm_best_value": 0.6056550741195679,
+      "coral_best_strategy": "linear_decay",
+      "coral_best_value": 0.7157349586486816,
+      "overall_best_strategy": "unordered",
+      "overall_best_model": "GPCM",
+      "overall_best_value": 0.6056550741195679,
+      "gpcm_wins": 4,
+      "coral_wins": 0,
+      "avg_difference": -0.1522771418094635
+    },
+    "distribution_consistency": {
+      "gpcm_best_strategy": "adjacent_weighted",
+      "gpcm_best_value": 0.6820674753976439,
+      "coral_best_strategy": "linear_decay",
+      "coral_best_value": 0.6076927953177591,
+      "overall_best_strategy": "adjacent_weighted",
+      "overall_best_model": "GPCM",
+      "overall_best_value": 0.6820674753976439,
+      "gpcm_wins": 4,
+      "coral_wins": 0,
+      "avg_difference": 0.0825040714190893
+    },
+    "qwk": {
+      "gpcm_best_strategy": "unordered",
+      "gpcm_best_value": 0.683584457200995,
+      "coral_best_strategy": "linear_decay",
+      "coral_best_value": 0.5686822801047724,
+      "overall_best_strategy": "unordered",
+      "overall_best_model": "GPCM",
+      "overall_best_value": 0.683584457200995,
+      "gpcm_wins": 4,
+      "coral_wins": 0,
+      "avg_difference": 0.16851324003768592
+    }
+  }
+}

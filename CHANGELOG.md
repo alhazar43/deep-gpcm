@@ -5,6 +5,88 @@ All notable changes to the Deep-GPCM project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2025-01-23 - CORAL Integration Research & 3-Way Benchmark
+
+### Added
+- **Comprehensive CORAL Integration Analysis**: Systematic investigation of CORAL (COnsistent RAnk Logits) integration with DKVMN architecture
+- **3-Way Benchmark Framework**: Complete comparison system for GPCM vs Original CORAL vs Improved CORAL across all 7 metrics
+- **coral-pytorch Integration**: Professional CORAL implementation with CORN loss for proper threshold learning
+- **Improved CORAL Architecture**: IRT parameters (θ, α, β) → CORAL layer design maintaining educational interpretability
+- **Diagnostic Analysis Tools**: Comprehensive issue identification for CORAL implementation problems
+
+### Research Findings
+- **GPCM Dominance Confirmed**: GPCM wins 7/7 metrics with 100% win rate across all approaches
+- **Original CORAL Issues Identified**: 
+  - Architecture bypass (raw DKVMN features vs IRT parameters) causing 16.2% performance drop
+  - Wrong loss function (OrdinalLoss vs CORAL-specific loss) suboptimal for threshold learning
+- **Improved CORAL Implementation Issues**: Despite correct conceptual fixes, critical technical problems identified:
+  - Constant prediction problem (QWK=0.0, Ordinal Ranking=0.0)
+  - Feature scaling and gradient flow issues in IRT→CORAL transformation
+  - CORN loss integration complications
+
+### Performance Results (7-Metric Comparison)
+| Approach | Cat Acc | Ord Acc | Pred Cons | MAE | QWK | Ord Rank | Dist Cons |
+|----------|---------|---------|-----------|-----|-----|----------|-----------|
+| **GPCM** | **46.3%** | **85.2%** | **38.5%** | **0.701** | **0.609** | **62.9%** | **65.3%** |
+| Original CORAL | 30.1% | 76.3% | 23.0% | 0.958 | 0.323 | 49.2% | 57.2% |
+| Improved CORAL | 29.6% | 49.2% | 29.6% | 1.524 | 0.000 | 0.0% | 64.2% |
+
+### Technical Contributions
+- **CORAL Issue Diagnosis**: Exact identification of architectural and loss function problems in original implementation
+- **Improved Integration Concept**: Theoretically sound IRT parameters → CORAL architecture design
+- **Comprehensive Benchmarking**: Fair comparison across all approaches using identical training conditions and metrics
+- **Implementation Reality Check**: Demonstration that conceptually correct fixes can have complex implementation challenges
+
+### Documentation & Analysis
+- **3-Way Comparison Plots**: Professional visualization comparing all three approaches across 7 metrics
+- **Technical Analysis Reports**: Detailed breakdown of each approach's strengths and limitations
+- **CORAL Integration Explanation**: Complete documentation of issues, fixes, and remaining challenges
+- **Research Recommendations**: Evidence-based guidance for future CORAL integration attempts
+
+### Key Insights
+1. **Architecture Matters**: Educational IRT framework (GPCM) significantly outperforms general ordinal methods (CORAL)
+2. **Domain-Specific Excellence**: Specialized educational architectures superior to general-purpose frameworks
+3. **Implementation Complexity**: Theoretically sound approaches can face significant practical implementation challenges
+4. **Linear Decay Validation**: Confirmed linear decay embedding fix working properly in GPCM framework
+
+### Practical Recommendations
+- **Production Use**: GPCM with adjacent_weighted embedding (46.5% categorical accuracy)
+- **Research Direction**: CORAL integration concept is sound but needs simplified architecture and better feature engineering
+- **Educational Applications**: Domain-specific architectures provide superior performance and interpretability
+
+## [1.2.0] - 2025-01-23 - Unified Analysis Infrastructure
+
+### Added
+- **Unified Analysis Tool**: Created `embedding_strategy_analysis.py` combining training, comparison, and visualization in single script
+- **Fully Adaptive System**: Automatically detects all available metrics and embedding strategies from training data
+- **7-Metric Default Analysis**: Now analyzes all metrics (categorical_acc, ordinal_acc, prediction_consistency_acc, ordinal_ranking_acc, distribution_consistency, mae, qwk) by default
+- **Dynamic Visualization**: Adaptive column layouts that automatically adjust based on number of metrics (2-col to 7-col plots)
+- **Plot-Only Mode**: Generate visualizations from existing results without re-training
+
+### Changed
+- **Clear Metric Names**: Updated metric titles to be more intuitive:
+  - `categorical_acc` → "Exact Match (argmax)"
+  - `ordinal_acc` → "Match w/ Tolerance (argmax)" 
+  - `prediction_consistency_acc` → "Exact Match (cumulative)"
+  - `ordinal_ranking_acc` → "Spearman correlation (expected value)"
+  - `distribution_consistency` → "Probability mass concentration"
+- **Dynamic Performance Analysis**: Analysis now adapts to all available metrics instead of hardcoded subset
+- **Smart Metric Handling**: Correctly handles "lower is better" metrics (MAE) in rankings
+
+### Removed
+- **Redundant Scripts**: Eliminated multiple separate comparison and plotting scripts:
+  - `run_embedding_strategy_comparison.py`
+  - `plot_embedding_strategy_comparison.py`
+  - `comprehensive_analysis.py`
+  - `debug_predictions.py`
+  - `manual_prediction_test.py`
+  - All CORAL vs GPCM comparison scripts
+
+### Fixed
+- **Adaptive Column Layout**: Plots now correctly show columns for all specified metrics
+- **Complete Strategy Analysis**: All 4 embedding strategies analyzed by default
+- **Metric Discovery**: System automatically discovers and analyzes all available metrics from training data
+
 ## [1.1.0] - 2025-07-22 - Added 4th Embedding Strategy and Adaptive Plotting
 
 ### Added

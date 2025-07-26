@@ -1,0 +1,62 @@
+{
+  "experiment_info": {
+    "timestamp": "2025-07-23T11:29:00.023025",
+    "description": "Embedding strategy comparison with new accuracy metrics",
+    "strategies_tested": [
+      "ordered",
+      "unordered",
+      "linear_decay",
+      "adjacent_weighted"
+    ]
+  },
+  "results_by_strategy": {
+    "ordered": {
+      "final_epoch": 20,
+      "train_loss": 1.2805971304575603,
+      "valid_loss": 1.394650936126709,
+      "categorical_acc": 0.46341463923454285,
+      "ordinal_acc": 0.849303126335144,
+      "mae": 0.7020906209945679,
+      "qwk": 0.6119532668228577,
+      "prediction_consistency_acc": 0.3728223145008087,
+      "ordinal_ranking_acc": 0.6362130701793256,
+      "distribution_consistency": 0.6563418578187763
+    },
+    "unordered": {
+      "final_epoch": 20,
+      "train_loss": 1.2451465129852295,
+      "valid_loss": 1.4184187650680542,
+      "categorical_acc": 0.46864110231399536,
+      "ordinal_acc": 0.845818817615509,
+      "mae": 0.7047038078308105,
+      "qwk": 0.6094078406287124,
+      "prediction_consistency_acc": 0.3763066232204437,
+      "ordinal_ranking_acc": 0.6283172974995861,
+      "distribution_consistency": 0.657123263315249
+    },
+    "linear_decay": {
+      "final_epoch": 20,
+      "train_loss": 1.264570156733195,
+      "valid_loss": 1.388899326324463,
+      "categorical_acc": 0.4799651503562927,
+      "ordinal_acc": 0.8588849902153015,
+      "mae": 0.6768292784690857,
+      "qwk": 0.6321477742083526,
+      "prediction_consistency_acc": 0.3893728256225586,
+      "ordinal_ranking_acc": 0.643647225463471,
+      "distribution_consistency": 0.659504215736007
+    },
+    "adjacent_weighted": {
+      "final_epoch": 20,
+      "train_loss": 1.2628616094589233,
+      "valid_loss": 1.3954170942306519,
+      "categorical_acc": 0.47909408807754517,
+      "ordinal_acc": 0.8597561120986938,
+      "mae": 0.6777003407478333,
+      "qwk": 0.6296148350719784,
+      "prediction_consistency_acc": 0.3858884871006012,
+      "ordinal_ranking_acc": 0.640443474160023,
+      "distribution_consistency": 0.6587628418715988
+    }
+  }
+}

@@ -1,457 +1,349 @@
 #!/usr/bin/env python3
 """
-Comprehensive Plotting for CORAL vs GPCM Embedding Strategy Comparison
-
-Creates publication-ready visualizations of the comprehensive comparison results.
+Plot comprehensive CORAL vs GPCM comparison with all 7 metrics.
+Similar to embedding strategy comparison but comparing model types across strategies.
 """
 
 import os
 import json
-import numpy as np
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend for headless environment
 import matplotlib.pyplot as plt
 import seaborn as sns
-from datetime import datetime
 import pandas as pd
+import numpy as np
+from datetime import datetime
 
-# Set style for publication-ready plots
+# Set style
 plt.style.use('default')
 sns.set_palette("husl")
-plt.rcParams['figure.figsize'] = (15, 10)
-plt.rcParams['font.size'] = 12
-plt.rcParams['axes.labelsize'] = 14
-plt.rcParams['axes.titlesize'] = 16
-plt.rcParams['legend.fontsize'] = 12
-plt.rcParams['xtick.labelsize'] = 11
-plt.rcParams['ytick.labelsize'] = 11
 
-
-def load_latest_comparison_results():
-    """Load the most recent CORAL vs GPCM comparison results."""
-    results_dir = "results/comparison"
+def load_coral_gpcm_results(dataset_name="synthetic_OC"):
+    """Load the latest CORAL vs GPCM comparison results."""
+    comparison_dir = "results/comparison"
     
-    # Find the most recent comparison file
-    comparison_files = [f for f in os.listdir(results_dir) if f.startswith("coral_gpcm_embedding_comparison")]
-    if not comparison_files:
-        raise FileNotFoundError("No CORAL vs GPCM comparison results found")
+    # Find the latest comparison file
+    files = [f for f in os.listdir(comparison_dir) 
+             if f.startswith(f"coral_gpcm_embedding_comparison_{dataset_name}") and f.endswith('.json')]
     
-    latest_file = sorted(comparison_files)[-1]
-    file_path = os.path.join(results_dir, latest_file)
+    if not files:
+        raise FileNotFoundError(f"No CORAL vs GPCM comparison results found for {dataset_name}")
     
-    print(f"Loading results from: {latest_file}")
+    latest_file = sorted(files)[-1]
+    filepath = os.path.join(comparison_dir, latest_file)
     
-    with open(file_path, 'r') as f:
+    print(f"Loading results from: {filepath}")
+    
+    with open(filepath, 'r') as f:
         data = json.load(f)
     
-    return data['summary_results'], data['experiment_info']
+    return data, latest_file
 
-
-def prepare_plotting_data(results):
-    """Convert results to DataFrame for easier plotting."""
-    plot_data = []
+def prepare_comparison_data(data):
+    """Prepare data for plotting."""
+    summary_results = data['summary_results']
     
-    for key, result in results.items():
-        model_type, embedding_strategy = key.split('_', 1)
-        final_metrics = result['final_metrics']
-        
-        plot_data.append({
-            'model_type': model_type.upper(),
-            'embedding_strategy': embedding_strategy.replace('_', ' ').title(),
-            'categorical_acc': final_metrics['categorical_acc'],
-            'ordinal_acc': final_metrics['ordinal_acc'],
-            'prediction_consistency_acc': final_metrics['prediction_consistency_acc'],
-            'ordinal_ranking_acc': final_metrics['ordinal_ranking_acc'],
-            'mae': final_metrics['mae'],
-            'combo_key': f"{model_type}_{embedding_strategy}"
-        })
-    
-    return pd.DataFrame(plot_data)
-
-
-def create_performance_comparison_plot(df, save_path):
-    """Create comprehensive performance comparison visualization."""
-    fig, axes = plt.subplots(2, 3, figsize=(20, 12))
-    fig.suptitle('CORAL vs GPCM: Comprehensive Embedding Strategy Comparison', fontsize=20, fontweight='bold')
-    
-    # Define colors for model types
-    colors = {'GPCM': '#2E86AB', 'CORAL': '#A23B72'}
-    
-    # Metrics to plot
+    # Extract metrics
     metrics = [
-        ('categorical_acc', 'Categorical Accuracy', 'Higher is Better'),
-        ('ordinal_acc', 'Ordinal Accuracy', 'Higher is Better'), 
-        ('prediction_consistency_acc', 'Prediction Consistency', 'Higher is Better'),
-        ('ordinal_ranking_acc', 'Ordinal Ranking', 'Higher is Better'),
-        ('mae', 'Mean Absolute Error', 'Lower is Better'),
-        (None, 'Performance Summary', 'Combined Metrics')
+        'categorical_acc', 'ordinal_acc', 'prediction_consistency_acc', 
+        'ordinal_ranking_acc', 'mae', 'distribution_consistency'
     ]
     
-    for idx, (metric, title, subtitle) in enumerate(metrics):
-        row, col = idx // 3, idx % 3
+    # Add quadratic weighted kappa if available
+    sample_result = list(summary_results.values())[0]['final_metrics']
+    if 'qwk' in sample_result:
+        metrics.append('qwk')
+    
+    plot_data = []
+    
+    for key, result in summary_results.items():
+        model_type = result['model_type']
+        embedding_strategy = result['embedding_strategy']
+        final_metrics = result['final_metrics']
+        
+        for metric in metrics:
+            if metric in final_metrics:
+                plot_data.append({
+                    'model_type': model_type.upper(),
+                    'embedding_strategy': embedding_strategy,
+                    'metric': metric,
+                    'value': final_metrics[metric]
+                })
+    
+    return pd.DataFrame(plot_data), metrics
+
+def create_comprehensive_comparison_plots(df, metrics, dataset_name, timestamp):
+    """Create comprehensive comparison plots similar to embedding strategy plots."""
+    
+    # Create figure with subplots
+    n_metrics = len(metrics)
+    n_cols = 3 if n_metrics >= 6 else 2
+    n_rows = (n_metrics + n_cols - 1) // n_cols
+    
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(6*n_cols, 4*n_rows))
+    if n_rows == 1:
+        axes = axes.reshape(1, -1)
+    
+    # Define colors for GPCM vs CORAL
+    colors = {'GPCM': '#2E86AB', 'CORAL': '#A23B72'}
+    
+    # Metric display names
+    metric_names = {
+        'categorical_acc': 'Categorical Accuracy',
+        'ordinal_acc': 'Ordinal Accuracy', 
+        'prediction_consistency_acc': 'Prediction Consistency',
+        'ordinal_ranking_acc': 'Ordinal Ranking Accuracy',
+        'mae': 'Mean Absolute Error',
+        'distribution_consistency': 'Distribution Consistency',
+        'qwk': 'Quadratic Weighted Kappa'
+    }
+    
+    for i, metric in enumerate(metrics):
+        row = i // n_cols
+        col = i % n_cols
         ax = axes[row, col]
         
-        if metric is None:
-            # Create summary plot
-            create_summary_radar_plot(df, ax)
-            ax.set_title('Performance Radar Chart', fontweight='bold')
-            continue
+        # Filter data for this metric
+        metric_data = df[df['metric'] == metric]
         
         # Create grouped bar plot
-        embedding_strategies = df['embedding_strategy'].unique()
-        x_pos = np.arange(len(embedding_strategies))
+        strategies = metric_data['embedding_strategy'].unique()
+        x = np.arange(len(strategies))
         width = 0.35
         
         gpcm_values = []
         coral_values = []
         
-        for strategy in embedding_strategies:
-            gpcm_val = df[(df['model_type'] == 'GPCM') & (df['embedding_strategy'] == strategy)][metric].values
-            coral_val = df[(df['model_type'] == 'CORAL') & (df['embedding_strategy'] == strategy)][metric].values
-            
-            gpcm_values.append(gpcm_val[0] if len(gpcm_val) > 0 else 0)
-            coral_values.append(coral_val[0] if len(coral_val) > 0 else 0)
+        for strategy in strategies:
+            gpcm_val = metric_data[(metric_data['embedding_strategy'] == strategy) & 
+                                  (metric_data['model_type'] == 'GPCM')]['value'].iloc[0]
+            coral_val = metric_data[(metric_data['embedding_strategy'] == strategy) & 
+                                   (metric_data['model_type'] == 'CORAL')]['value'].iloc[0]
+            gpcm_values.append(gpcm_val)
+            coral_values.append(coral_val)
         
-        # Create bars
-        bars1 = ax.bar(x_pos - width/2, gpcm_values, width, label='GPCM', color=colors['GPCM'], alpha=0.8)
-        bars2 = ax.bar(x_pos + width/2, coral_values, width, label='CORAL', color=colors['CORAL'], alpha=0.8)
+        # Plot bars
+        ax.bar(x - width/2, gpcm_values, width, label='GPCM', color=colors['GPCM'], alpha=0.8)
+        ax.bar(x + width/2, coral_values, width, label='CORAL', color=colors['CORAL'], alpha=0.8)
         
         # Add value labels on bars
-        for bar in bars1:
-            height = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width()/2., height + 0.005,
-                   f'{height:.3f}', ha='center', va='bottom', fontsize=10, fontweight='bold')
+        for j, (gpcm_val, coral_val) in enumerate(zip(gpcm_values, coral_values)):
+            ax.text(j - width/2, gpcm_val + 0.01, f'{gpcm_val:.3f}', 
+                   ha='center', va='bottom', fontsize=8, fontweight='bold')
+            ax.text(j + width/2, coral_val + 0.01, f'{coral_val:.3f}', 
+                   ha='center', va='bottom', fontsize=8, fontweight='bold')
         
-        for bar in bars2:
-            height = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width()/2., height + 0.005,
-                   f'{height:.3f}', ha='center', va='bottom', fontsize=10, fontweight='bold')
-        
-        # Highlight best performer
-        if metric != 'mae':  # Higher is better
-            best_gpcm = max(gpcm_values)
-            best_coral = max(coral_values)
-            overall_best = max(best_gpcm, best_coral)
-        else:  # Lower is better for MAE
-            best_gpcm = min(gpcm_values)
-            best_coral = min(coral_values)
-            overall_best = min(best_gpcm, best_coral)
-        
-        # Add crown emoji to best performer
-        for i, (g_val, c_val) in enumerate(zip(gpcm_values, coral_values)):
-            if g_val == overall_best:
-                ax.text(i - width/2, g_val + 0.02, '👑', ha='center', va='bottom', fontsize=16)
-            if c_val == overall_best:
-                ax.text(i + width/2, c_val + 0.02, '👑', ha='center', va='bottom', fontsize=16)
-        
-        ax.set_xlabel('Embedding Strategy', fontweight='bold')
-        ax.set_ylabel(title, fontweight='bold')
-        ax.set_title(f'{title}\n{subtitle}', fontweight='bold')
-        ax.set_xticks(x_pos)
-        ax.set_xticklabels(embedding_strategies, rotation=45, ha='right')
-        ax.legend()
+        # Customize plot
+        ax.set_title(metric_names.get(metric, metric.replace('_', ' ').title()), 
+                    fontsize=12, fontweight='bold')
+        ax.set_xlabel('Embedding Strategy', fontsize=10)
+        ax.set_ylabel('Score', fontsize=10)
+        ax.set_xticks(x)
+        ax.set_xticklabels([s.replace('_', '\n') for s in strategies], fontsize=9)
         ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=9)
         
         # Set y-axis limits for better visualization
         if metric == 'mae':
-            ax.set_ylim(0, max(max(gpcm_values), max(coral_values)) * 1.1)
+            ax.set_ylim(0, max(max(gpcm_values), max(coral_values)) * 1.2)
         else:
-            ax.set_ylim(0, max(max(gpcm_values), max(coral_values)) * 1.1)
+            ax.set_ylim(0, 1.1)
+    
+    # Hide empty subplots
+    for i in range(n_metrics, n_rows * n_cols):
+        row = i // n_cols
+        col = i % n_cols
+        axes[row, col].set_visible(False)
     
     plt.tight_layout()
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    print(f"Performance comparison plot saved: {save_path}")
-    return fig
-
-
-def create_summary_radar_plot(df, ax):
-    """Create radar plot summarizing overall performance."""
-    # Calculate normalized scores for radar plot
-    metrics = ['categorical_acc', 'ordinal_acc', 'prediction_consistency_acc', 'ordinal_ranking_acc']
-    metric_labels = ['Categorical\nAccuracy', 'Ordinal\nAccuracy', 'Prediction\nConsistency', 'Ordinal\nRanking']
+    plt.suptitle(f'CORAL vs GPCM Performance Comparison - {dataset_name.upper()}\n'
+                f'All Embedding Strategies ({len(metrics)} Metrics)', 
+                fontsize=14, fontweight='bold', y=0.98)
     
-    # Calculate average performance for each model type
-    gpcm_scores = []
-    coral_scores = []
+    # Save plot
+    os.makedirs("results/plots", exist_ok=True)
+    plot_filename = f"coral_gpcm_comparison_{len(metrics)}metrics_{dataset_name}_{timestamp}.png"
+    plot_path = os.path.join("results/plots", plot_filename)
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    plt.close()  # Close the figure instead of showing it
+    
+    return plot_filename
+
+def create_performance_summary_table(df, metrics, dataset_name, timestamp):
+    """Create and save performance summary table."""
+    
+    # Pivot data to create comparison table
+    pivot_data = df.pivot_table(
+        index=['embedding_strategy'], 
+        columns=['model_type'], 
+        values='value', 
+        aggfunc='first'
+    )
+    
+    # Create summary by metric
+    summary_by_metric = {}
     
     for metric in metrics:
-        gpcm_avg = df[df['model_type'] == 'GPCM'][metric].mean()
-        coral_avg = df[df['model_type'] == 'CORAL'][metric].mean()
-        gpcm_scores.append(gpcm_avg)
-        coral_scores.append(coral_avg)
-    
-    # Number of metrics
-    N = len(metrics)
-    
-    # Angles for each metric
-    angles = np.linspace(0, 2 * np.pi, N, endpoint=False).tolist()
-    angles += angles[:1]  # Complete the circle
-    
-    # Close the plots
-    gpcm_scores += gpcm_scores[:1]
-    coral_scores += coral_scores[:1]
-    
-    # Create radar plot
-    ax.plot(angles, gpcm_scores, 'o-', linewidth=3, label='GPCM', color='#2E86AB')
-    ax.fill(angles, gpcm_scores, alpha=0.25, color='#2E86AB')
-    ax.plot(angles, coral_scores, 'o-', linewidth=3, label='CORAL', color='#A23B72')
-    ax.fill(angles, coral_scores, alpha=0.25, color='#A23B72')
-    
-    # Add labels
-    ax.set_xticks(angles[:-1])
-    ax.set_xticklabels(metric_labels, fontsize=10)
-    ax.set_ylim(0, 1)
-    ax.grid(True, alpha=0.3)
-    ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.0))
-
-
-def create_training_progression_plot(detailed_results, save_path):
-    """Create training progression visualization."""
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-    fig.suptitle('Training Progression: CORAL vs GPCM', fontsize=18, fontweight='bold')
-    
-    colors = {'gpcm': '#2E86AB', 'coral': '#A23B72'}
-    metrics = ['categorical_acc', 'ordinal_acc', 'prediction_consistency_acc', 'mae']
-    metric_titles = ['Categorical Accuracy', 'Ordinal Accuracy', 'Prediction Consistency', 'Mean Absolute Error']
-    
-    for idx, (metric, title) in enumerate(zip(metrics, metric_titles)):
-        row, col = idx // 2, idx % 2
-        ax = axes[row, col]
+        metric_df = df[df['metric'] == metric].pivot_table(
+            index=['embedding_strategy'], 
+            columns=['model_type'], 
+            values='value', 
+            aggfunc='first'
+        )
         
-        # Plot training curves for each model/embedding combination
-        for key, history in detailed_results.items():
-            if history is None:
-                continue
-                
-            model_type = key.split('_')[0]
-            color = colors.get(model_type, '#666666')
-            alpha = 0.7 if 'ordered' in key else 0.4  # Highlight ordered strategy
-            
-            epochs = [epoch['epoch'] for epoch in history]
-            values = [epoch[metric] for epoch in history]
-            
-            ax.plot(epochs, values, color=color, alpha=alpha, linewidth=2, 
-                   label=f"{model_type.upper()} {key.split('_', 1)[1].replace('_', ' ').title()}")
+        # Calculate differences (GPCM - CORAL)
+        metric_df['Difference'] = metric_df['GPCM'] - metric_df['CORAL']
+        metric_df['GPCM_Better'] = metric_df['Difference'] > 0
         
-        ax.set_xlabel('Epoch', fontweight='bold')
-        ax.set_ylabel(title, fontweight='bold')
-        ax.set_title(f'{title} Training Progression', fontweight='bold')
-        ax.grid(True, alpha=0.3)
+        summary_by_metric[metric] = metric_df
+    
+    # Create comprehensive summary
+    performance_summary = {
+        'dataset': dataset_name,
+        'timestamp': timestamp,
+        'metrics_analyzed': len(metrics),
+        'embedding_strategies': df['embedding_strategy'].unique().tolist(),
+        'summary_by_metric': {}
+    }
+    
+    for metric in metrics:
+        metric_summary = summary_by_metric[metric]
         
-        # Only show legend for first subplot to avoid clutter
-        if idx == 0:
-            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=9)
+        # Find best performers
+        if metric == 'mae':  # Lower is better for MAE
+            gpcm_best = metric_summary['GPCM'].idxmin()
+            coral_best = metric_summary['CORAL'].idxmin()
+            overall_best_strategy = gpcm_best if metric_summary.loc[gpcm_best, 'GPCM'] < metric_summary.loc[coral_best, 'CORAL'] else coral_best
+            overall_best_model = 'GPCM' if metric_summary.loc[gpcm_best, 'GPCM'] < metric_summary.loc[coral_best, 'CORAL'] else 'CORAL'
+        else:  # Higher is better for other metrics
+            gpcm_best = metric_summary['GPCM'].idxmax()
+            coral_best = metric_summary['CORAL'].idxmax()
+            overall_best_strategy = gpcm_best if metric_summary.loc[gpcm_best, 'GPCM'] > metric_summary.loc[coral_best, 'CORAL'] else coral_best
+            overall_best_model = 'GPCM' if metric_summary.loc[gpcm_best, 'GPCM'] > metric_summary.loc[coral_best, 'CORAL'] else 'CORAL'
+        
+        gpcm_wins = (metric_summary['GPCM_Better']).sum() if metric != 'mae' else (~metric_summary['GPCM_Better']).sum()
+        
+        performance_summary['summary_by_metric'][metric] = {
+            'gpcm_best_strategy': gpcm_best,
+            'gpcm_best_value': float(metric_summary.loc[gpcm_best, 'GPCM']),
+            'coral_best_strategy': coral_best,
+            'coral_best_value': float(metric_summary.loc[coral_best, 'CORAL']),
+            'overall_best_strategy': overall_best_strategy,
+            'overall_best_model': overall_best_model,
+            'overall_best_value': float(metric_summary.loc[overall_best_strategy, overall_best_model]),
+            'gpcm_wins': int(gpcm_wins),
+            'coral_wins': int(len(metric_summary) - gpcm_wins),
+            'avg_difference': float(metric_summary['Difference'].mean())
+        }
     
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    print(f"Training progression plot saved: {save_path}")
-    return fig
-
-
-def create_winner_analysis_plot(df, save_path):
-    """Create winner analysis and insights visualization."""
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(18, 12))
-    fig.suptitle('CORAL vs GPCM: Winner Analysis & Insights', fontsize=18, fontweight='bold')
+    # Save comprehensive summary
+    summary_filename = f"coral_gpcm_performance_summary_{dataset_name}_{timestamp}.json"
+    summary_path = os.path.join("results/plots", summary_filename)
     
-    # 1. Overall Winner Analysis
-    gpcm_wins = 0
-    coral_wins = 0
-    metrics = ['categorical_acc', 'ordinal_acc', 'prediction_consistency_acc', 'ordinal_ranking_acc']
+    with open(summary_path, 'w') as f:
+        json.dump(performance_summary, f, indent=2)
     
-    win_data = []
-    for strategy in df['embedding_strategy'].unique():
-        for metric in metrics:
-            gpcm_val = df[(df['model_type'] == 'GPCM') & (df['embedding_strategy'] == strategy)][metric].values[0]
-            coral_val = df[(df['model_type'] == 'CORAL') & (df['embedding_strategy'] == strategy)][metric].values[0]
-            
-            if gpcm_val > coral_val:
-                winner = 'GPCM'
-                gpcm_wins += 1
-            else:
-                winner = 'CORAL'
-                coral_wins += 1
-            
-            win_data.append({
-                'strategy': strategy,
-                'metric': metric.replace('_', ' ').title(),
-                'winner': winner,
-                'gpcm_score': gpcm_val,
-                'coral_score': coral_val,
-                'gap': abs(gpcm_val - coral_val)
+    # Save CSV for easy analysis
+    csv_data = []
+    for metric in metrics:
+        metric_df = summary_by_metric[metric]
+        for strategy in metric_df.index:
+            csv_data.append({
+                'metric': metric,
+                'embedding_strategy': strategy,
+                'GPCM': metric_df.loc[strategy, 'GPCM'],
+                'CORAL': metric_df.loc[strategy, 'CORAL'],
+                'difference': metric_df.loc[strategy, 'Difference'],
+                'gpcm_better': metric_df.loc[strategy, 'GPCM_Better']
             })
     
-    # Plot overall wins
-    ax1.bar(['GPCM', 'CORAL'], [gpcm_wins, coral_wins], color=['#2E86AB', '#A23B72'], alpha=0.8)
-    ax1.set_title('Overall Winner Count\n(Across All Metrics & Strategies)', fontweight='bold')
-    ax1.set_ylabel('Number of Wins', fontweight='bold')
+    csv_df = pd.DataFrame(csv_data)
+    csv_filename = f"coral_gpcm_comparison_data_{dataset_name}_{timestamp}.csv"
+    csv_path = os.path.join("results/plots", csv_filename)
+    csv_df.to_csv(csv_path, index=False)
     
-    # Add percentage labels
-    total = gpcm_wins + coral_wins
-    ax1.text(0, gpcm_wins + 0.5, f'{gpcm_wins}\n({100*gpcm_wins/total:.1f}%)', 
-             ha='center', va='bottom', fontweight='bold', fontsize=14)
-    ax1.text(1, coral_wins + 0.5, f'{coral_wins}\n({100*coral_wins/total:.1f}%)', 
-             ha='center', va='bottom', fontweight='bold', fontsize=14)
+    return summary_filename, csv_filename
+
+def print_performance_analysis(performance_summary):
+    """Print detailed performance analysis."""
     
-    # 2. Performance Gap Analysis
-    win_df = pd.DataFrame(win_data)
-    gap_by_metric = win_df.groupby('metric')['gap'].mean().sort_values(ascending=False)
+    print(f"\n{'='*80}")
+    print(f"CORAL vs GPCM PERFORMANCE ANALYSIS")
+    print(f"{'='*80}")
+    print(f"Dataset: {performance_summary['dataset']}")
+    print(f"Metrics Analyzed: {performance_summary['metrics_analyzed']}")
+    print(f"Embedding Strategies: {', '.join(performance_summary['embedding_strategies'])}")
     
-    ax2.barh(gap_by_metric.index, gap_by_metric.values, color='#F18F01', alpha=0.8)
-    ax2.set_title('Average Performance Gap\n(GPCM vs CORAL)', fontweight='bold')
-    ax2.set_xlabel('Average Performance Gap', fontweight='bold')
+    print(f"\n📊 METRIC-BY-METRIC ANALYSIS:")
+    print("-" * 80)
     
-    # Add gap values as text
-    for i, (metric, gap) in enumerate(gap_by_metric.items()):
-        ax2.text(gap + 0.005, i, f'{gap:.3f}', va='center', fontweight='bold')
+    gpcm_total_wins = 0
+    coral_total_wins = 0
     
-    # 3. Best Performers by Strategy
-    best_performers = {}
-    for strategy in df['embedding_strategy'].unique():
-        strategy_df = df[df['embedding_strategy'] == strategy]
-        gpcm_avg = strategy_df[strategy_df['model_type'] == 'GPCM'][metrics].mean().mean()
-        coral_avg = strategy_df[strategy_df['model_type'] == 'CORAL'][metrics].mean().mean()
+    for metric, summary in performance_summary['summary_by_metric'].items():
+        print(f"\n🎯 {metric.upper().replace('_', ' ')}:")
+        print(f"   Overall Best: {summary['overall_best_model']} with {summary['overall_best_strategy']} ({summary['overall_best_value']:.3f})")
+        print(f"   GPCM Best: {summary['gpcm_best_strategy']} ({summary['gpcm_best_value']:.3f})")
+        print(f"   CORAL Best: {summary['coral_best_strategy']} ({summary['coral_best_value']:.3f})")
+        print(f"   Win Count: GPCM {summary['gpcm_wins']}, CORAL {summary['coral_wins']}")
+        print(f"   Avg Difference: {summary['avg_difference']:.3f}")
         
-        if gpcm_avg > coral_avg:
-            best_performers[strategy] = ('GPCM', gpcm_avg)
-        else:
-            best_performers[strategy] = ('CORAL', coral_avg)
+        gpcm_total_wins += summary['gpcm_wins']
+        coral_total_wins += summary['coral_wins']
     
-    strategies = list(best_performers.keys())
-    winners = [best_performers[s][0] for s in strategies]
-    scores = [best_performers[s][1] for s in strategies]
+    print(f"\n🏆 OVERALL SUMMARY:")
+    print(f"   Total Strategy Wins: GPCM {gpcm_total_wins}, CORAL {coral_total_wins}")
+    print(f"   Win Rate: GPCM {gpcm_total_wins/(gpcm_total_wins+coral_total_wins)*100:.1f}%, CORAL {coral_total_wins/(gpcm_total_wins+coral_total_wins)*100:.1f}%")
     
-    colors_map = {'GPCM': '#2E86AB', 'CORAL': '#A23B72'}
-    bar_colors = [colors_map[winner] for winner in winners]
-    
-    bars = ax3.bar(strategies, scores, color=bar_colors, alpha=0.8)
-    ax3.set_title('Best Performer by Embedding Strategy\n(Average Across All Metrics)', fontweight='bold')
-    ax3.set_ylabel('Average Performance Score', fontweight='bold')
-    ax3.set_xticklabels(strategies, rotation=45, ha='right')
-    
-    # Add winner labels
-    for bar, winner, score in zip(bars, winners, scores):
-        ax3.text(bar.get_x() + bar.get_width()/2, score + 0.01, 
-                f'{winner}\n{score:.3f}', ha='center', va='bottom', fontweight='bold', fontsize=10)
-    
-    # 4. Key Insights Text Box
-    ax4.axis('off')
-    
-    # Calculate key statistics
-    gpcm_best = df[df['model_type'] == 'GPCM']['categorical_acc'].max()
-    coral_best = df[df['model_type'] == 'CORAL']['categorical_acc'].max()
-    improvement = ((gpcm_best - coral_best) / coral_best) * 100
-    
-    insights_text = f"""
-🏆 KEY FINDINGS & INSIGHTS
+    if gpcm_total_wins > coral_total_wins:
+        print(f"   🥇 GPCM shows superior overall performance across embedding strategies")
+    elif coral_total_wins > gpcm_total_wins:
+        print(f"   🥇 CORAL shows superior overall performance across embedding strategies")
+    else:
+        print(f"   🤝 GPCM and CORAL show comparable overall performance")
 
-🔸 GPCM DOMINANCE
-   • GPCM wins {gpcm_wins}/{total} comparisons ({100*gpcm_wins/total:.1f}%)
-   • Best categorical accuracy: {gpcm_best:.1%}
-   • {improvement:.1f}% better than CORAL's best
-
-🔸 EMBEDDING STRATEGY WINNER
-   • Unordered embedding performs best overall
-   • Linear decay and adjacent weighted close second
-   • Ordered embedding shows lowest performance
-
-🔸 PERFORMANCE GAPS
-   • Largest gap in Ordinal Ranking
-   • Consistent GPCM advantage across metrics
-   • CORAL shows promise but needs optimization
-
-🔸 TRAINING QUALITY
-   • All models show stable convergence
-   • No overfitting observed
-   • GPCM reaches higher performance faster
-
-💡 RESEARCH IMPLICATIONS
-   • Domain-specific architectures (GPCM) outperform
-     general ordinal methods (CORAL)
-   • Memory-based models may need specialized
-     ordinal techniques
-   • IRT-based approaches well-suited for education
-    """
+def main():
+    """Main function to create CORAL vs GPCM comparison plots."""
+    dataset_name = "synthetic_OC"
     
-    ax4.text(0.05, 0.95, insights_text, transform=ax4.transAxes, fontsize=11,
-             verticalalignment='top', fontfamily='monospace',
-             bbox=dict(boxstyle="round,pad=0.5", facecolor="lightgray", alpha=0.8))
+    print(f"Creating CORAL vs GPCM comparison plots for {dataset_name}...")
     
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    print(f"Winner analysis plot saved: {save_path}")
-    return fig
-
-
-def create_comprehensive_dashboard():
-    """Create comprehensive dashboard with all visualizations."""
-    print("Creating comprehensive CORAL vs GPCM visualization dashboard...")
-    
-    # Load results
     try:
-        results, experiment_info = load_latest_comparison_results()
-        print(f"Loaded {len(results)} experiment results from {experiment_info['timestamp']}")
-    except Exception as e:
-        print(f"Error loading results: {e}")
-        return
-    
-    # Prepare data
-    df = prepare_plotting_data(results)
-    print(f"Prepared data for {len(df)} model configurations")
-    
-    # Create output directory
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    os.makedirs("results/plots", exist_ok=True)
-    
-    # Create all visualizations
-    plots_created = []
-    
-    # 1. Performance Comparison Plot
-    try:
-        perf_path = f"results/plots/coral_gpcm_performance_comparison_{timestamp}.png"
-        create_performance_comparison_plot(df, perf_path)
-        plots_created.append(perf_path)
-    except Exception as e:
-        print(f"Error creating performance comparison plot: {e}")
-    
-    # 2. Training Progression Plot (if detailed results available)
-    try:
-        # Load detailed results for training curves
-        results_dir = "results/comparison"
-        comparison_files = [f for f in os.listdir(results_dir) if f.startswith("coral_gpcm_embedding_comparison")]
-        latest_file = sorted(comparison_files)[-1]
+        # Load results
+        data, results_file = load_coral_gpcm_results(dataset_name)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        with open(os.path.join(results_dir, latest_file), 'r') as f:
-            detailed_data = json.load(f)
+        # Prepare data
+        df, metrics = prepare_comparison_data(data)
         
-        prog_path = f"results/plots/coral_gpcm_training_progression_{timestamp}.png"
-        create_training_progression_plot(detailed_data['detailed_results'], prog_path)
-        plots_created.append(prog_path)
+        print(f"Found {len(metrics)} metrics: {', '.join(metrics)}")
+        print(f"Embedding strategies: {', '.join(df['embedding_strategy'].unique())}")
+        
+        # Create plots
+        plot_filename = create_comprehensive_comparison_plots(df, metrics, dataset_name, timestamp)
+        print(f"✅ Comparison plot saved: {plot_filename}")
+        
+        # Create performance summary
+        summary_filename, csv_filename = create_performance_summary_table(df, metrics, dataset_name, timestamp)
+        print(f"✅ Performance summary saved: {summary_filename}")
+        print(f"✅ CSV data saved: {csv_filename}")
+        
+        # Load and print analysis
+        summary_path = os.path.join("results/plots", summary_filename)
+        with open(summary_path, 'r') as f:
+            performance_summary = json.load(f)
+        
+        print_performance_analysis(performance_summary)
+        
     except Exception as e:
-        print(f"Error creating training progression plot: {e}")
+        print(f"❌ Error creating comparison plots: {e}")
+        return False
     
-    # 3. Winner Analysis Plot
-    try:
-        winner_path = f"results/plots/coral_gpcm_winner_analysis_{timestamp}.png"
-        create_winner_analysis_plot(df, winner_path)
-        plots_created.append(winner_path)
-    except Exception as e:
-        print(f"Error creating winner analysis plot: {e}")
-    
-    # Print summary
-    print(f"\n🎨 VISUALIZATION DASHBOARD COMPLETE!")
-    print(f"{'='*60}")
-    print(f"📊 Plots created: {len(plots_created)}")
-    for plot_path in plots_created:
-        print(f"   📈 {os.path.basename(plot_path)}")
-    
-    print(f"\n🔍 QUICK INSIGHTS:")
-    print(f"   • Total configurations tested: {len(df)}")
-    print(f"   • Model types: {', '.join(df['model_type'].unique())}")
-    print(f"   • Embedding strategies: {', '.join(df['embedding_strategy'].unique())}")
-    print(f"   • Best performer: {df.loc[df['categorical_acc'].idxmax(), 'model_type']} "
-          f"{df.loc[df['categorical_acc'].idxmax(), 'embedding_strategy']} "
-          f"({df['categorical_acc'].max():.1%})")
-    
-    return plots_created
-
+    return True
 
 if __name__ == "__main__":
-    create_comprehensive_dashboard()
+    success = main()
+    if success:
+        print(f"\n✅ CORAL vs GPCM comparison analysis completed successfully!")
+    else:
+        print(f"\n❌ CORAL vs GPCM comparison analysis failed!")
