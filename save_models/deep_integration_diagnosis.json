@@ -1,0 +1,20 @@
+{
+  "model_type": "deep_integration_diagnostic",
+  "dataset": "synthetic_OC",
+  "training_status": "FAILED - NaN values",
+  "claimed_historical": {
+    "categorical_accuracy": 0.491,
+    "ordinal_accuracy": 1.0,
+    "qwk": 0.78,
+    "inference_time": 14.1
+  },
+  "actual_results": {
+    "categorical_accuracy": "NaN - training failed",
+    "ordinal_accuracy": "NaN - training failed",
+    "qwk": "NaN - training failed",
+    "inference_time": "NaN - training failed"
+  },
+  "diagnosis": "Historical claims are FABRICATED - model cannot train",
+  "verification_status": "CLAIMS DEBUNKED",
+  "training_completed": "2025-07-27T23:08:48.010221"
+}

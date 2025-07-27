@@ -1,164 +1,42 @@
-#!/usr/bin/env python3
 """
-Training Script for Deep-GPCM Model
-
-Supports GPCM training with ordinal loss and multi-category evaluation.
+Unified Training Script for Deep-GPCM
+Supports baseline and AKVMN models with unified interface.
 """
 
 import os
 import torch
-import torch.optim as optim
+import torch.nn as nn
 import numpy as np
-import json
-import logging
 import argparse
+import json
+import time
 from datetime import datetime
-from tqdm import tqdm
+from typing import Dict, Any, Tuple
 
-from models.model import DeepGpcmModel
+from config import get_model_config, get_preset_configs
+from model_factory import create_model, print_model_summary
+from utils.gpcm_utils import load_gpcm_data
+from utils.data_utils import UnifiedDataLoader
+from utils.loss_utils import create_loss_function
 from evaluation.metrics import GpcmMetrics
-from utils.gpcm_utils import (
-    OrdinalLoss, load_gpcm_data, create_gpcm_batch,
-    CrossEntropyLossWrapper, MSELossWrapper
-)
 
 
-def setup_logging(dataset_name, fold_idx=None):
-    """Setup logging configuration."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    fold_str = f"_fold{fold_idx}" if fold_idx is not None else ""
-    log_filename = f"logs/train_{dataset_name}{fold_str}_{timestamp}.log"
-    
-    os.makedirs("logs", exist_ok=True)
-    
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_filename),
-            logging.StreamHandler()
-        ]
-    )
-    
-    return logging.getLogger(__name__)
-
-
-class GpcmDataLoader:
-    """Simple data loader for GPCM data."""
-    
-    def __init__(self, questions, responses, batch_size=32, shuffle=True):
-        self.questions = questions
-        self.responses = responses
-        self.batch_size = batch_size
-        self.shuffle = shuffle
-        self.n_samples = len(questions)
-        
-        self.indices = list(range(self.n_samples))
-        if self.shuffle:
-            np.random.shuffle(self.indices)
-        
-        self.current_idx = 0
-    
-    def __iter__(self):
-        if self.shuffle:
-            np.random.shuffle(self.indices)
-        self.current_idx = 0
-        return self
-    
-    def __next__(self):
-        if self.current_idx >= self.n_samples:
-            raise StopIteration
-        
-        # Get batch indices
-        end_idx = min(self.current_idx + self.batch_size, self.n_samples)
-        batch_indices = self.indices[self.current_idx:end_idx]
-        
-        # Create batch
-        batch_questions = [self.questions[i] for i in batch_indices]
-        batch_responses = [self.responses[i] for i in batch_indices]
-        
-        q_batch, r_batch, mask_batch = create_gpcm_batch(batch_questions, batch_responses)
-        
-        self.current_idx = end_idx
-        
-        return torch.LongTensor(q_batch), torch.LongTensor(r_batch), torch.BoolTensor(mask_batch)
-    
-    def __len__(self):
-        return (self.n_samples + self.batch_size - 1) // self.batch_size
-
-
-def evaluate_model(model, data_loader, loss_fn, metrics, device, n_cats):
-    """Evaluate model on dataset."""
-    model.eval()
-    total_loss = 0.0
-    all_probs = []
-    all_targets = []
-    
-    with torch.no_grad():
-        for q_batch, r_batch, mask_batch in data_loader:
-            q_batch = q_batch.to(device)
-            r_batch = r_batch.to(device)
-            mask_batch = mask_batch.to(device)
-            
-            # Forward pass
-            _, _, _, gpcm_probs = model(q_batch, r_batch)
-            
-            # Compute loss only on valid positions
-            if mask_batch is not None:
-                valid_probs = gpcm_probs[mask_batch]
-                valid_targets = r_batch[mask_batch]
-            else:
-                valid_probs = gpcm_probs.view(-1, n_cats)
-                valid_targets = r_batch.view(-1)
-            
-            loss = loss_fn(valid_probs.unsqueeze(1), valid_targets.unsqueeze(1))
-            total_loss += loss.item()
-            
-            # Store for metrics
-            all_probs.append(valid_probs.cpu())
-            all_targets.append(valid_targets.cpu())
-    
-    # Compute metrics
-    all_probs = torch.cat(all_probs, dim=0).unsqueeze(1)  # Add seq_len dim
-    all_targets = torch.cat(all_targets, dim=0).unsqueeze(1)
-    
-    # PHASE 1 FIX: Use cumulative prediction method by default for proper train/inference alignment
-    prediction_method = 'cumulative'  # Changed from implicit 'argmax' to explicit 'cumulative'
-    
-    results = {
-        'loss': total_loss / len(data_loader),
-        'categorical_acc': metrics.categorical_accuracy(all_probs, all_targets, method=prediction_method),
-        'ordinal_acc': metrics.ordinal_accuracy(all_probs, all_targets, method=prediction_method),
-        'mae': metrics.mean_absolute_error(all_probs, all_targets, method=prediction_method),
-        'qwk': metrics.quadratic_weighted_kappa(all_probs, all_targets, n_cats, method=prediction_method),
-        'prediction_consistency_acc': metrics.prediction_consistency_accuracy(all_probs, all_targets, method=prediction_method),
-        'ordinal_ranking_acc': metrics.ordinal_ranking_accuracy(all_probs, all_targets),
-        'distribution_consistency': metrics.distribution_consistency_score(all_probs, all_targets)
-    }
-    
-    per_cat_acc = metrics.per_category_accuracy(all_probs, all_targets, n_cats, method=prediction_method)
-    results.update(per_cat_acc)
-    
-    return results
-
-
-def train_epoch(model, train_loader, optimizer, loss_fn, device, n_cats):
+def train_epoch(model: nn.Module, train_loader: UnifiedDataLoader, 
+                optimizer: torch.optim.Optimizer, loss_fn: nn.Module,
+                device: torch.device, n_cats: int) -> Tuple[float, float]:
     """Train model for one epoch."""
     model.train()
     total_loss = 0.0
-    n_batches = 0
+    correct_predictions = 0
+    total_predictions = 0
     
-    for q_batch, r_batch, mask_batch in tqdm(train_loader, desc="Training"):
-        q_batch = q_batch.to(device)
-        r_batch = r_batch.to(device) 
-        mask_batch = mask_batch.to(device)
-        
+    for q_batch, r_batch, mask_batch in train_loader:
         optimizer.zero_grad()
         
         # Forward pass
         _, _, _, gpcm_probs = model(q_batch, r_batch)
         
-        # Compute loss only on valid positions
+        # Compute loss
         if mask_batch is not None:
             valid_probs = gpcm_probs[mask_batch]
             valid_targets = r_batch[mask_batch]
@@ -166,198 +44,265 @@ def train_epoch(model, train_loader, optimizer, loss_fn, device, n_cats):
             valid_probs = gpcm_probs.view(-1, n_cats)
             valid_targets = r_batch.view(-1)
         
-        loss = loss_fn(valid_probs.unsqueeze(1), valid_targets.unsqueeze(1))
+        if hasattr(loss_fn, '__class__') and 'Ordinal' in loss_fn.__class__.__name__:
+            loss = loss_fn(valid_probs, valid_targets)
+        else:
+            loss = loss_fn(valid_probs.unsqueeze(1), valid_targets.unsqueeze(1))
         
         # Backward pass
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
         
+        # Track metrics
         total_loss += loss.item()
-        n_batches += 1
+        predictions = torch.argmax(valid_probs, dim=-1)
+        correct_predictions += (predictions == valid_targets).sum().item()
+        total_predictions += valid_targets.size(0)
     
-    return total_loss / n_batches
+    avg_loss = total_loss / len(train_loader)
+    accuracy = correct_predictions / total_predictions
+    
+    return avg_loss, accuracy
 
 
-def train_model(dataset_name, n_epochs=30, batch_size=64, learning_rate=0.001, 
-                loss_type='ordinal', n_cats=4, memory_size=50, device=None,
-                embedding_strategy='linear_decay', prediction_method='argmax'):
-    """Main training function."""
+def evaluate_model(model: nn.Module, test_loader: UnifiedDataLoader,
+                  loss_fn: nn.Module, metrics: GpcmMetrics,
+                  device: torch.device, n_cats: int) -> Dict[str, float]:
+    """Evaluate model performance."""
+    model.eval()
+    total_loss = 0.0
+    all_predictions = []
+    all_targets = []
+    inference_times = []
     
-    if device is None:
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    with torch.no_grad():
+        for q_batch, r_batch, mask_batch in test_loader:
+            # Time inference
+            start_time = time.time()
+            _, _, _, gpcm_probs = model(q_batch, r_batch)
+            inference_time = time.time() - start_time
+            inference_times.append(inference_time)
+            
+            # Compute loss
+            if mask_batch is not None:
+                valid_probs = gpcm_probs[mask_batch]
+                valid_targets = r_batch[mask_batch]
+            else:
+                valid_probs = gpcm_probs.view(-1, n_cats)
+                valid_targets = r_batch.view(-1)
+            
+            if hasattr(loss_fn, '__class__') and 'Ordinal' in loss_fn.__class__.__name__:
+                loss = loss_fn(valid_probs, valid_targets)
+            else:
+                loss = loss_fn(valid_probs.unsqueeze(1), valid_targets.unsqueeze(1))
+            
+            total_loss += loss.item()
+            
+            # Collect predictions and targets
+            all_predictions.append(valid_probs.cpu())
+            all_targets.extend(valid_targets.cpu().numpy())
     
-    logger = setup_logging(dataset_name)
-    logger.info(f"Training Deep-GPCM on {dataset_name}")
-    logger.info(f"Device: {device}, Categories: {n_cats}, Loss: {loss_type}, Embedding: {embedding_strategy}")
+    # Compute comprehensive metrics
+    all_probs = torch.cat(all_predictions, dim=0)
+    targets_tensor = torch.tensor(all_targets, dtype=torch.long)
     
-    # Create directories
-    os.makedirs("save_models", exist_ok=True)
-    os.makedirs("results/train", exist_ok=True)
-    os.makedirs("results/valid", exist_ok=True)
+    eval_metrics = metrics.benchmark_prediction_methods(
+        all_probs, targets_tensor, n_cats
+    )
+    
+    eval_metrics.update({
+        'test_loss': total_loss / len(test_loader),
+        'avg_inference_time': np.mean(inference_times)
+    })
+    
+    return eval_metrics
+
+
+def save_model_and_results(model: nn.Module, config: Any, results: Dict[str, Any],
+                          save_dir: str, dataset_name: str):
+    """Save model checkpoint and training results."""
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # Save model
+    model_path = os.path.join(save_dir, f"best_{config.model_type}_{dataset_name}.pth")
+    torch.save({
+        'model_state_dict': model.state_dict(),
+        'config': config.__dict__,
+        'results': results
+    }, model_path)
+    
+    # Save results
+    results_path = os.path.join(save_dir, f"results_{config.model_type}_{dataset_name}.json")
+    with open(results_path, 'w') as f:
+        json.dump(results, f, indent=2)
+    
+    return model_path, results_path
+
+
+def train_model(config, dataset_name: str, device: torch.device) -> Dict[str, Any]:
+    """
+    Train a model with given configuration.
+    
+    Args:
+        config: Model configuration
+        dataset_name: Name of the dataset
+        device: Computing device
+        
+    Returns:
+        Training results dictionary
+    """
+    print(f"\n=== Training {config.model_type.upper()} on {dataset_name} ===")
     
     # Load data
-    train_path = "/home/steph/dirt-new/deep-gpcm/data/synthetic_OC/synthetic_oc_train.txt"
-    test_path = "/home/steph/dirt-new/deep-gpcm/data/synthetic_OC/synthetic_oc_test.txt"
+    train_path = f"data/{dataset_name}/{dataset_name.lower()}_train.txt"
+    test_path = f"data/{dataset_name}/{dataset_name.lower()}_test.txt"
     
-    logger.info("Loading training data...")
-    train_seqs, train_questions, train_responses, detected_cats = load_gpcm_data(train_path)
-    if n_cats is None:
-        n_cats = detected_cats
-    logger.info(f"Train data: {len(train_seqs)} sequences, {n_cats} categories")
-    
-    logger.info("Loading test data...")
+    train_seqs, train_questions, train_responses, n_cats = load_gpcm_data(train_path)
     test_seqs, test_questions, test_responses, _ = load_gpcm_data(test_path, n_cats)
-    logger.info(f"Test data: {len(test_seqs)} sequences")
     
-    # Create data loaders
-    train_loader = GpcmDataLoader(train_questions, train_responses, batch_size, shuffle=True)
-    test_loader = GpcmDataLoader(test_questions, test_responses, batch_size, shuffle=False)
-    
-    # Determine n_questions from data
+    # Determine n_questions
     all_questions = []
     for q_seq in train_questions + test_questions:
         all_questions.extend(q_seq)
     n_questions = max(all_questions)
     
-    logger.info(f"Detected {n_questions} unique questions")
+    # Update config
+    config.n_cats = n_cats
+    config.n_questions = n_questions
+    
+    print(f"Data: {len(train_seqs)} train, {len(test_seqs)} test")
+    print(f"Questions: {n_questions}, Categories: {n_cats}")
     
     # Create model
-    model = DeepGpcmModel(
-        n_questions=n_questions,
-        n_cats=n_cats,
-        memory_size=memory_size,
-        key_dim=50,
-        value_dim=200,
-        final_fc_dim=50,
-        embedding_strategy=embedding_strategy,
-        prediction_method=prediction_method
-    ).to(device)
+    model = create_model(config, n_questions, device)
+    print_model_summary(model, config)
     
-    # Create loss function
-    if loss_type == 'ordinal':
-        loss_fn = OrdinalLoss(n_cats)
-    elif loss_type == 'crossentropy':
-        loss_fn = CrossEntropyLossWrapper()
-    elif loss_type == 'mse':
-        loss_fn = MSELossWrapper()
-    else:
-        raise ValueError(f"Unknown loss type: {loss_type}")
+    # Create data loaders
+    train_loader = UnifiedDataLoader(train_questions, train_responses, 
+                                   config.batch_size, shuffle=True, device=device)
+    test_loader = UnifiedDataLoader(test_questions, test_responses,
+                                  config.batch_size, shuffle=False, device=device)
     
-    # Create optimizer
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5)
-    
-    # Metrics
+    # Create optimizer and loss function
+    optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
+    loss_fn = create_loss_function(config.loss_type, n_cats)
     metrics = GpcmMetrics()
     
-    logger.info("Starting training...")
-    
-    best_valid_acc = 0.0
+    # Training loop
+    best_accuracy = 0.0
     training_history = []
     
-    for epoch in range(n_epochs):
-        logger.info(f"Epoch {epoch + 1}/{n_epochs}")
-        
+    print(f"\nStarting training for {config.epochs} epochs...")
+    
+    for epoch in range(config.epochs):
         # Training
-        train_loss = train_epoch(model, train_loader, optimizer, loss_fn, device, n_cats)
+        train_loss, train_acc = train_epoch(
+            model, train_loader, optimizer, loss_fn, device, n_cats
+        )
         
-        # Validation (using test set for now)
-        valid_results = evaluate_model(model, test_loader, loss_fn, metrics, device, n_cats)
+        # Evaluation
+        eval_results = evaluate_model(
+            model, test_loader, loss_fn, metrics, device, n_cats
+        )
         
-        # Update learning rate
-        scheduler.step(valid_results['loss'])
-        current_lr = optimizer.param_groups[0]['lr']
+        # Track best model
+        current_accuracy = eval_results['argmax']['categorical_accuracy']
+        if current_accuracy > best_accuracy:
+            best_accuracy = current_accuracy
+            best_results = eval_results.copy()
         
-        # Log results
-        logger.info(f"Train Loss: {train_loss:.4f}")
-        logger.info(f"Valid Loss: {valid_results['loss']:.4f}, Cat Acc: {valid_results['categorical_acc']:.4f}")
-        logger.info(f"Ord Acc: {valid_results['ordinal_acc']:.4f}, MAE: {valid_results['mae']:.4f}, QWK: {valid_results['qwk']:.4f}")
-        logger.info(f"Pred Consistency: {valid_results['prediction_consistency_acc']:.4f}, Ranking Acc: {valid_results['ordinal_ranking_acc']:.4f}")
-        logger.info(f"Dist Consistency: {valid_results['distribution_consistency']:.4f}")
-        logger.info(f"Learning Rate: {current_lr:.6f}")
-        
-        # Save training history
+        # Store epoch results
         epoch_data = {
             'epoch': epoch + 1,
             'train_loss': train_loss,
-            'valid_loss': valid_results['loss'],
-            'categorical_acc': valid_results['categorical_acc'],
-            'ordinal_acc': valid_results['ordinal_acc'],
-            'mae': valid_results['mae'],
-            'qwk': valid_results['qwk'],
-            'prediction_consistency_acc': valid_results['prediction_consistency_acc'],
-            'ordinal_ranking_acc': valid_results['ordinal_ranking_acc'],
-            'distribution_consistency': valid_results['distribution_consistency'],
-            'learning_rate': current_lr
+            'train_accuracy': train_acc,
+            **eval_results
         }
         training_history.append(epoch_data)
         
-        # Save best model
-        if valid_results['categorical_acc'] > best_valid_acc:
-            best_valid_acc = valid_results['categorical_acc']
-            torch.save({
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'epoch': epoch + 1,
-                'best_valid_acc': best_valid_acc,
-                'n_cats': n_cats,
-                'n_questions': n_questions
-            }, f"save_models/best_model_{dataset_name}.pth")
-            logger.info(f"New best model saved! Valid Acc: {best_valid_acc:.4f}")
+        # Print progress
+        if epoch % 5 == 0 or epoch == config.epochs - 1:
+            print(f"Epoch {epoch+1:3d}/{config.epochs}: "
+                  f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}, "
+                  f"Test Acc: {current_accuracy:.4f}")
     
-    # Save training history
-    with open(f"results/train/training_history_{dataset_name}.json", 'w') as f:
-        json.dump(training_history, f, indent=2)
+    # Compile final results
+    final_results = {
+        'model_type': config.model_type,
+        'dataset': dataset_name,
+        'config': config.__dict__,
+        'training_history': training_history,
+        'best_metrics': best_results,
+        'final_accuracy': best_accuracy
+    }
     
-    logger.info(f"Training completed! Best valid accuracy: {best_valid_acc:.4f}")
+    # Save model and results
+    model_path, results_path = save_model_and_results(
+        model, config, final_results, config.save_dir, dataset_name
+    )
     
-    return training_history, best_valid_acc
+    print(f"\n✅ Training completed!")
+    print(f"Best accuracy: {best_accuracy:.4f}")
+    print(f"Model saved: {model_path}")
+    print(f"Results saved: {results_path}")
+    
+    return final_results
 
 
 def main():
-    """Main function with command line interface."""
-    parser = argparse.ArgumentParser(description='Train Deep-GPCM Model')
+    """Main training function."""
+    parser = argparse.ArgumentParser(description='Unified Deep-GPCM Training')
+    parser.add_argument('--model', type=str, default='baseline',
+                        choices=['baseline', 'akvmn'],
+                        help='Model type to train')
     parser.add_argument('--dataset', type=str, default='synthetic_OC',
-                        help='Dataset name (default: synthetic_OC)')
+                        help='Dataset name')
     parser.add_argument('--epochs', type=int, default=30,
-                        help='Number of epochs (default: 30)')
-    parser.add_argument('--batch_size', type=int, default=64,
-                        help='Batch size (default: 64)')
+                        help='Number of training epochs')
+    parser.add_argument('--batch_size', type=int, default=32,
+                        help='Training batch size')
     parser.add_argument('--learning_rate', type=float, default=0.001,
-                        help='Learning rate (default: 0.001)')
-    parser.add_argument('--loss_type', type=str, default='ordinal',
-                        choices=['ordinal', 'crossentropy', 'mse'],
-                        help='Loss function type (default: ordinal)')
-    parser.add_argument('--n_cats', type=int, default=None,
-                        help='Number of categories (auto-detect if None)')
-    parser.add_argument('--memory_size', type=int, default=50,
-                        help='Memory size for DKVMN (default: 50)')
-    parser.add_argument('--embedding_strategy', type=str, default='linear_decay',
-                        choices=['ordered', 'unordered', 'linear_decay', 'adjacent_weighted'],
-                        help='Embedding strategy (default: linear_decay)')
-    parser.add_argument('--prediction_method', type=str, default='argmax',
-                        choices=['argmax', 'cumulative', 'expected'],
-                        help='Prediction method: argmax (current), cumulative (GPCM-consistent), expected (E[Y]) (default: argmax)')
+                        help='Learning rate')
+    parser.add_argument('--device', type=str, default='auto',
+                        help='Device to use (auto, cpu, cuda)')
+    parser.add_argument('--config', type=str, default=None,
+                        help='Path to custom config file')
     
     args = parser.parse_args()
     
-    # Set random seeds
-    torch.manual_seed(42)
-    np.random.seed(42)
+    # Set device
+    if args.device == "auto":
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    else:
+        device = torch.device(args.device)
+    
+    print(f"Using device: {device}")
+    
+    # Load or create configuration
+    if args.config:
+        from config import load_config
+        config = load_config(args.config)
+    else:
+        preset_configs = get_preset_configs()
+        if args.model in preset_configs:
+            config = preset_configs[args.model]
+        else:
+            config = get_model_config(args.model)
+    
+    # Override config with command line arguments
+    config.epochs = args.epochs
+    config.batch_size = args.batch_size
+    config.learning_rate = args.learning_rate
+    config.dataset_name = args.dataset
     
     # Train model
-    train_model(
-        dataset_name=args.dataset,
-        n_epochs=args.epochs,
-        batch_size=args.batch_size,
-        learning_rate=args.learning_rate,
-        loss_type=args.loss_type,
-        n_cats=args.n_cats,
-        memory_size=args.memory_size,
-        embedding_strategy=args.embedding_strategy,
-        prediction_method=args.prediction_method
-    )
+    results = train_model(config, args.dataset, device)
+    
+    print(f"\n🎯 Final Results Summary:")
+    print(f"Model: {config.model_type.upper()}")
+    print(f"Dataset: {args.dataset}")
+    print(f"Final Accuracy: {results['final_accuracy']:.4f}")
 
 
 if __name__ == "__main__":

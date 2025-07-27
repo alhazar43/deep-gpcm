@@ -1,161 +1,60 @@
-#!/usr/bin/env python3
 """
-Evaluation Script for Deep-GPCM Model
-
-Comprehensive model evaluation with baseline comparisons and statistical analysis.
+Unified Evaluation Script for Deep-GPCM
+Evaluates trained baseline and AKVMN models.
 """
 
 import os
 import torch
 import numpy as np
-import json
-import logging
 import argparse
-from datetime import datetime
-from sklearn.metrics import confusion_matrix
-import matplotlib.pyplot as plt
-import seaborn as sns
+import json
+from typing import Dict, Any
 
-from models.model import DeepGpcmModel
+from config import get_model_config
+from model_factory import create_model, count_parameters
+from utils.gpcm_utils import load_gpcm_data
+from utils.data_utils import UnifiedDataLoader
+from utils.loss_utils import create_loss_function
 from evaluation.metrics import GpcmMetrics
-from utils.gpcm_utils import (
-    OrdinalLoss, load_gpcm_data, create_gpcm_batch,
-    CrossEntropyLossWrapper, MSELossWrapper
-)
-from train import GpcmDataLoader
 
 
-def setup_logging(dataset_name, model_name="deepgpcm"):
-    """Setup logging configuration."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_filename = f"logs/eval_{model_name}_{dataset_name}_{timestamp}.log"
+def load_trained_model(model_path: str, device: torch.device):
+    """Load a trained model from checkpoint."""
+    checkpoint = torch.load(model_path, map_location=device)
     
-    os.makedirs("logs", exist_ok=True)
+    # Recreate config
+    config_dict = checkpoint['config']
+    config = get_model_config(config_dict['model_type'], **config_dict)
     
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_filename),
-            logging.StreamHandler()
-        ]
-    )
+    # Recreate model
+    model = create_model(config, config.n_questions, device)
+    model.load_state_dict(checkpoint['model_state_dict'])
     
-    return logging.getLogger(__name__)
+    return model, config, checkpoint.get('results', {})
 
 
-class RandomBaseline:
-    """Random baseline for comparison."""
-    
-    def __init__(self, n_cats):
-        self.n_cats = n_cats
-    
-    def predict(self, questions, responses):
-        """Generate random predictions."""
-        predictions = []
-        for q_seq, r_seq in zip(questions, responses):
-            seq_preds = np.random.randint(0, self.n_cats, len(q_seq))
-            predictions.append(seq_preds)
-        return predictions
-
-
-class FrequencyBaseline:
-    """Frequency-based baseline using training distribution."""
-    
-    def __init__(self, n_cats):
-        self.n_cats = n_cats
-        self.response_probs = None
-    
-    def fit(self, train_responses):
-        """Fit on training data to get response frequency."""
-        all_responses = []
-        for r_seq in train_responses:
-            all_responses.extend(r_seq)
-        
-        # Count frequency of each response
-        counts = np.bincount(all_responses, minlength=self.n_cats)
-        self.response_probs = counts / counts.sum()
-    
-    def predict(self, questions, responses):
-        """Generate predictions based on training frequency."""
-        if self.response_probs is None:
-            raise ValueError("Model not fitted. Call fit() first.")
-        
-        predictions = []
-        for q_seq, r_seq in zip(questions, responses):
-            seq_preds = np.random.choice(self.n_cats, len(q_seq), p=self.response_probs)
-            predictions.append(seq_preds)
-        return predictions
-
-
-def evaluate_baselines(train_responses, test_questions, test_responses, n_cats, metrics):
-    """Evaluate baseline models."""
-    results = {}
-    
-    # Random baseline
-    random_model = RandomBaseline(n_cats)
-    random_preds = random_model.predict(test_questions, test_responses)
-    
-    # Convert to tensor format for metrics
-    all_preds = []
-    all_targets = []
-    for pred_seq, true_seq in zip(random_preds, test_responses):
-        all_preds.extend(pred_seq)
-        all_targets.extend(true_seq)
-    
-    pred_tensor = torch.tensor(all_preds).float().unsqueeze(1)
-    target_tensor = torch.tensor(all_targets).long().unsqueeze(1)
-    
-    # Create probability distribution (uniform for random)
-    prob_tensor = torch.zeros(len(all_preds), 1, n_cats)
-    for i, pred in enumerate(all_preds):
-        prob_tensor[i, 0, pred] = 1.0
-    
-    results['random'] = {
-        'categorical_acc': metrics.categorical_accuracy(prob_tensor, target_tensor),
-        'ordinal_acc': metrics.ordinal_accuracy(prob_tensor, target_tensor),
-        'mae': metrics.mean_absolute_error(prob_tensor, target_tensor),
-        'qwk': metrics.quadratic_weighted_kappa(prob_tensor, target_tensor, n_cats)
-    }
-    
-    # Frequency baseline
-    freq_model = FrequencyBaseline(n_cats)
-    freq_model.fit(train_responses)
-    freq_preds = freq_model.predict(test_questions, test_responses)
-    
-    all_preds = []
-    for pred_seq in freq_preds:
-        all_preds.extend(pred_seq)
-    
-    pred_tensor = torch.tensor(all_preds).float().unsqueeze(1)
-    prob_tensor = torch.zeros(len(all_preds), 1, n_cats)
-    for i, pred in enumerate(all_preds):
-        prob_tensor[i, 0, pred] = 1.0
-    
-    results['frequency'] = {
-        'categorical_acc': metrics.categorical_accuracy(prob_tensor, target_tensor),
-        'ordinal_acc': metrics.ordinal_accuracy(prob_tensor, target_tensor),
-        'mae': metrics.mean_absolute_error(prob_tensor, target_tensor),
-        'qwk': metrics.quadratic_weighted_kappa(prob_tensor, target_tensor, n_cats)
-    }
-    
-    return results
-
-
-def create_confusion_matrix(model, test_loader, device, n_cats, save_path):
-    """Create and save confusion matrix."""
+def evaluate_model_comprehensive(model: torch.nn.Module, test_loader: UnifiedDataLoader,
+                                loss_fn: torch.nn.Module, metrics: GpcmMetrics,
+                                device: torch.device, n_cats: int) -> Dict[str, Any]:
+    """Comprehensive model evaluation."""
     model.eval()
+    
     all_predictions = []
     all_targets = []
+    all_probs = []
+    inference_times = []
+    total_loss = 0.0
     
     with torch.no_grad():
         for q_batch, r_batch, mask_batch in test_loader:
-            q_batch = q_batch.to(device)
-            r_batch = r_batch.to(device)
-            mask_batch = mask_batch.to(device)
-            
+            # Time inference
+            import time
+            start_time = time.time()
             _, _, _, gpcm_probs = model(q_batch, r_batch)
+            inference_time = time.time() - start_time
+            inference_times.append(inference_time)
             
+            # Process outputs
             if mask_batch is not None:
                 valid_probs = gpcm_probs[mask_batch]
                 valid_targets = r_batch[mask_batch]
@@ -163,201 +62,250 @@ def create_confusion_matrix(model, test_loader, device, n_cats, save_path):
                 valid_probs = gpcm_probs.view(-1, n_cats)
                 valid_targets = r_batch.view(-1)
             
-            predictions = torch.argmax(valid_probs, dim=1)
+            # Compute loss
+            if hasattr(loss_fn, '__class__') and 'Ordinal' in loss_fn.__class__.__name__:
+                loss = loss_fn(valid_probs, valid_targets)
+            else:
+                loss = loss_fn(valid_probs.unsqueeze(1), valid_targets.unsqueeze(1))
+            
+            total_loss += loss.item()
+            
+            # Collect data
+            predictions = torch.argmax(valid_probs, dim=-1)
             all_predictions.extend(predictions.cpu().numpy())
             all_targets.extend(valid_targets.cpu().numpy())
+            all_probs.extend(valid_probs.cpu().numpy())
     
-    # Create confusion matrix
-    cm = confusion_matrix(all_targets, all_predictions, labels=range(n_cats))
+    # Convert to numpy
+    predictions_np = np.array(all_predictions)
+    targets_np = np.array(all_targets)
+    probs_np = np.array(all_probs)
     
-    # Plot
-    plt.figure(figsize=(8, 6))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
-                xticklabels=range(n_cats), yticklabels=range(n_cats))
-    plt.title('Confusion Matrix - Deep-GPCM')
-    plt.xlabel('Predicted Category')
-    plt.ylabel('True Category')
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    plt.close()
+    # Compute comprehensive metrics
+    eval_metrics = metrics.benchmark_prediction_methods(
+        torch.tensor(probs_np), torch.tensor(targets_np), n_cats
+    )
     
-    return cm
+    # Add additional metrics
+    eval_metrics.update({
+        'test_loss': total_loss / len(test_loader),
+        'avg_inference_time': np.mean(inference_times),
+        'std_inference_time': np.std(inference_times),
+        'total_parameters': sum(p.numel() for p in model.parameters()),
+        'predictions_distribution': np.bincount(predictions_np, minlength=n_cats).tolist(),
+        'targets_distribution': np.bincount(targets_np, minlength=n_cats).tolist()
+    })
+    
+    return eval_metrics
 
 
-def evaluate_model_comprehensive(model_path, dataset_name, device=None):
-    """Comprehensive model evaluation."""
+def compare_models(results: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    """Compare multiple model results."""
+    if len(results) < 2:
+        return {"comparison": "Need at least 2 models for comparison"}
     
-    if device is None:
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # Get baseline performance
+    baseline_name = None
+    baseline_metrics = None
     
-    logger = setup_logging(dataset_name)
-    logger.info(f"Evaluating Deep-GPCM on {dataset_name}")
+    for model_name, model_results in results.items():
+        if 'baseline' in model_name.lower():
+            baseline_name = model_name
+            baseline_metrics = model_results['evaluation']
+            break
     
-    # Create directories
-    os.makedirs("results/eval", exist_ok=True)
-    os.makedirs("results/plots", exist_ok=True)
+    if baseline_metrics is None:
+        # Use first model as baseline
+        baseline_name = list(results.keys())[0]
+        baseline_metrics = results[baseline_name]['evaluation']
     
-    # Load checkpoint
-    logger.info(f"Loading model from {model_path}")
-    checkpoint = torch.load(model_path, map_location=device)
-    n_cats = checkpoint['n_cats']
-    n_questions = checkpoint['n_questions']
-    
-    logger.info(f"Model config: {n_questions} questions, {n_cats} categories")
-    
-    # Load data
-    train_path = f"data/{dataset_name}/synthetic_oc_train.txt"
-    test_path = f"data/{dataset_name}/synthetic_oc_test.txt"
-    
-    logger.info("Loading data...")
-    train_seqs, train_questions, train_responses, _ = load_gpcm_data(train_path, n_cats)
-    test_seqs, test_questions, test_responses, _ = load_gpcm_data(test_path, n_cats)
-    
-    logger.info(f"Train: {len(train_seqs)} sequences, Test: {len(test_seqs)} sequences")
-    
-    # Create model
-    model = DeepGpcmModel(
-        n_questions=n_questions,
-        n_cats=n_cats,
-        memory_size=50,
-        key_dim=50,
-        value_dim=200,
-        final_fc_dim=50
-    ).to(device)
-    
-    model.load_state_dict(checkpoint['model_state_dict'])
-    
-    # Create test loader
-    test_loader = GpcmDataLoader(test_questions, test_responses, batch_size=64, shuffle=False)
-    
-    # Loss functions and metrics
-    ordinal_loss = OrdinalLoss(n_cats)
-    ce_loss = CrossEntropyLossWrapper()
-    mse_loss = MSELossWrapper()
-    metrics = GpcmMetrics()
-    
-    logger.info("Evaluating Deep-GPCM model...")
-    
-    # Evaluate with different loss functions
-    model_results = {}
-    
-    for loss_name, loss_fn in [('ordinal', ordinal_loss), ('crossentropy', ce_loss), ('mse', mse_loss)]:
-        logger.info(f"Evaluating with {loss_name} loss...")
-        
-        model.eval()
-        total_loss = 0.0
-        all_predictions = []
-        all_targets = []
-        
-        with torch.no_grad():
-            for q_batch, r_batch, mask_batch in test_loader:
-                q_batch = q_batch.to(device)
-                r_batch = r_batch.to(device)
-                mask_batch = mask_batch.to(device)
-                
-                _, _, _, gpcm_probs = model(q_batch, r_batch)
-                
-                if mask_batch is not None:
-                    valid_probs = gpcm_probs[mask_batch]
-                    valid_targets = r_batch[mask_batch]
-                else:
-                    valid_probs = gpcm_probs.view(-1, n_cats)
-                    valid_targets = r_batch.view(-1)
-                
-                loss = loss_fn(valid_probs.unsqueeze(1), valid_targets.unsqueeze(1))
-                total_loss += loss.item()
-                
-                all_predictions.append(valid_probs.cpu())
-                all_targets.append(valid_targets.cpu())
-        
-        # Compute metrics
-        all_predictions = torch.cat(all_predictions, dim=0).unsqueeze(1)
-        all_targets = torch.cat(all_targets, dim=0).unsqueeze(1)
-        
-        model_results[loss_name] = {
-            'loss': total_loss / len(test_loader),
-            'categorical_acc': metrics.categorical_accuracy(all_predictions, all_targets),
-            'ordinal_acc': metrics.ordinal_accuracy(all_predictions, all_targets),
-            'mae': metrics.mean_absolute_error(all_predictions, all_targets),
-            'qwk': metrics.quadratic_weighted_kappa(all_predictions, all_targets, n_cats)
-        }
-        
-        per_cat_acc = metrics.per_category_accuracy(all_predictions, all_targets, n_cats)
-        model_results[loss_name].update(per_cat_acc)
-    
-    # Evaluate baselines
-    logger.info("Evaluating baseline models...")
-    baseline_results = evaluate_baselines(train_responses, test_questions, test_responses, n_cats, metrics)
-    
-    # Create confusion matrix
-    logger.info("Creating confusion matrix...")
-    cm_path = f"results/plots/confusion_matrix_{dataset_name}.png"
-    cm = create_confusion_matrix(model, test_loader, device, n_cats, cm_path)
-    
-    # Compile results
-    evaluation_results = {
-        'dataset': dataset_name,
-        'model_path': model_path,
-        'n_cats': n_cats,
-        'n_questions': n_questions,
-        'model_results': model_results,
-        'baseline_results': baseline_results,
-        'confusion_matrix': cm.tolist(),
-        'evaluation_date': datetime.now().isoformat()
+    comparison = {
+        'baseline_model': baseline_name,
+        'comparisons': {}
     }
     
-    # Save results
-    results_path = f"results/eval/evaluation_{dataset_name}.json"
-    with open(results_path, 'w') as f:
-        json.dump(evaluation_results, f, indent=2)
+    # Compare each model to baseline
+    for model_name, model_results in results.items():
+        if model_name == baseline_name:
+            continue
+        
+        model_metrics = model_results['evaluation']
+        model_comparison = {}
+        
+        # Key metrics comparison
+        key_metrics = ['categorical_acc', 'ordinal_acc', 'qwk', 'mae', 'avg_inference_time', 'total_parameters']
+        
+        for metric in key_metrics:
+            if metric in baseline_metrics and metric in model_metrics:
+                baseline_val = baseline_metrics[metric]
+                model_val = model_metrics[metric]
+                
+                if metric in ['mae']:  # Lower is better
+                    improvement = ((baseline_val - model_val) / baseline_val) * 100
+                else:  # Higher is better (except parameters and time)
+                    if metric in ['avg_inference_time', 'total_parameters']:
+                        improvement = ((baseline_val - model_val) / baseline_val) * 100
+                    else:
+                        improvement = ((model_val - baseline_val) / baseline_val) * 100
+                
+                model_comparison[metric] = {
+                    'baseline': baseline_val,
+                    'model': model_val,
+                    'improvement_percent': improvement,
+                    'better': improvement > 0
+                }
+        
+        comparison['comparisons'][model_name] = model_comparison
     
-    # Print summary
-    logger.info("\n" + "="*60)
-    logger.info("EVALUATION SUMMARY")
-    logger.info("="*60)
+    return comparison
+
+
+def print_evaluation_summary(results: Dict[str, Dict[str, Any]], comparison: Dict[str, Any]):
+    """Print comprehensive evaluation summary."""
+    print("\n" + "="*80)
+    print("COMPREHENSIVE MODEL EVALUATION SUMMARY")
+    print("="*80)
     
-    logger.info(f"Dataset: {dataset_name}")
-    logger.info(f"Categories: {n_cats}")
-    logger.info(f"Test Sequences: {len(test_seqs)}")
+    # Individual model results
+    for model_name, model_results in results.items():
+        eval_metrics = model_results['evaluation']
+        
+        print(f"\n📊 {model_name.upper()} PERFORMANCE:")
+        print("-" * 50)
+        print(f"Categorical Accuracy: {eval_metrics['categorical_acc']:.4f}")
+        print(f"Ordinal Accuracy: {eval_metrics['ordinal_acc']:.4f}")
+        print(f"QWK Score: {eval_metrics['qwk']:.4f}")
+        print(f"MAE: {eval_metrics['mae']:.4f}")
+        print(f"Parameters: {eval_metrics['total_parameters']:,}")
+        print(f"Inference Time: {eval_metrics['avg_inference_time']*1000:.1f}ms")
+        
+        if 'features' in model_results.get('model_info', {}):
+            features = model_results['model_info']['features']
+            print(f"Features: {', '.join(features)}")
     
-    logger.info("\nModel Performance (Ordinal Loss):")
-    ordinal_res = model_results['ordinal']
-    logger.info(f"  Categorical Accuracy: {ordinal_res['categorical_acc']:.4f}")
-    logger.info(f"  Ordinal Accuracy:     {ordinal_res['ordinal_acc']:.4f}")
-    logger.info(f"  Mean Absolute Error:  {ordinal_res['mae']:.4f}")
-    logger.info(f"  Quadratic Weighted κ: {ordinal_res['qwk']:.4f}")
+    # Comparison results
+    if 'comparisons' in comparison:
+        print(f"\n🔬 COMPARATIVE ANALYSIS:")
+        print("-" * 50)
+        baseline_name = comparison['baseline_model']
+        print(f"Baseline: {baseline_name}")
+        
+        for model_name, comp_data in comparison['comparisons'].items():
+            print(f"\n{model_name} vs {baseline_name}:")
+            
+            for metric, metric_data in comp_data.items():
+                improvement = metric_data['improvement_percent']
+                symbol = "↑" if metric_data['better'] else "↓"
+                color_indicator = "✅" if metric_data['better'] else "❌"
+                
+                print(f"  {metric}: {symbol} {improvement:+.1f}% {color_indicator}")
     
-    logger.info("\nBaseline Comparisons:")
-    for baseline_name, baseline_res in baseline_results.items():
-        logger.info(f"  {baseline_name.title()} Baseline:")
-        logger.info(f"    Categorical Acc: {baseline_res['categorical_acc']:.4f}")
-        logger.info(f"    Ordinal Acc:     {baseline_res['ordinal_acc']:.4f}")
-        logger.info(f"    QWK:             {baseline_res['qwk']:.4f}")
-    
-    logger.info(f"\nResults saved to: {results_path}")
-    logger.info(f"Confusion matrix saved to: {cm_path}")
-    
-    return evaluation_results
+    print("\n" + "="*80)
 
 
 def main():
-    """Main function with command line interface."""
-    parser = argparse.ArgumentParser(description='Evaluate Deep-GPCM Model')
-    parser.add_argument('--model_path', type=str, required=True,
-                        help='Path to trained model checkpoint')
+    """Main evaluation function."""
+    parser = argparse.ArgumentParser(description='Unified Deep-GPCM Evaluation')
+    parser.add_argument('--models', type=str, nargs='+', required=True,
+                        help='Paths to trained model checkpoints')
     parser.add_argument('--dataset', type=str, default='synthetic_OC',
-                        help='Dataset name (default: synthetic_OC)')
+                        help='Dataset name for evaluation')
+    parser.add_argument('--batch_size', type=int, default=32,
+                        help='Evaluation batch size')
+    parser.add_argument('--device', type=str, default='auto',
+                        help='Device to use (auto, cpu, cuda)')
+    parser.add_argument('--output', type=str, default='results/evaluation',
+                        help='Output directory for results')
+    parser.add_argument('--compare', action='store_true',
+                        help='Generate comparison analysis')
     
     args = parser.parse_args()
     
-    # Set random seeds for reproducibility
-    torch.manual_seed(42)
-    np.random.seed(42)
+    # Set device
+    if args.device == "auto":
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    else:
+        device = torch.device(args.device)
     
-    # Evaluate model
-    results = evaluate_model_comprehensive(args.model_path, args.dataset)
+    print(f"Using device: {device}")
     
-    return results
+    # Load test data (assuming same for all models)
+    test_path = f"data/{args.dataset}/{args.dataset.lower()}_test.txt"
+    test_seqs, test_questions, test_responses, n_cats = load_gpcm_data(test_path)
+    
+    print(f"Test data: {len(test_seqs)} sequences, {n_cats} categories")
+    
+    # Create test data loader
+    test_loader = UnifiedDataLoader(test_questions, test_responses,
+                                  args.batch_size, shuffle=False, device=device)
+    
+    # Evaluate each model
+    results = {}
+    metrics = GpcmMetrics()
+    
+    for model_path in args.models:
+        model_name = os.path.basename(model_path).replace('.pth', '')
+        
+        print(f"\n=== Evaluating {model_name} ===")
+        
+        try:
+            # Load model
+            model, config, training_results = load_trained_model(model_path, device)
+            
+            # Create loss function
+            loss_fn = create_loss_function(config.loss_type, n_cats)
+            
+            # Evaluate
+            eval_metrics = evaluate_model_comprehensive(
+                model, test_loader, loss_fn, metrics, device, n_cats
+            )
+            
+            # Get model info
+            if hasattr(model, 'get_model_info'):
+                model_info = model.get_model_info()
+            else:
+                model_info = {"name": config.model_type, "type": config.model_type}
+            
+            results[model_name] = {
+                'model_path': model_path,
+                'config': config.__dict__,
+                'model_info': model_info,
+                'evaluation': eval_metrics,
+                'training_results': training_results
+            }
+            
+            print(f"✅ Evaluation completed for {model_name}")
+            print(f"   Categorical Accuracy: {eval_metrics['categorical_acc']:.4f}")
+            print(f"   Ordinal Accuracy: {eval_metrics['ordinal_acc']:.4f}")
+            print(f"   QWK Score: {eval_metrics['qwk']:.4f}")
+            
+        except Exception as e:
+            print(f"❌ Failed to evaluate {model_name}: {e}")
+            continue
+    
+    # Generate comparison if requested
+    comparison = {}
+    if args.compare and len(results) > 1:
+        comparison = compare_models(results)
+    
+    # Print summary
+    print_evaluation_summary(results, comparison)
+    
+    # Save results
+    os.makedirs(args.output, exist_ok=True)
+    
+    output_file = os.path.join(args.output, f"evaluation_{args.dataset}.json")
+    final_results = {
+        'dataset': args.dataset,
+        'device': str(device),
+        'models': results,
+        'comparison': comparison
+    }
+    
+    with open(output_file, 'w') as f:
+        json.dump(final_results, f, indent=2)
+    
+    print(f"\n💾 Results saved to: {output_file}")
 
 
 if __name__ == "__main__":

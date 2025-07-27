@@ -1,0 +1,19 @@
+{
+  "model_type": "baseline",
+  "n_questions": null,
+  "n_cats": 4,
+  "memory_size": 50,
+  "key_dim": 50,
+  "value_dim": 200,
+  "final_fc_dim": 50,
+  "embedding_strategy": "linear_decay",
+  "prediction_method": "cumulative",
+  "batch_size": 32,
+  "learning_rate": 0.001,
+  "epochs": 30,
+  "loss_type": "crossentropy",
+  "device": "auto",
+  "dataset_name": "synthetic_OC",
+  "save_dir": "save_models",
+  "results_dir": "results"
+}

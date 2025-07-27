@@ -1,0 +1,6 @@
+{
+  "dataset": "synthetic_OC",
+  "device": "cuda",
+  "models": {},
+  "comparison": {}
+}
