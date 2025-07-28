@@ -51,14 +51,6 @@ class AKVMNConfig(BaseConfig):
     adaptive_cycles: bool = False
 
 
-@dataclass
-class DeepIntegrationConfig(BaseConfig):
-    """Deep Integration specific configuration."""
-    model_type: str = "deep_integration"
-    
-    # Deep Integration parameters
-    embed_dim: int = 64
-    n_cycles: int = 2
 
 
 def get_model_config(model_type: str, **kwargs) -> BaseConfig:
@@ -66,7 +58,7 @@ def get_model_config(model_type: str, **kwargs) -> BaseConfig:
     Create model configuration.
     
     Args:
-        model_type: Type of model ("baseline", "akvmn", "deep_integration")
+        model_type: Type of model ("baseline", "akvmn")
         **kwargs: Additional configuration parameters
         
     Returns:
@@ -74,8 +66,6 @@ def get_model_config(model_type: str, **kwargs) -> BaseConfig:
     """
     if model_type == "akvmn":
         return AKVMNConfig(**kwargs)
-    elif model_type == "deep_integration":
-        return DeepIntegrationConfig(**kwargs)
     else:
         return BaseConfig(model_type="baseline", **kwargs)
 
@@ -100,8 +90,8 @@ def get_preset_configs() -> Dict[str, BaseConfig]:
             epochs=30
         ),
         
-        "deep_integration": DeepIntegrationConfig(
-            model_type="deep_integration",
+        "akvmn": AKVMNConfig(
+            model_type="akvmn",
             embed_dim=64,
             n_cycles=2,
             embedding_strategy="linear_decay",
@@ -135,4 +125,4 @@ def save_config(config: BaseConfig, config_path: str):
 # Preset configurations
 BASELINE_CONFIG = get_preset_configs()["baseline"]
 AKVMN_CONFIG = get_preset_configs()["akvmn"]
-DEEP_INTEGRATION_CONFIG = get_preset_configs()["deep_integration"]
+AKVMN_CONFIG = get_preset_configs()["akvmn"]

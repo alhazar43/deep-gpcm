@@ -11,11 +11,11 @@ python main.py --dataset synthetic_OC --epochs 15
 
 # Single model training  
 python train.py --model baseline --dataset synthetic_OC --epochs 15 --n_folds 5
-python train.py --model deep_integration --dataset synthetic_OC --epochs 15 --n_folds 5
+python train.py --model akvmn --dataset synthetic_OC --epochs 15 --n_folds 5
 
 # Model evaluation
 python evaluate.py --model_path save_models/best_baseline_synthetic_OC.pth
-python evaluate.py --model_path save_models/best_deep_integration_synthetic_OC.pth
+python evaluate.py --model_path save_models/best_akvmn_synthetic_OC.pth
 
 # Generate visualizations
 python plot_metrics.py --train_results logs/*.json --test_results results/test/*.json
@@ -36,12 +36,12 @@ pip install torch scikit-learn matplotlib seaborn numpy
 | Model | Categorical Accuracy | Quadratic Weighted Kappa | Ordinal Accuracy | Parameters |
 |-------|---------------------|-------------------------|------------------|------------|
 | **Baseline GPCM** | 68.7% | 0.641 | 84.4% | 134K |
-| **Deep Integration** | 70.3% | 0.687 | 86.0% | 174K |
+| **AKVMN** | 70.3% | 0.687 | 86.0% | 174K |
 
 *Results from unified pipeline on synthetic_OC dataset*
 
 **Key Improvements**:
-- Deep Integration achieves 1.6% higher categorical accuracy
+- AKVMN achieves 1.6% higher categorical accuracy
 - 4.6pp improvement in Quadratic Weighted Kappa 
 - Consistent performance across all ordinal metrics
 - Stable training with proper convergence patterns
@@ -62,7 +62,7 @@ pip install torch scikit-learn matplotlib seaborn numpy
 - **Parameters**: 134,055
 - **Training**: Stable convergence with cross-entropy loss
 
-#### Deep Integration GPCM  
+#### AKVMN GPCM  
 - **Architecture**: Enhanced DKVMN with multi-head attention and advanced embeddings
 - **Innovation**: Proper integration of memory networks with attention mechanisms
 - **Parameters**: 174,354  
@@ -89,7 +89,7 @@ main.py           # Complete pipeline orchestrator
 models/
 ├── __init__.py                     # Module initialization
 ├── baseline.py                     # Baseline DKVMN-GPCM implementation
-└── deep_integration_gpcm_proper.py # Deep Integration model
+└── akvmn_gpcm.py # AKVMN model
 ```
 
 ### Supporting Infrastructure
@@ -97,7 +97,6 @@ models/
 evaluation/metrics.py    # Comprehensive evaluation metrics
 utils/                   # Data utilities and helper functions  
 config.py               # Configuration management
-model_factory.py        # Model creation utilities
 data_gen.py            # Synthetic data generation
 requirements.txt       # Package dependencies
 ```
@@ -120,7 +119,7 @@ python main.py --dataset synthetic_OC --epochs 15
 
 # Train specific models only
 python main.py --models baseline --dataset synthetic_OC --epochs 15
-python main.py --models deep_integration --dataset synthetic_OC --epochs 15
+python main.py --models akvmn --dataset synthetic_OC --epochs 15
 
 # Skip training (evaluate existing models only)
 python main.py --skip_training --dataset synthetic_OC
@@ -133,8 +132,8 @@ python main.py --skip_training --dataset synthetic_OC
 # Baseline model with 5-fold CV
 python train.py --model baseline --dataset synthetic_OC --epochs 15 --n_folds 5
 
-# Deep Integration model
-python train.py --model deep_integration --dataset synthetic_OC --epochs 15 --n_folds 5
+# AKVMN model
+python train.py --model akvmn --dataset synthetic_OC --epochs 15 --n_folds 5
 
 # Single-fold training (no CV)
 python train.py --model baseline --dataset synthetic_OC --epochs 15 --n_folds 0
@@ -146,7 +145,7 @@ python train.py --model baseline --dataset synthetic_OC --epochs 15 --n_folds 0
 python evaluate.py --model_path save_models/best_baseline_synthetic_OC.pth
 
 # Evaluate with specific dataset
-python evaluate.py --model_path save_models/best_deep_integration_synthetic_OC.pth --dataset synthetic_OC
+python evaluate.py --model_path save_models/best_akvmn_synthetic_OC.pth --dataset synthetic_OC
 
 # Batch evaluation
 python evaluate.py --model_path save_models/best_*_synthetic_OC.pth
@@ -177,7 +176,7 @@ python data_gen.py --format OC --categories 4 --students 800 --questions 30
 ### Command-Line Arguments
 
 #### main.py
-- `--models`: Model types to train/evaluate (`baseline`, `deep_integration`)
+- `--models`: Model types to train/evaluate (`baseline`, `akvmn`)
 - `--dataset`: Dataset name (default: `synthetic_OC`)
 - `--epochs`: Training epochs (default: 15)
 - `--n_folds`: CV folds, 0 for no CV (default: 5)
@@ -187,7 +186,7 @@ python data_gen.py --format OC --categories 4 --students 800 --questions 30
 - `--batch_size`: Training batch size
 
 #### train.py
-- `--model`: Model type (`baseline`/`deep_integration`)
+- `--model`: Model type (`baseline`/`akvmn`)
 - `--dataset`: Dataset name
 - `--epochs`: Training epochs
 - `--n_folds`: Number of CV folds (0 for single-fold)
@@ -289,8 +288,7 @@ data/
 ### Adding New Models
 1. Create model file in `models/` directory
 2. Import in `train.py` and `evaluate.py`
-3. Add to model factory if needed
-4. Update documentation
+3. Update documentation
 
 ### Testing and Validation
 - Use synthetic datasets for rapid prototyping

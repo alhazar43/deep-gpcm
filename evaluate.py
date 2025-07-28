@@ -13,7 +13,7 @@ import numpy as np
 from datetime import datetime
 
 from models.baseline import BaselineGPCM
-from models.deep_integration_gpcm_proper import ProperDeepIntegrationGPCM
+from models.akvmn_gpcm import AKVMNGPCM
 from evaluation.metrics import GpcmMetrics
 import torch.utils.data as data_utils
 import torch.nn as nn
@@ -145,8 +145,8 @@ def load_trained_model(model_path, device):
             value_dim=200,
             final_fc_dim=50
         )
-    elif model_type == 'deep_integration':
-        model = ProperDeepIntegrationGPCM(
+    elif model_type == 'akvmn':
+        model = AKVMNGPCM(
             n_questions=n_questions,
             n_cats=n_cats,
             embed_dim=64,

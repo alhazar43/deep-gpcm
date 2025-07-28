@@ -14,7 +14,7 @@ from datetime import datetime
 from sklearn.model_selection import KFold
 
 from models.baseline import BaselineGPCM
-from models.deep_integration_gpcm_proper import ProperDeepIntegrationGPCM
+from models.akvmn_gpcm import AKVMNGPCM
 from evaluation.metrics import GpcmMetrics
 import torch.utils.data as data_utils
 import torch.nn as nn
@@ -123,8 +123,8 @@ def create_model(model_type, n_questions, n_cats, device):
             value_dim=200,
             final_fc_dim=50
         )
-    elif model_type == 'deep_integration':
-        model = ProperDeepIntegrationGPCM(
+    elif model_type == 'akvmn':
+        model = AKVMNGPCM(
             n_questions=n_questions,
             n_cats=n_cats,
             embed_dim=64,
@@ -306,7 +306,7 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
 
 def main():
     parser = argparse.ArgumentParser(description='Unified Deep-GPCM Training')
-    parser.add_argument('--model', choices=['baseline', 'deep_integration'], required=True,
+    parser.add_argument('--model', choices=['baseline', 'akvmn'], required=True,
                         help='Model to train')
     parser.add_argument('--dataset', default='synthetic_OC', help='Dataset name')
     parser.add_argument('--epochs', type=int, default=30, help='Number of epochs')

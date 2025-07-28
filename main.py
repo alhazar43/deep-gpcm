@@ -88,8 +88,8 @@ def find_result_files(models, dataset, result_type='train'):
 
 def main():
     parser = argparse.ArgumentParser(description='Unified Deep-GPCM Pipeline')
-    parser.add_argument('--models', nargs='+', choices=['baseline', 'deep_integration'], 
-                        default=['baseline', 'deep_integration'], help='Models to train/evaluate')
+    parser.add_argument('--models', nargs='+', choices=['baseline', 'akvmn'], 
+                        default=['baseline', 'akvmn'], help='Models to train/evaluate')
     parser.add_argument('--dataset', default='synthetic_OC', help='Dataset to use')
     parser.add_argument('--epochs', type=int, default=30, help='Training epochs')
     parser.add_argument('--n_folds', type=int, default=5, help='CV folds (0 for no CV)')

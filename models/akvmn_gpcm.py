@@ -14,7 +14,7 @@ except ImportError:
     from baseline import DKVMN
 
 
-class ProperDeepIntegrationGPCM(nn.Module):
+class AKVMNGPCM(nn.Module):
     """
     Proper Deep Integration model with GPCM probability computation.
     
@@ -31,7 +31,7 @@ class ProperDeepIntegrationGPCM(nn.Module):
                  embedding_strategy: str = "linear_decay"):
         super().__init__()
         
-        self.model_name = "deep_integration_gpcm_proper"
+        self.model_name = "akvmn_gpcm"
         self.n_questions = n_questions
         self.n_cats = n_cats
         self.embed_dim = embed_dim
@@ -366,7 +366,7 @@ class ProperDeepIntegrationGPCM(nn.Module):
         """Get model information."""
         return {
             "name": self.model_name,
-            "type": "deep_integration_gpcm_proper", 
+            "type": "akvmn_gpcm", 
             "parameters": sum(p.numel() for p in self.parameters()),
             "architecture": "Deep Integration with Proper GPCM",
             "features": [
@@ -383,6 +383,6 @@ class ProperDeepIntegrationGPCM(nn.Module):
 
 
 # Factory function
-def create_proper_deep_integration_gpcm(**kwargs):
-    """Factory function to create Proper Deep Integration GPCM model."""
-    return ProperDeepIntegrationGPCM(**kwargs)
+def create_akvmn_gpcm(**kwargs):
+    """Factory function to create AKVMN GPCM model."""
+    return AKVMNGPCM(**kwargs)
