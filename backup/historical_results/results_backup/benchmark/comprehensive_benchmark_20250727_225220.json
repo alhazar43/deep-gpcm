@@ -1,0 +1,24 @@
+{
+  "baseline": {
+    "categorical_accuracy": 0.45121949911117554,
+    "ordinal_accuracy": 0.7186411023139954,
+    "qwk": 0.4315344580255842,
+    "mae": 0.9590592384338379,
+    "prediction_consistency": 0.45121949911117554,
+    "ordinal_ranking": 0.483819396713809,
+    "distribution_consistency": 0.6242165104437373,
+    "avg_inference_time": 0.03548407554626465,
+    "parameters": 133205
+  },
+  "akvmn": {
+    "categorical_accuracy": 0.39721253514289856,
+    "ordinal_accuracy": 0.6097561120986938,
+    "qwk": 0.24876852843374841,
+    "mae": 1.2047038078308105,
+    "prediction_consistency": 0.39721253514289856,
+    "ordinal_ranking": 0.46508694101104847,
+    "distribution_consistency": 0.5881888006362765,
+    "avg_inference_time": 0.020077228546142578,
+    "parameters": 153254
+  }
+}
