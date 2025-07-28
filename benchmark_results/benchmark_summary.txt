@@ -1,0 +1,8 @@
+Deep-GPCM Model Benchmark Comparison
+==================================================
+
+Model      Accuracy   QWK        Parameters   Type      
+------------------------------------------------------------
+Baseline   0.000      0.000      134,055      baseline  
+Akvmn      0.000      0.000      174,354      akvmn     
+Bayesian   0.671      0.000      172,513      bayesian  

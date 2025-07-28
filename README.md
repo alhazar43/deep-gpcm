@@ -498,6 +498,73 @@ data/
 - **Accuracy Range**: 60-75% categorical accuracy on synthetic datasets
 - **QWK Range**: 0.4-0.7 for well-performing models
 
+## Variational Bayesian GPCM
+
+### Overview
+The Deep-GPCM system now includes a Variational Bayesian implementation that incorporates prior distributions for IRT parameters, enabling better parameter recovery and uncertainty quantification.
+
+### Key Features
+- **Variational Inference**: Proper Bayesian treatment using ELBO optimization (not simple MAP/regularization)
+- **Prior Distributions**: Matching synthetic data generation:
+  - θ (student ability) ~ N(0, 1)
+  - α (discrimination) ~ LogNormal(0, 0.3)  
+  - β (thresholds) ~ Ordered Normal with base difficulty N(0, 1)
+- **Uncertainty Quantification**: Full posterior distributions with uncertainty estimates
+- **Parameter Recovery**: Improved alignment with ground truth IRT parameters
+
+### Training Bayesian Model
+```bash
+# Train Variational Bayesian model
+python train_bayesian.py --dataset synthetic_OC --epochs 50 --kl_annealing
+
+# Train with custom KL weight
+python train_bayesian.py --dataset synthetic_OC --epochs 50 --kl_weight 0.5
+
+# Train with higher learning rate
+python train_bayesian.py --dataset synthetic_OC --epochs 50 --learning_rate 0.005
+```
+
+### Comparing IRT Parameters
+```bash
+# Compare all models (baseline, AKVMN, Bayesian) with ground truth
+python compare_irt_models.py --dataset synthetic_OC
+
+# Compare specific models
+python compare_irt_models.py --baseline_model save_models/best_baseline_synthetic_OC.pth \
+                           --bayesian_model save_models/best_bayesian_synthetic_OC.pth \
+                           --output_dir irt_comparison
+
+# Generate comparison visualizations
+python compare_irt_models.py --dataset synthetic_OC --output_dir irt_comparison
+```
+
+### Bayesian Model Architecture
+- **Variational Distributions**: 
+  - NormalVariational for θ with reparameterization trick
+  - LogNormalVariational for α (positive constraint)
+  - OrderedNormalVariational for β (ordering constraint)
+- **ELBO Loss**: Negative log likelihood + KL divergence with prior
+- **KL Annealing**: Optional linear annealing schedule for stable training
+
+### Generated Outputs
+```
+irt_comparison/
+├── all_models_distributions.png      # Parameter distributions across all models
+├── baseline_vs_truth_scatter.png     # Baseline vs ground truth scatter plots
+├── bayesian_vs_truth_scatter.png     # Bayesian vs ground truth scatter plots
+├── akvmn_vs_truth_scatter.png        # AKVMN vs ground truth scatter plots
+├── bayesian_uncertainty.png          # Posterior uncertainty visualization
+├── comparison_metrics_summary.csv    # Numerical comparison metrics
+└── comparison_metrics_summary.txt    # Formatted comparison summary
+```
+
+### Key Metrics for IRT Recovery
+- **Parameter Correlation**: How well learned parameters correlate with ground truth
+- **Distribution Similarity**: Kolmogorov-Smirnov test for distribution matching
+- **Wasserstein Distance**: Optimal transport distance between distributions
+- **Standardized MSE**: Mean squared error after standardization
+- **Posterior Uncertainty**: Standard deviation of posterior distributions
+
 ## References
 
 Built upon established knowledge tracing research:
@@ -505,6 +572,7 @@ Built upon established knowledge tracing research:
 - Generalized Partial Credit Model (GPCM)
 - Deep Item Response Theory frameworks
 - Attention mechanisms for educational data
+- Variational Bayesian methods for IRT parameter estimation
 
 ## License
 

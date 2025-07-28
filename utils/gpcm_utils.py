@@ -193,3 +193,31 @@ class MSELossWrapper(nn.Module):
         targets_float = targets.float()
         
         return self.loss_fn(pred_cats, targets_float)
+
+
+class GpcmDataset(torch.utils.data.Dataset):
+    """Dataset class for GPCM data compatible with DataLoader."""
+    
+    def __init__(self, questions, responses):
+        # Ensure inputs are lists of sequences
+        if isinstance(questions, torch.Tensor):
+            # Convert flat tensor back to sequences - this is a simplified approach
+            # In practice, you'd need proper sequence length information
+            self.questions = questions.unsqueeze(0) if questions.dim() == 1 else questions
+            self.responses = responses.unsqueeze(0) if responses.dim() == 1 else responses
+        else:
+            # Convert list of sequences to padded tensors
+            max_len = max(len(seq) for seq in questions)
+            self.questions = torch.zeros((len(questions), max_len), dtype=torch.long)
+            self.responses = torch.zeros((len(responses), max_len), dtype=torch.long)
+            
+            for i, (q_seq, r_seq) in enumerate(zip(questions, responses)):
+                seq_len = len(q_seq)
+                self.questions[i, :seq_len] = torch.tensor(q_seq)
+                self.responses[i, :seq_len] = torch.tensor(r_seq)
+    
+    def __len__(self):
+        return len(self.questions)
+    
+    def __getitem__(self, idx):
+        return self.questions[idx], self.responses[idx]
