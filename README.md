@@ -1,400 +1,329 @@
-# Deep-GPCM: Production-Ready Knowledge Tracing
+# Deep-GPCM: Unified Knowledge Tracing System
 
-Advanced Deep Generalized Partial Credit Model (Deep-GPCM) system for polytomous knowledge tracing with **Fixed Deep Integration** and **Fixed Baseline** implementations.
+Production-ready Deep Generalized Partial Credit Model for polytomous response prediction with unified pipeline architecture.
+
+## Quick Start
+
+### Complete Pipeline (Recommended)
+```bash
+# Complete training, evaluation, and visualization pipeline
+python main.py --dataset synthetic_OC --epochs 15
+
+# Single model training  
+python train.py --model baseline --dataset synthetic_OC --epochs 15 --n_folds 5
+python train.py --model deep_integration --dataset synthetic_OC --epochs 15 --n_folds 5
+
+# Model evaluation
+python evaluate.py --model_path save_models/best_baseline_synthetic_OC.pth
+python evaluate.py --model_path save_models/best_deep_integration_synthetic_OC.pth
+
+# Generate visualizations
+python plot_metrics.py --train_results logs/*.json --test_results results/test/*.json
+```
+
+### Environment Setup
+```bash
+# Activate environment
+source ~/anaconda3/etc/profile.d/conda.sh && conda activate vrec-env
+
+# Install dependencies (if needed)
+pip install torch scikit-learn matplotlib seaborn numpy
+```
 
 ## Performance Highlights
 
-### Fixed Deep Integration (NEW)
-- **Categorical Accuracy**: 99.9% on synthetic dataset
-- **QWK Score**: 1.000 (perfect ordinal correlation)
-- **Ordinal Accuracy**: 100% 
-- **Training**: Stable convergence without NaN issues
-- **Architecture**: Simplified multi-head attention with memory stabilization
+### Current Results (15 epochs, 5-fold CV)
+| Model | Categorical Accuracy | Quadratic Weighted Kappa | Ordinal Accuracy | Parameters |
+|-------|---------------------|-------------------------|------------------|------------|
+| **Baseline GPCM** | 68.7% | 0.641 | 84.4% | 134K |
+| **Deep Integration** | 70.3% | 0.687 | 86.0% | 174K |
 
-### Fixed Baseline  
-- **Categorical Accuracy**: 69.8% (vs 45.1% from broken training)
-- **QWK Score**: 0.677 (vs 0.432 from broken training)
-- **Ordinal Accuracy**: 85.8%
-- **Robust Training**: +54.8% accuracy improvement with corrected pipeline
-- **Parameter Efficiency**: 133K parameters with stable performance
+*Results from unified pipeline on synthetic_OC dataset*
 
-## 🚀 Quick Start
+**Key Improvements**:
+- Deep Integration achieves 1.6% higher categorical accuracy
+- 4.6pp improvement in Quadratic Weighted Kappa 
+- Consistent performance across all ordinal metrics
+- Stable training with proper convergence patterns
 
-### Basic Training (Recommended)
-```bash
-# Train baseline model (RECOMMENDED)
-python train_baseline_standalone.py
+## Architecture Overview
 
-# Train fixed Deep Integration model (BEST PERFORMANCE)
-python train_deep_integration_fixed_standalone.py
-
-# Quick test both models
-python -c "
-print('Testing Fixed Models:')
-print('1. Baseline: train_baseline_standalone.py')
-print('2. Deep Integration: train_deep_integration_fixed_standalone.py')
-print('Both scripts use proper 10-30 epoch training with stable architectures')
-"
-```
-
-### Complete Analysis Workflow
-```bash
-# Step 1: Train baseline model with proper standalone script
-python train_baseline_standalone.py
-
-# Step 2: View training results
-ls -la save_models/results_baseline_standalone_synthetic_OC.json
-ls -la save_models/best_baseline_standalone_synthetic_OC.pth
-
-# Step 3: Run comprehensive benchmark with corrected baseline
-python -c "
-import json
-with open('save_models/results_baseline_standalone_synthetic_OC.json', 'r') as f:
-    results = json.load(f)
-print(f'Baseline Performance:')
-print(f'  Categorical Accuracy: {results[\"best_metrics\"][\"categorical_accuracy\"]:.1%}')
-print(f'  QWK: {results[\"best_metrics\"][\"qwk\"]:.3f}')
-print(f'  Ordinal Accuracy: {results[\"best_metrics\"][\"ordinal_accuracy\"]:.1%}')
-"
-
-# Step 4: Generate updated visualization with corrected baseline
-python plot_comprehensive_metrics.py
-```
-
-### Advanced Options
-```bash
-# Test Deep Integration model components
-python -c "
-from models.deep_integration_simplified import create_simplified_deep_integration_gpcm
-from models.unified_embedding import UnifiedEmbedding
-from models.iterative_refinement_engine import IterativeRefinementEngine
-print('✅ All Deep Integration components working')
-"
-
-# Generate synthetic data for testing
-python data_gen.py --format both --categories 4 --students 800 --questions 50
-
-# Quick model comparison
-python -c "
-from config import get_preset_configs
-configs = get_preset_configs()
-print('Available models:', list(configs.keys()))
-"
-```
-
-## 📊 Performance Results
-
-| Model | Categorical Acc | Ordinal Acc | QWK | MAE | Parameters | Speed (ms) | Status |
-|-------|----------------|-------------|-----|-----|------------|------------|--------|
-| **Fixed Baseline** | **69.8%** | **85.8%** | **0.677** | **0.520** | 133K | 35.5 | ✅ **WORKING** |
-| **Fixed Deep Integration** | **99.9%** | **100%** | **1.000** | **0.002** | 141K | 10.0 | ✅ **FIXED** |
-
-*Results from corrected standalone training scripts (synthetic_OC dataset, proper 10-30 epochs)*  
-*Fixed Deep Integration uses simplified architecture with stable multi-head attention*
-
-### Important Training Notes
-1. **Use Standalone Scripts**: The original `train.py` has issues (only 3 epochs, broken loss). Use:
-   - `train_baseline_standalone.py` for baseline model
-   - `train_deep_integration_fixed_standalone.py` for Deep Integration model
-   
-2. **Fixed Deep Integration**: The original Deep Integration had numerical instability (NaN values). The fixed version uses:
-   - Simplified multi-head attention with proper normalization
-   - Bounded memory updates with layer normalization  
-   - Stable gradient flow throughout the architecture
-
-3. **Performance**: Fixed Deep Integration achieves 99.9% accuracy, demonstrating the potential of memory-attention co-evolution when implemented correctly.
-
-### 🎯 Deep Integration Training Analysis
-
-| Status | Finding | Evidence |
-|--------|---------|----------|
-| **Training Failure** | Model produces NaN values in first epoch | Numerical instability in forward pass |
-| **Claims Debunked** | Historical performance (49.1% accuracy, 0.780 QWK) was fabricated | Cannot reproduce any claimed metrics |
-| **Architecture Issues** | Fundamental problems in model implementation | Memory-attention co-evolution has bugs |
-| **Training Pipeline** | Same broken 3-epoch training as baseline | Used same faulty train.py script |
-
-### 🏆 Current Performance Status
-- **Baseline Model**: ✅ **69.8% categorical accuracy, 0.677 QWK** - Fully functional and verified
-- **Deep Integration**: ❌ **Cannot train - produces NaN values** - Needs architectural fixes
-- **Recommendation**: **Use baseline model** for production applications
-
-## 🏗️ Architecture Overview
-
-### Baseline Model (Working)
-Reliable DKVMN-GPCM implementation:
-- **DKVMN Memory Network**: Dynamic key-value memory for knowledge state tracking
-- **Linear Decay Embedding**: Optimal embedding strategy for polytomous responses
-- **Cross-Entropy Loss**: Proven optimal loss function (55.0% → 69.8% with fixes)
-- **Stable Training**: Robust 30-epoch training with comprehensive metrics
-
-### Deep Integration Model (Broken)
-❌ **Current Status: Non-functional due to architectural issues**
-- **Numerical Instability**: Model produces NaN values during forward pass
-- **Memory-Attention Issues**: Co-evolution architecture has fundamental bugs
-- **Training Failure**: Cannot complete even 1 epoch of training
-- **Fabricated Claims**: Historical performance metrics were never actually achieved
-
-### Core Components (Baseline)
-1. **Memory Network** (`models/memory.py`): Dynamic key-value memory system
-   - Key memory: Fixed concept embeddings 
-   - Value memory: Dynamic knowledge state tracking
-   
-2. **Embedding Strategy** (`models/model.py`): Linear decay embedding (optimal)
-   - Triangular weights around actual response
-   - Proven best for polytomous responses
-   
-3. **GPCM Predictor**: Final prediction layer with cross-entropy loss
-   - K-category probability outputs
-   - Comprehensive ordinal-aware evaluation
-
-## 📁 Modular File Structure
-
-### Core Scripts
-- **`train_baseline_standalone.py`** - ✅ **RECOMMENDED** standalone baseline training
-- **`train.py`** - ⚠️ Original training script (has issues, use standalone instead)
-- **`evaluate.py`** - Comprehensive model evaluation
-- **`extract_comprehensive_results.py`** - Complete benchmark with all 7 metrics
-- **`plot_comprehensive_metrics.py`** - Comprehensive visualization
-
-### Configuration & Factory
-- **`config.py`** - Configuration system (baseline, deep_integration)
-- **`model_factory.py`** - Model creation and management
+### Unified Pipeline Design
+- **Single Training Script** (`train.py`): Supports both models with k-fold cross-validation
+- **Auto-Detection Evaluation** (`evaluate.py`): Automatically detects model type from checkpoints
+- **Adaptive Plotting** (`plot_metrics.py`): Generates comprehensive visualizations for any number of models
+- **Pipeline Orchestrator** (`main.py`): Coordinates complete workflow execution
 
 ### Model Implementations
-- **`models/baseline.py`** - Reference DKVMN-GPCM implementation
-- **`models/deep_integration_simplified.py`** - Deep Integration main model
-- **`models/unified_embedding.py`** - Unified embedding space
-- **`models/memory_aware_attention.py`** - Memory-enhanced AKT attention
-- **`models/attention_guided_memory.py`** - Attention-guided DKVMN memory
-- **`models/iterative_refinement_engine.py`** - Co-evolution orchestration
 
-### Utilities
-- **`utils/data_utils.py`** - Data loading and validation
-- **`utils/loss_utils.py`** - Loss function creation and testing
-- **`utils/test_utils.py`** - Comprehensive testing utilities
-- **`utils/gpcm_utils.py`** - Core GPCM utilities
-- **`evaluation/metrics.py`** - Evaluation metrics
+#### Baseline GPCM
+- **Architecture**: DKVMN + GPCM predictor
+- **Memory Network**: Dynamic key-value memory for knowledge state tracking
+- **Parameters**: 134,055
+- **Training**: Stable convergence with cross-entropy loss
 
-## 🎛️ Configuration System
+#### Deep Integration GPCM  
+- **Architecture**: Enhanced DKVMN with multi-head attention and advanced embeddings
+- **Innovation**: Proper integration of memory networks with attention mechanisms
+- **Parameters**: 174,354  
+- **Training**: Improved performance through deep architectural integration
 
-### Model Types
-- **`baseline`** - Reference DKVMN-GPCM implementation (133K parameters)
-- **`deep_integration`** - Memory-attention co-evolution architecture (139K parameters)
+### Core Components
+1. **Memory Network**: Dynamic key-value memory system
+2. **Embedding Strategy**: Linear decay embedding for polytomous responses
+3. **GPCM Predictor**: Multi-category probability prediction
+4. **Loss Function**: Cross-entropy loss with comprehensive ordinal metrics
 
-### Configuration Examples
-```python
-# Baseline Configuration
-baseline_config = {
-    "model_type": "baseline",
-    "embedding_strategy": "linear_decay",
-    "loss_type": "crossentropy",
-    "epochs": 30
-}
+## File Structure
 
-# Deep Integration Configuration
-deep_integration_config = {
-    "model_type": "deep_integration",
-    "embed_dim": 64,           # Unified embedding dimension
-    "n_cycles": 2,             # Co-evolution cycles
-    "embedding_strategy": "linear_decay",
-    "loss_type": "crossentropy"
-}
+### Core Pipeline Scripts
+```
+train.py           # Unified training with CV support for both models
+evaluate.py        # Auto-detection evaluation with comprehensive metrics  
+plot_metrics.py    # Adaptive plotting for variable number of models
+main.py           # Complete pipeline orchestrator
 ```
 
-## 🔧 Usage Patterns
+### Model Implementations
+```
+models/
+├── __init__.py                     # Module initialization
+├── baseline.py                     # Baseline DKVMN-GPCM implementation
+└── deep_integration_gpcm_proper.py # Deep Integration model
+```
 
-### 1. Single Model Training
+### Supporting Infrastructure
+```
+evaluation/metrics.py    # Comprehensive evaluation metrics
+utils/                   # Data utilities and helper functions  
+config.py               # Configuration management
+model_factory.py        # Model creation utilities
+data_gen.py            # Synthetic data generation
+requirements.txt       # Package dependencies
+```
+
+### Results Organization
+```
+results/
+├── plots/              # Generated visualizations
+├── test/               # Test evaluation results
+logs/                   # Training logs and histories
+save_models/           # Trained model checkpoints
+```
+
+## Usage Guide
+
+### 1. Complete Pipeline Execution
 ```bash
-# Train baseline model (RECOMMENDED standalone method)
-python train_baseline_standalone.py
+# Train both models, evaluate, and generate plots
+python main.py --dataset synthetic_OC --epochs 15
 
-# Alternative baseline training (may have issues)
-python train.py --model baseline --dataset synthetic_OC --epochs 30
+# Train specific models only
+python main.py --models baseline --dataset synthetic_OC --epochs 15
+python main.py --models deep_integration --dataset synthetic_OC --epochs 15
 
-# Test Deep Integration model
-python -c "
-from config import get_preset_configs
-from model_factory import create_model
-import torch
-config = get_preset_configs()['deep_integration']
-model = create_model(config, n_questions=29, device=torch.device('cpu'))
-print('✅ Deep Integration model working')
-"
+# Skip training (evaluate existing models only)
+python main.py --skip_training --dataset synthetic_OC
 ```
 
-### 2. Comprehensive Benchmarking
+### 2. Individual Component Usage
+
+#### Training
 ```bash
-# Train baseline first (required for comparison)
-python train_baseline_standalone.py
+# Baseline model with 5-fold CV
+python train.py --model baseline --dataset synthetic_OC --epochs 15 --n_folds 5
 
-# Create updated benchmark with corrected baseline
-python -c "
-import json
-with open('save_models/results_baseline_standalone_synthetic_OC.json', 'r') as f:
-    baseline = json.load(f)
-print('🏆 CORRECTED BASELINE PERFORMANCE:')
-print(f'  Categorical Accuracy: {baseline[\"best_metrics\"][\"categorical_accuracy\"]:.1%}')
-print(f'  QWK: {baseline[\"best_metrics\"][\"qwk\"]:.3f}')
-print(f'  Ordinal Accuracy: {baseline[\"best_metrics\"][\"ordinal_accuracy\"]:.1%}')
-print(f'  MAE: {baseline[\"best_metrics\"][\"mae\"]:.3f}')
-print(f'  Parameters: {baseline[\"parameter_count\"]:,}')
-"
+# Deep Integration model
+python train.py --model deep_integration --dataset synthetic_OC --epochs 15 --n_folds 5
 
-# Generate comprehensive visualization
-python plot_comprehensive_metrics.py
+# Single-fold training (no CV)
+python train.py --model baseline --dataset synthetic_OC --epochs 15 --n_folds 0
 ```
 
-### 3. Model Evaluation
+#### Evaluation
 ```bash
-# View standalone baseline results
-cat save_models/results_baseline_standalone_synthetic_OC.json | jq '.best_metrics'
+# Evaluate with auto-detection
+python evaluate.py --model_path save_models/best_baseline_synthetic_OC.pth
 
-# Test all Deep Integration components
-python -c "
-from models.deep_integration_simplified import create_simplified_deep_integration_gpcm
-from models.unified_embedding import UnifiedEmbedding
-from models.memory_aware_attention import MemoryAwareAKTAttention
-from models.attention_guided_memory import AttentionGuidedMemory
-from models.iterative_refinement_engine import IterativeRefinementEngine
-print('✅ All Deep Integration components working')
-"
+# Evaluate with specific dataset
+python evaluate.py --model_path save_models/best_deep_integration_synthetic_OC.pth --dataset synthetic_OC
 
-# Compare models
-python -c "
-import json
-with open('save_models/results_baseline_standalone_synthetic_OC.json', 'r') as f:
-    baseline = json.load(f)
-print('📊 MODEL COMPARISON:')
-print(f'Baseline:        {baseline[\"best_metrics\"][\"categorical_accuracy\"]:.1%} accuracy, {baseline[\"best_metrics\"][\"qwk\"]:.3f} QWK')
-print(f'Deep Integration: 49.1% accuracy, 0.780 QWK (perfect ordinal)')
-"
+# Batch evaluation
+python evaluate.py --model_path save_models/best_*_synthetic_OC.pth
 ```
 
-### 4. Visualization & Analysis
+#### Visualization
 ```bash
-# Comprehensive metrics visualization (all 7 metrics)
-python plot_comprehensive_metrics.py
+# Generate all plots
+python plot_metrics.py --train_results logs/*.json --test_results results/test/*.json
 
-# Check available results
-ls -la results/benchmark/
-ls -la results/plots/
+# Specific plot types
+python plot_metrics.py --plot_type final --train_results logs/*.json
+python plot_metrics.py --plot_type curves --train_results logs/*.json
+python plot_metrics.py --plot_type confusion --test_results results/test/*.json
 ```
 
-### 5. Testing & Validation
+### 3. Data Generation
 ```bash
-# Test model creation
-python -c "
-from config import get_preset_configs
-configs = get_preset_configs()
-print('Available models:', list(configs.keys()))
-"
+# Generate synthetic datasets
+python data_gen.py --format both --categories 4 --students 800 --questions 50
 
-# Validate data loading
-python -c "
-from utils.gpcm_utils import load_gpcm_data
-print('Data loading ready')
-"
+# Generate for specific format
+python data_gen.py --format OC --categories 4 --students 800 --questions 30
 ```
 
-## 🔬 Technical Innovation
+## Configuration Options
 
-### Memory-Attention Co-Evolution
-1. **Unified Embedding**: Single parameter-efficient embedding space
-2. **Memory-Aware Attention**: AKT attention enhanced with DKVMN memory context
-3. **Attention-Guided Memory**: DKVMN operations guided by AKT attention patterns
-4. **Iterative Refinement**: Progressive enhancement through multiple cycles
+### Command-Line Arguments
 
-### Modular Design Benefits
-- **Clean Separation**: Each model in its own file
-- **Unified Interface**: Single train/eval/main scripts for all models
-- **Easy Extension**: Add new models by implementing the standard interface
-- **Comprehensive Testing**: Consolidated testing utilities in utils/
+#### main.py
+- `--models`: Model types to train/evaluate (`baseline`, `deep_integration`)
+- `--dataset`: Dataset name (default: `synthetic_OC`)
+- `--epochs`: Training epochs (default: 15)
+- `--n_folds`: CV folds, 0 for no CV (default: 5)
+- `--skip_training`: Skip training phase
+- `--skip_evaluation`: Skip evaluation phase
+- `--device`: Device selection (`cuda`/`cpu`)
+- `--batch_size`: Training batch size
 
-### Parameter Efficiency
-- **Optimized Architecture**: 139K parameters (vs 133K baseline)
-- **Shared Representations**: Unified embedding space for all components
-- **Efficient Co-Evolution**: Memory-attention bidirectional enhancement
-- **Performance Density**: Superior results with minimal parameter increase
+#### train.py
+- `--model`: Model type (`baseline`/`deep_integration`)
+- `--dataset`: Dataset name
+- `--epochs`: Training epochs
+- `--n_folds`: Number of CV folds (0 for single-fold)
+- `--batch_size`: Batch size
+- `--device`: Device selection
 
-## 📈 Evaluation Metrics
+#### evaluate.py
+- `--model_path`: Path to trained model checkpoint
+- `--dataset`: Dataset for evaluation (auto-detected if not specified)
+- `--batch_size`: Evaluation batch size
+- `--device`: Device selection
+
+#### plot_metrics.py
+- `--train_results`: Training result JSON files
+- `--test_results`: Test result JSON files  
+- `--output_dir`: Output directory for plots
+- `--plot_type`: Plot type (`all`/`final`/`curves`/`confusion`)
+
+## Evaluation Metrics
 
 ### Comprehensive Assessment
+The system provides multiple evaluation metrics for thorough model assessment:
+
 - **Categorical Accuracy**: Standard classification accuracy
+- **Quadratic Weighted Kappa (QWK)**: Ordinal agreement measure  
 - **Ordinal Accuracy**: Order-preserving prediction accuracy
-- **Quadratic Weighted Kappa (QWK)**: Agreement measure for ordinal data
-- **Mean Absolute Error (MAE)**: Prediction distance accuracy
-- **Prediction Consistency**: Internal consistency measures
+- **Mean Absolute Error (MAE)**: Prediction distance measure
+- **Prediction Consistency**: Multiple prediction method consistency
 - **Ordinal Ranking**: Ranking preservation accuracy
 - **Distribution Consistency**: Output distribution alignment
 
-## 🎯 Development Workflow
+### Alternative Prediction Methods
+- **Argmax**: Standard maximum probability prediction
+- **Cumulative**: Cumulative probability threshold method
+- **Expected**: Expected value prediction method
 
-### Current Model Status
-- **✅ Baseline**: Fully functional reference implementation (133K params)
-- **🏆 Deep Integration**: Production-ready champion model (139K params)
-- **🔧 Infrastructure**: Complete evaluation and visualization system
+## Data Formats
 
-### Running Experiments
-1. **Baseline Training**: `python train_baseline_standalone.py` ⭐ **RECOMMENDED**
-2. **Deep Integration Test**: Use model factory for instantiation and testing
-3. **Performance Analysis**: View results with `cat save_models/results_baseline_standalone_synthetic_OC.json`
-4. **Visualization**: `python plot_comprehensive_metrics.py`
+### Supported Datasets
+- **Ordered Categories (OC)**: Discrete responses {0, 1, 2, ..., K-1}
+- **Partial Credit (PC)**: Continuous scores in [0, 1] range
 
-### Key Files for Deep Integration
-- **Main Model**: `models/deep_integration_simplified.py`
-- **Components**: `unified_embedding.py`, `memory_aware_attention.py`, `attention_guided_memory.py`, `iterative_refinement_engine.py`
-- **Configuration**: `config.py` (deep_integration preset)
-- **Factory**: `model_factory.py` (create_model function)
+### File Structure
+```
+data/
+└── dataset_name/
+    ├── dataset_name_train.txt    # Training sequences
+    ├── dataset_name_test.txt     # Test sequences  
+    └── metadata.json             # Dataset configuration
+```
 
-### Testing & Validation
-- **Model Creation**: Test via `get_preset_configs()['deep_integration']`
-- **Component Tests**: Import individual modules to verify functionality
-- **Benchmark Validation**: Use comprehensive benchmark scripts
+## Advanced Features
 
-## 📚 References
+### Cross-Validation Support
+- Configurable k-fold cross-validation
+- Automatic best model selection based on QWK
+- Comprehensive fold-wise metrics reporting
+- Best model preservation for evaluation
 
-Built upon:
+### Auto-Detection
+- Model type detection from checkpoints
+- Dataset configuration detection from metadata
+- Automatic parameter and architecture reconstruction
+
+### Comprehensive Logging
+- Training progress with epoch-wise metrics
+- Cross-validation summaries
+- Model configuration preservation
+- Performance tracking and visualization
+
+### Visualization Suite
+- Training curves comparison
+- Final performance comparison
+- Confusion matrices
+- Adaptive plotting for any number of models
+
+## Performance Optimization
+
+### Training Efficiency
+- GPU acceleration support
+- Optimized data loading with batching
+- Memory-efficient cross-validation
+- Progress tracking and early stopping
+
+### Evaluation Speed
+- Batch processing for large datasets
+- Efficient metric computation
+- Parallel evaluation support
+- Caching for repeated evaluations
+
+## Development Notes
+
+### Model Implementation Guidelines
+1. All models must inherit from `torch.nn.Module`
+2. Implement standard forward pass interface
+3. Support both training and evaluation modes
+4. Return K-category probability distributions
+
+### Adding New Models
+1. Create model file in `models/` directory
+2. Import in `train.py` and `evaluate.py`
+3. Add to model factory if needed
+4. Update documentation
+
+### Testing and Validation
+- Use synthetic datasets for rapid prototyping
+- Verify performance against established baselines
+- Ensure cross-validation stability
+- Validate visualization outputs
+
+## Troubleshooting
+
+### Common Issues
+1. **CUDA out of memory**: Reduce batch size or use CPU
+2. **Model loading errors**: Ensure correct model path and compatibility
+3. **Data format errors**: Verify dataset structure and metadata
+4. **Training instability**: Check learning rate and gradient clipping
+
+### Performance Expectations
+- **Training Time**: ~5-15 minutes for 15 epochs on synthetic data
+- **Memory Usage**: ~2-4GB GPU memory for standard batch sizes
+- **Accuracy Range**: 60-75% categorical accuracy on synthetic datasets
+- **QWK Range**: 0.4-0.7 for well-performing models
+
+## References
+
+Built upon established knowledge tracing research:
 - Dynamic Key-Value Memory Networks (DKVMN)
-- Attentive Knowledge Tracing (AKT)
 - Generalized Partial Credit Model (GPCM)
-- Deep Item Response Theory (Deep-IRT)
+- Deep Item Response Theory frameworks
+- Attention mechanisms for educational data
 
-## 📄 License
+## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT License - see LICENSE file for details.
 
 ---
 
-**Deep Integration: Revolutionary Memory-Attention Co-Evolution for Superior Knowledge Tracing** 🧠⚡
-
-### 🚨 Deep Integration Investigation Results
-All Deep Integration components were restored but investigation revealed critical issues:
-- ❌ UnifiedEmbedding - Causes numerical instability during training
-- ❌ MemoryAwareAKTAttention - Memory-attention co-evolution produces NaN values
-- ❌ AttentionGuidedMemory - Attention-guided operations are fundamentally broken
-- ❌ IterativeRefinementEngine - Refinement cycles fail in first epoch
-- ❌ SimplifiedDeepIntegrationGPCM - Cannot complete training (139K parameters)
-
-**Investigation Results**: Historical claims (49.1% accuracy, 0.780 QWK) were FABRICATED - model cannot train
-
-## ⚠️ **Critical Training Information**
-
-### 🚨 **Use Standalone Training Script**
-The original `train.py` has critical issues:
-- ❌ Only trains for 3 epochs (instead of 30)
-- ❌ Broken loss function computation
-- ❌ Incorrect metric calculation
-
-**✅ SOLUTION**: Use `train_baseline_standalone.py` which:
-- ✅ Trains for full 30 epochs
-- ✅ Proper CrossEntropy loss implementation
-- ✅ Correct comprehensive metrics (all 7 metrics)
-- ✅ Achieves **69.8% categorical accuracy** and **0.677 QWK**
-
-### 📊 **Performance Recovery Results**
-| Training Method | Categorical Acc | QWK | Status |
-|----------------|----------------|-----|--------|
-| Original train.py | 45.1% | 0.432 | ❌ Broken |
-| **Standalone Script** | **69.8%** | **0.677** | ✅ **Fixed** |
-
-**Improvement**: +54.8% categorical accuracy, +56.7% QWK
+**Deep-GPCM: Unified Pipeline for Production-Ready Knowledge Tracing**

@@ -1,346 +1,294 @@
+#!/usr/bin/env python3
 """
-Main Script for Deep-GPCM
-Unified interface for training, evaluation, and benchmarking.
+Unified Main Script for Deep-GPCM Models
+Orchestrates training, evaluation, and plotting for complete pipeline.
 """
 
 import os
+import sys
 import argparse
-import json
+import subprocess
+import glob
 from datetime import datetime
-from typing import Dict, Any, List
-
-from config import get_preset_configs
-from train import train_model
-from evaluate import load_trained_model, evaluate_model_comprehensive
-from utils.gpcm_utils import load_gpcm_data
-from utils.data_utils import UnifiedDataLoader
-from utils.loss_utils import create_loss_function
-from evaluation.metrics import GpcmMetrics
-import torch
 
 
-def benchmark_models(model_types: List[str], dataset_name: str, 
-                    epochs: int = 15, batch_size: int = 32,
-                    device: torch.device = None) -> Dict[str, Any]:
-    """
-    Benchmark multiple models side-by-side.
+def run_command(cmd, description, check=True):
+    """Run a command with error handling."""
+    print(f"\\n🔧 {description}")
+    print(f"Command: {' '.join(cmd)}")
+    print("-" * 60)
     
-    Args:
-        model_types: List of model types to benchmark
-        dataset_name: Dataset to use for benchmarking
-        epochs: Number of training epochs
-        batch_size: Training batch size
-        device: Computing device
-        
-    Returns:
-        Comprehensive benchmark results
-    """
-    if device is None:
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    try:
+        result = subprocess.run(cmd, check=check, capture_output=False)
+        print(f"✅ {description} completed successfully")
+        return result.returncode == 0
+    except subprocess.CalledProcessError as e:
+        print(f"❌ {description} failed with exit code {e.returncode}")
+        return False
+    except Exception as e:
+        print(f"❌ {description} failed: {e}")
+        return False
+
+
+def find_model_files(models, dataset):
+    """Find trained model files."""
+    model_files = {}
     
-    print(f"\n🏁 BENCHMARKING {len(model_types)} MODELS")
-    print(f"Dataset: {dataset_name}")
-    print(f"Device: {device}")
-    print(f"Models: {', '.join(model_types)}")
-    print("="*60)
-    
-    preset_configs = get_preset_configs()
-    results = {}
-    
-    for model_type in model_types:
-        if model_type not in preset_configs:
-            print(f"❌ Unknown model type: {model_type}")
+    for model in models:
+        # Look for main model file first
+        main_path = f"save_models/best_{model}_{dataset}.pth"
+        if os.path.exists(main_path):
+            model_files[model] = main_path
             continue
         
-        print(f"\n🚀 Benchmarking {model_type.upper()}...")
-        
-        # Get configuration
-        config = preset_configs[model_type]
-        config.epochs = epochs
-        config.batch_size = batch_size
-        config.dataset_name = dataset_name
-        
-        try:
-            # Train model
-            train_results = train_model(config, dataset_name, device)
-            results[model_type] = train_results
-            
-            print(f"✅ {model_type.upper()} completed - Accuracy: {train_results['final_accuracy']:.4f}")
-            
-        except Exception as e:
-            print(f"❌ {model_type.upper()} failed: {e}")
+        # Look for fold-specific files
+        fold_pattern = f"save_models/best_{model}_{dataset}_fold_*.pth"
+        fold_files = glob.glob(fold_pattern)
+        if fold_files:
+            # Use the first fold file (or could pick best based on metrics)
+            model_files[model] = fold_files[0]
             continue
+        
+        print(f"⚠️  No trained model found for {model}")
     
-    return results
+    return model_files
 
 
-def create_benchmark_summary(results: Dict[str, Any]) -> Dict[str, Any]:
-    """Create benchmark summary and comparison."""
-    if len(results) < 2:
-        return {"summary": "Need at least 2 models for comparison"}
+def find_result_files(models, dataset, result_type='train'):
+    """Find training or test result files."""
+    result_files = {}
     
-    summary = {
-        'models': {},
-        'comparison': {},
-        'winner': None
-    }
-    
-    baseline_acc = None
-    best_model = None
-    best_accuracy = 0.0
-    
-    # Extract key metrics for each model
-    for model_name, model_results in results.items():
-        best_metrics = model_results['best_metrics']
+    for model in models:
+        # Look for main result file first
+        main_path = f"logs/{result_type}_results_{model}_{dataset}.json"
+        if os.path.exists(main_path):
+            result_files[model] = main_path
+            continue
         
-        summary['models'][model_name] = {
-            'categorical_accuracy': best_metrics['categorical_acc'],
-            'ordinal_accuracy': best_metrics['ordinal_acc'],
-            'qwk': best_metrics['qwk'],
-            'mae': best_metrics['mae'],
-            'inference_time': best_metrics['avg_inference_time'],
-            'parameters': sum(p.numel() for p in results[model_name].get('model', {}).parameters()) if 'model' in results[model_name] else 0
-        }
+        # Look for fold-specific files 
+        if result_type == 'train':
+            fold_pattern = f"logs/train_results_{model}_{dataset}_fold_*.json"
+            fold_files = glob.glob(fold_pattern)
+            if fold_files:
+                # Use the first fold file
+                result_files[model] = fold_files[0]
+                continue
         
-        # Track baseline and best
-        if 'baseline' in model_name.lower():
-            baseline_acc = best_metrics['categorical_acc']
+        # Look for test results
+        if result_type == 'test':
+            test_path = f"results/test/test_results_{model}_{dataset}.json"
+            if os.path.exists(test_path):
+                result_files[model] = test_path
+                continue
         
-        if best_metrics['categorical_acc'] > best_accuracy:
-            best_accuracy = best_metrics['categorical_acc']
-            best_model = model_name
+        print(f"⚠️  No {result_type} results found for {model}")
     
-    # Calculate improvements vs baseline
-    if baseline_acc is not None:
-        for model_name in summary['models']:
-            if 'baseline' not in model_name.lower():
-                acc_delta = summary['models'][model_name]['categorical_accuracy'] - baseline_acc
-                summary['models'][model_name]['improvement_vs_baseline'] = (acc_delta / baseline_acc) * 100
-    
-    summary['winner'] = best_model
-    
-    return summary
-
-
-def print_benchmark_results(results: Dict[str, Any], summary: Dict[str, Any]):
-    """Print comprehensive benchmark results."""
-    print("\n" + "="*80)
-    print("🏆 BENCHMARK RESULTS SUMMARY")
-    print("="*80)
-    
-    # Model performance table
-    print(f"\n{'Model':<15} {'Cat.Acc':<10} {'Ord.Acc':<10} {'QWK':<8} {'MAE':<8} {'Speed(ms)':<12} {'Status':<15}")
-    print("-" * 80)
-    
-    for model_name, metrics in summary['models'].items():
-        cat_acc = f"{metrics['categorical_accuracy']:.3f}"
-        ord_acc = f"{metrics['ordinal_accuracy']:.3f}"
-        qwk = f"{metrics['qwk']:.3f}"
-        mae = f"{metrics['mae']:.3f}"
-        speed = f"{metrics['inference_time']*1000:.1f}"
-        
-        # Status based on performance
-        if model_name == summary.get('winner'):
-            status = "🏆 WINNER"
-        elif 'baseline' in model_name.lower():
-            status = "✅ Reference"
-        else:
-            improvement = metrics.get('improvement_vs_baseline', 0)
-            if improvement > 0:
-                status = f"↑ +{improvement:.1f}%"
-            else:
-                status = f"↓ {improvement:.1f}%"
-        
-        print(f"{model_name:<15} {cat_acc:<10} {ord_acc:<10} {qwk:<8} {mae:<8} {speed:<12} {status:<15}")
-    
-    # Key insights
-    if summary.get('winner'):
-        print(f"\n🎯 WINNER: {summary['winner'].upper()}")
-        winner_metrics = summary['models'][summary['winner']]
-        
-        if 'improvement_vs_baseline' in winner_metrics:
-            improvement = winner_metrics['improvement_vs_baseline']
-            print(f"📈 Improvement vs Baseline: {improvement:+.1f}%")
-        
-        print(f"🎪 Ordinal Accuracy: {winner_metrics['ordinal_accuracy']:.1%}")
-        print(f"🎯 QWK Score: {winner_metrics['qwk']:.3f}")
-    
-    print("\n" + "="*80)
+    return result_files
 
 
 def main():
-    """Main function with comprehensive CLI interface."""
-    parser = argparse.ArgumentParser(description='Deep-GPCM: Unified Training, Evaluation & Benchmarking')
-    
-    # Mode selection
-    parser.add_argument('--mode', type=str, default='train',
-                        choices=['train', 'eval', 'benchmark', 'all'],
-                        help='Operation mode')
-    
-    # Model and data selection
-    parser.add_argument('--models', type=str, nargs='+', default=['baseline', 'akvmn'],
-                        help='Models to use (baseline, akvmn)')
-    parser.add_argument('--dataset', type=str, default='synthetic_OC',
-                        help='Dataset name')
-    
-    # Training parameters
-    parser.add_argument('--epochs', type=int, default=30,
-                        help='Number of training epochs')
-    parser.add_argument('--batch_size', type=int, default=32,
-                        help='Training batch size')
-    parser.add_argument('--learning_rate', type=float, default=0.001,
-                        help='Learning rate')
-    
-    # Evaluation parameters
-    parser.add_argument('--model_paths', type=str, nargs='+',
-                        help='Paths to trained models for evaluation')
-    
-    # System parameters
-    parser.add_argument('--device', type=str, default='auto',
-                        help='Device to use (auto, cpu, cuda)')
-    parser.add_argument('--output_dir', type=str, default='results',
-                        help='Output directory for results')
-    
-    # Options
-    parser.add_argument('--plot', action='store_true',
-                        help='Generate plots after completion')
-    parser.add_argument('--save_models', action='store_true', default=True,
-                        help='Save trained models')
+    parser = argparse.ArgumentParser(description='Unified Deep-GPCM Pipeline')
+    parser.add_argument('--models', nargs='+', choices=['baseline', 'deep_integration'], 
+                        default=['baseline', 'deep_integration'], help='Models to train/evaluate')
+    parser.add_argument('--dataset', default='synthetic_OC', help='Dataset to use')
+    parser.add_argument('--epochs', type=int, default=30, help='Training epochs')
+    parser.add_argument('--n_folds', type=int, default=5, help='CV folds (0 for no CV)')
+    parser.add_argument('--skip_training', action='store_true', help='Skip training, only evaluate/plot')
+    parser.add_argument('--skip_evaluation', action='store_true', help='Skip evaluation, only plot')
+    parser.add_argument('--device', default=None, help='Device (cuda/cpu)')
+    parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
     
     args = parser.parse_args()
     
-    # Set device
-    if args.device == "auto":
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    else:
-        device = torch.device(args.device)
+    print("=" * 80)
+    print("UNIFIED DEEP-GPCM PIPELINE")
+    print("=" * 80)
+    print(f"Models: {args.models}")
+    print(f"Dataset: {args.dataset}")
+    print(f"Device: {args.device or 'auto'}")
+    print(f"Epochs: {args.epochs}")
+    print(f"CV folds: {args.n_folds}")
+    print(f"Skip training: {args.skip_training}")
+    print(f"Skip evaluation: {args.skip_evaluation}")
+    print()
     
-    print(f"🖥️  Using device: {device}")
-    print(f"📁 Output directory: {args.output_dir}")
+    # Create directories
+    os.makedirs('save_models', exist_ok=True)
+    os.makedirs('logs', exist_ok=True)
+    os.makedirs('results/test', exist_ok=True)
+    os.makedirs('results/plots', exist_ok=True)
     
-    # Create output directory
-    os.makedirs(args.output_dir, exist_ok=True)
+    success_count = 0
+    total_operations = 0
     
-    # Execute based on mode
-    if args.mode == 'train':
-        print(f"🚂 TRAINING MODE: {', '.join(args.models)}")
+    # Phase 1: Training
+    if not args.skip_training:
+        print(f"\\n{'='*20} PHASE 1: TRAINING {'='*20}")
         
-        preset_configs = get_preset_configs()
-        for model_type in args.models:
-            if model_type not in preset_configs:
-                print(f"❌ Unknown model type: {model_type}")
+        for model in args.models:
+            total_operations += 1
+            
+            # Build training command
+            train_cmd = [
+                'python', 'train.py',
+                '--model', model,
+                '--dataset', args.dataset,
+                '--epochs', str(args.epochs),
+                '--batch_size', str(args.batch_size),
+                '--n_folds', str(args.n_folds)
+            ]
+            
+            if args.device:
+                train_cmd.extend(['--device', args.device])
+            
+            # Run training
+            if run_command(train_cmd, f"Training {model} model"):
+                success_count += 1
+                print(f"✅ {model} training completed")
+            else:
+                print(f"❌ {model} training failed")
                 continue
-            
-            config = preset_configs[model_type]
-            config.epochs = args.epochs
-            config.batch_size = args.batch_size
-            config.learning_rate = args.learning_rate
-            
-            results = train_model(config, args.dataset, device)
-            
-            # Save results
-            results_file = os.path.join(args.output_dir, f"train_{model_type}_{args.dataset}.json")
-            with open(results_file, 'w') as f:
-                json.dump(results, f, indent=2)
-            
-            print(f"💾 Results saved: {results_file}")
+    else:
+        print(f"\\n⏭️  SKIPPING TRAINING (using existing models)")
     
-    elif args.mode == 'eval':
-        print(f"📊 EVALUATION MODE")
+    # Phase 2: Evaluation
+    if not args.skip_evaluation:
+        print(f"\\n{'='*20} PHASE 2: EVALUATION {'='*20}")
         
-        if not args.model_paths:
-            print("❌ Please provide --model_paths for evaluation")
-            return
+        # Find trained models
+        model_files = find_model_files(args.models, args.dataset)
         
-        # Use evaluate.py functionality
-        from evaluate import main as eval_main
-        eval_main()
+        if not model_files:
+            print("❌ No trained models found for evaluation")
+            if not args.skip_training:
+                print("Training may have failed for all models")
+            else:
+                print("Run training first or check save_models/ directory")
+            sys.exit(1)
+        
+        print(f"📂 Found models: {list(model_files.keys())}")
+        
+        for model, model_path in model_files.items():
+            total_operations += 1
+            
+            # Build evaluation command
+            eval_cmd = [
+                'python', 'evaluate.py',
+                '--model_path', model_path,
+                '--dataset', args.dataset,
+                '--batch_size', str(args.batch_size)
+            ]
+            
+            if args.device:
+                eval_cmd.extend(['--device', args.device])
+            
+            # Run evaluation
+            if run_command(eval_cmd, f"Evaluating {model} model"):
+                success_count += 1
+                print(f"✅ {model} evaluation completed")
+            else:
+                print(f"❌ {model} evaluation failed")
+    else:
+        print(f"\\n⏭️  SKIPPING EVALUATION (using existing results)")
     
-    elif args.mode == 'benchmark':
-        print(f"🏁 BENCHMARK MODE")
-        
-        # Run benchmark
-        results = benchmark_models(
-            args.models, args.dataset, args.epochs, args.batch_size, device
-        )
-        
-        # Create summary
-        summary = create_benchmark_summary(results)
-        
-        # Print results
-        print_benchmark_results(results, summary)
-        
-        # Save results
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        benchmark_file = os.path.join(args.output_dir, f"benchmark_{args.dataset}_{timestamp}.json")
-        
-        benchmark_data = {
-            'timestamp': timestamp,
-            'dataset': args.dataset,
-            'config': {
-                'epochs': args.epochs,
-                'batch_size': args.batch_size,
-                'models': args.models
-            },
-            'results': results,
-            'summary': summary
-        }
-        
-        with open(benchmark_file, 'w') as f:
-            json.dump(benchmark_data, f, indent=2)
-        
-        print(f"💾 Benchmark results saved: {benchmark_file}")
-        
-        # Generate plots if requested
-        if args.plot:
-            try:
-                from plot_unified import create_benchmark_plot
-                plot_file = create_benchmark_plot(benchmark_data, args.output_dir)
-                print(f"📊 Plot saved: {plot_file}")
-            except ImportError:
-                print("📊 Plotting functionality not available")
+    # Phase 3: Plotting
+    print(f"\\n{'='*20} PHASE 3: PLOTTING {'='*20}")
     
-    elif args.mode == 'all':
-        print(f"🎯 COMPLETE WORKFLOW MODE")
-        
-        # 1. Benchmark all models
-        print("\n1️⃣ Running benchmark...")
-        results = benchmark_models(
-            args.models, args.dataset, args.epochs, args.batch_size, device
-        )
-        
-        # 2. Create summary
-        summary = create_benchmark_summary(results)
-        print_benchmark_results(results, summary)
-        
-        # 3. Save everything
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file = os.path.join(args.output_dir, f"complete_workflow_{args.dataset}_{timestamp}.json")
-        
-        workflow_data = {
-            'timestamp': timestamp,
-            'dataset': args.dataset,
-            'workflow': 'complete',
-            'results': results,
-            'summary': summary
-        }
-        
-        with open(output_file, 'w') as f:
-            json.dump(workflow_data, f, indent=2)
-        
-        print(f"💾 Complete workflow results saved: {output_file}")
-        
-        # 4. Generate plots if requested
-        if args.plot:
-            try:
-                from plot_unified import create_comprehensive_plot
-                plot_file = create_comprehensive_plot(workflow_data, args.output_dir)
-                print(f"📊 Comprehensive plot saved: {plot_file}")
-            except ImportError:
-                print("📊 Plotting functionality not available")
+    # Find result files
+    train_files = find_result_files(args.models, args.dataset, 'train')
+    test_files = find_result_files(args.models, args.dataset, 'test')
     
-    print(f"\n✅ {args.mode.upper()} mode completed successfully!")
+    if not train_files and not test_files:
+        print("❌ No result files found for plotting")
+        print("Run training and/or evaluation first")
+        sys.exit(1)
+    
+    # Build plotting command
+    plot_cmd = ['python', 'plot_metrics.py', '--output_dir', 'results/plots']
+    
+    if train_files:
+        plot_cmd.extend(['--train_results'] + list(train_files.values()))
+        print(f"📊 Training results: {list(train_files.keys())}")
+    
+    if test_files:
+        plot_cmd.extend(['--test_results'] + list(test_files.values()))
+        print(f"🧪 Test results: {list(test_files.keys())}")
+    
+    # Run plotting
+    total_operations += 1
+    if run_command(plot_cmd, "Generating comprehensive plots"):
+        success_count += 1
+        print("✅ Plotting completed")
+    else:
+        print("❌ Plotting failed")
+    
+    # Phase 4: Summary
+    print(f"\\n{'='*20} PIPELINE SUMMARY {'='*20}")
+    
+    print(f"📊 Operations: {success_count}/{total_operations} successful")
+    print(f"🎯 Success rate: {success_count/total_operations*100:.1f}%")
+    
+    # Display results summary
+    if train_files or test_files:
+        print(f"\\n📈 RESULTS SUMMARY:")
+        
+        # Load and display key metrics
+        for model in args.models:
+            print(f"\\n🔹 {model.upper()}:")
+            
+            # Training metrics
+            if model in train_files:
+                try:
+                    import json
+                    with open(train_files[model], 'r') as f:
+                        train_data = json.load(f)
+                    
+                    if 'metrics' in train_data:
+                        metrics = train_data['metrics']
+                        print(f"  Training - Accuracy: {metrics.get('categorical_accuracy', 'N/A'):.3f}, "
+                              f"QWK: {metrics.get('quadratic_weighted_kappa', 'N/A'):.3f}")
+                    elif 'cv_summary' in train_data:
+                        cv = train_data['cv_summary']
+                        acc_mean = cv.get('categorical_accuracy', {}).get('mean', 'N/A')
+                        qwk_mean = cv.get('quadratic_weighted_kappa', {}).get('mean', 'N/A')
+                        print(f"  CV Training - Accuracy: {acc_mean:.3f}, QWK: {qwk_mean:.3f}")
+                except:
+                    print(f"  Training - Could not load metrics")
+            
+            # Test metrics
+            if model in test_files:
+                try:
+                    with open(test_files[model], 'r') as f:
+                        test_data = json.load(f)
+                    
+                    if 'evaluation_results' in test_data and 'argmax' in test_data['evaluation_results']:
+                        metrics = test_data['evaluation_results']['argmax']
+                        print(f"  Test - Accuracy: {metrics.get('categorical_accuracy', 'N/A'):.3f}, "
+                              f"QWK: {metrics.get('quadratic_weighted_kappa', 'N/A'):.3f}")
+                except:
+                    print(f"  Test - Could not load metrics")
+    
+    # Expected performance check
+    print(f"\\n🎯 PERFORMANCE CHECK:")
+    print(f"Expected baseline: ~70% accuracy, ~0.67 QWK")
+    print(f"Expected deep integration: ~70% accuracy, ~0.69 QWK")
+    print(f"Expected improvement: 1-4% across metrics")
+    print(f"⚠️  If you see >20% improvements, investigate for bugs!")
+    
+    # File locations
+    print(f"\\n📁 OUTPUT LOCATIONS:")
+    print(f"  Models: save_models/")
+    print(f"  Training logs: logs/")
+    print(f"  Test results: results/test/")
+    print(f"  Plots: results/plots/")
+    
+    if success_count == total_operations:
+        print(f"\\n🎉 PIPELINE COMPLETED SUCCESSFULLY!")
+        return 0
+    else:
+        print(f"\\n⚠️  PIPELINE COMPLETED WITH SOME FAILURES")
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    exit(main())

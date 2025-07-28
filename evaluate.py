@@ -1,312 +1,384 @@
+#!/usr/bin/env python3
 """
-Unified Evaluation Script for Deep-GPCM
-Evaluates trained baseline and AKVMN models.
+Unified Evaluation Script for Deep-GPCM Models
+Tests any trained model on comprehensive metrics with auto-detection.
 """
 
 import os
 import torch
-import numpy as np
-import argparse
 import json
-from typing import Dict, Any
+import time
+import argparse
+import numpy as np
+from datetime import datetime
 
-from config import get_model_config
-from model_factory import create_model, count_parameters
-from utils.gpcm_utils import load_gpcm_data
-from utils.data_utils import UnifiedDataLoader
-from utils.loss_utils import create_loss_function
+from models.baseline import BaselineGPCM
+from models.deep_integration_gpcm_proper import ProperDeepIntegrationGPCM
 from evaluation.metrics import GpcmMetrics
+import torch.utils.data as data_utils
+import torch.nn as nn
 
 
-def load_trained_model(model_path: str, device: torch.device):
-    """Load a trained model from checkpoint."""
-    checkpoint = torch.load(model_path, map_location=device)
+def load_simple_data(train_path, test_path):
+    """Simple data loading function."""
+    def read_data(file_path):
+        sequences = []
+        with open(file_path, 'r') as f:
+            lines = f.readlines()
+            i = 0
+            while i < len(lines):
+                if i + 2 >= len(lines):
+                    break
+                seq_len = int(lines[i].strip())
+                questions = list(map(int, lines[i+1].strip().split(',')))
+                responses = list(map(int, lines[i+2].strip().split(',')))
+                
+                # Ensure lengths match
+                questions = questions[:seq_len]
+                responses = responses[:seq_len]
+                
+                sequences.append((questions, responses))
+                i += 3
+        return sequences
     
-    # Recreate config
-    config_dict = checkpoint['config']
-    config = get_model_config(config_dict['model_type'], **config_dict)
+    train_data = read_data(train_path)
+    test_data = read_data(test_path)
     
-    # Recreate model
-    model = create_model(config, config.n_questions, device)
-    model.load_state_dict(checkpoint['model_state_dict'])
+    # Find number of questions and categories
+    all_questions = []
+    all_responses = []
+    for q, r in train_data + test_data:
+        all_questions.extend(q)
+        all_responses.extend(r)
     
-    return model, config, checkpoint.get('results', {})
+    n_questions = max(all_questions) + 1
+    n_cats = max(all_responses) + 1
+    
+    return train_data, test_data, n_questions, n_cats
 
 
-def evaluate_model_comprehensive(model: torch.nn.Module, test_loader: UnifiedDataLoader,
-                                loss_fn: torch.nn.Module, metrics: GpcmMetrics,
-                                device: torch.device, n_cats: int) -> Dict[str, Any]:
+def pad_sequence_batch(batch):
+    """Collate function for padding sequences."""
+    questions_batch, responses_batch = zip(*batch)
+    
+    # Find max length in batch
+    max_len = max(len(seq) for seq in questions_batch)
+    
+    # Pad sequences
+    questions_padded = []
+    responses_padded = []
+    masks = []
+    
+    for q, r in zip(questions_batch, responses_batch):
+        q_len = len(q)
+        # Pad questions and responses
+        q_pad = q + [0] * (max_len - q_len)
+        r_pad = r + [0] * (max_len - q_len)
+        mask = [1] * q_len + [0] * (max_len - q_len)
+        
+        questions_padded.append(q_pad)
+        responses_padded.append(r_pad)
+        masks.append(mask)
+    
+    return (torch.tensor(questions_padded), 
+            torch.tensor(responses_padded), 
+            torch.tensor(masks))
+
+
+def create_data_loaders(train_data, test_data, batch_size=32):
+    """Create data loaders."""
+    class SequenceDataset(data_utils.Dataset):
+        def __init__(self, data):
+            self.data = data
+        
+        def __len__(self):
+            return len(self.data)
+        
+        def __getitem__(self, idx):
+            return self.data[idx]
+    
+    train_dataset = SequenceDataset(train_data)
+    test_dataset = SequenceDataset(test_data)
+    
+    train_loader = data_utils.DataLoader(
+        train_dataset, batch_size=batch_size, shuffle=True, collate_fn=pad_sequence_batch
+    )
+    test_loader = data_utils.DataLoader(
+        test_dataset, batch_size=batch_size, shuffle=False, collate_fn=pad_sequence_batch
+    )
+    
+    return train_loader, test_loader
+
+
+def load_trained_model(model_path, device):
+    """Load trained model with auto-detection."""
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Model not found: {model_path}")
+    
+    print(f"📂 Loading model from: {model_path}")
+    
+    # Load checkpoint
+    try:
+        checkpoint = torch.load(model_path, map_location=device)
+    except Exception as e:
+        raise RuntimeError(f"Failed to load checkpoint: {e}")
+    
+    # Extract config
+    if 'config' not in checkpoint:
+        raise ValueError("Checkpoint missing config information")
+    
+    config = checkpoint['config']
+    model_type = config['model_type']
+    n_questions = config['n_questions']
+    n_cats = config['n_cats']
+    
+    print(f"🔍 Auto-detected model: {model_type}")
+    print(f"📊 Dataset config: {n_questions} questions, {n_cats} categories")
+    
+    # Create model based on type
+    if model_type == 'baseline':
+        model = BaselineGPCM(
+            n_questions=n_questions,
+            n_cats=n_cats,
+            memory_size=50,
+            key_dim=50,
+            value_dim=200,
+            final_fc_dim=50
+        )
+    elif model_type == 'deep_integration':
+        model = ProperDeepIntegrationGPCM(
+            n_questions=n_questions,
+            n_cats=n_cats,
+            embed_dim=64,
+            memory_size=50,
+            key_dim=50,
+            value_dim=200,
+            final_fc_dim=50,
+            n_heads=4,
+            n_cycles=2,
+            embedding_strategy="linear_decay"
+        )
+    else:
+        raise ValueError(f"Unknown model type: {model_type}")
+    
+    # Load model state
+    try:
+        model.load_state_dict(checkpoint['model_state_dict'])
+        model = model.to(device)
+        model.eval()
+    except Exception as e:
+        raise RuntimeError(f"Failed to load model state: {e}")
+    
+    print(f"✅ Model loaded successfully")
+    print(f"🔧 Parameters: {sum(p.numel() for p in model.parameters()):,}")
+    
+    # Extract training metrics if available
+    training_metrics = checkpoint.get('metrics', {})
+    
+    return model, config, training_metrics
+
+
+def evaluate_model(model, test_loader, device):
     """Comprehensive model evaluation."""
-    model.eval()
+    print(f"\\n🧪 EVALUATING MODEL")
+    print("-" * 50)
     
+    model.eval()
     all_predictions = []
     all_targets = []
-    all_probs = []
     inference_times = []
-    total_loss = 0.0
+    
+    print(f"Processing {len(test_loader)} batches...")
     
     with torch.no_grad():
-        for q_batch, r_batch, mask_batch in test_loader:
+        for batch_idx, (questions, responses, mask) in enumerate(test_loader):
+            questions = questions.to(device)
+            responses = responses.to(device)
+            
             # Time inference
-            import time
             start_time = time.time()
-            _, _, _, gpcm_probs = model(q_batch, r_batch)
+            
+            # Forward pass
+            student_abilities, item_thresholds, discrimination_params, gpcm_probs = model(questions, responses)
+            
             inference_time = time.time() - start_time
             inference_times.append(inference_time)
             
-            # Process outputs
-            if mask_batch is not None:
-                valid_probs = gpcm_probs[mask_batch]
-                valid_targets = r_batch[mask_batch]
-            else:
-                valid_probs = gpcm_probs.view(-1, n_cats)
-                valid_targets = r_batch.view(-1)
+            # Collect predictions and targets
+            probs_flat = gpcm_probs.view(-1, gpcm_probs.size(-1))
+            responses_flat = responses.view(-1)
             
-            # Compute loss
-            if hasattr(loss_fn, '__class__') and 'Ordinal' in loss_fn.__class__.__name__:
-                loss = loss_fn(valid_probs, valid_targets)
-            else:
-                loss = loss_fn(valid_probs.unsqueeze(1), valid_targets.unsqueeze(1))
+            all_predictions.append(probs_flat.cpu())
+            all_targets.append(responses_flat.cpu())
             
-            total_loss += loss.item()
-            
-            # Collect data
-            predictions = torch.argmax(valid_probs, dim=-1)
-            all_predictions.extend(predictions.cpu().numpy())
-            all_targets.extend(valid_targets.cpu().numpy())
-            all_probs.extend(valid_probs.cpu().numpy())
+            if (batch_idx + 1) % 10 == 0:
+                print(f"  Processed {batch_idx + 1}/{len(test_loader)} batches")
     
-    # Convert to numpy
-    predictions_np = np.array(all_predictions)
-    targets_np = np.array(all_targets)
-    probs_np = np.array(all_probs)
+    # Combine all predictions and targets
+    all_predictions = torch.cat(all_predictions, dim=0)
+    all_targets = torch.cat(all_targets, dim=0)
     
-    # Compute comprehensive metrics
-    eval_metrics = metrics.benchmark_prediction_methods(
-        torch.tensor(probs_np), torch.tensor(targets_np), n_cats
-    )
+    print(f"📊 Total samples: {len(all_targets)}")
+    print(f"⏱️  Average inference time: {np.mean(inference_times)*1000:.2f}ms per batch")
     
-    # Add additional metrics
-    eval_metrics.update({
-        'test_loss': total_loss / len(test_loader),
-        'avg_inference_time': np.mean(inference_times),
-        'std_inference_time': np.std(inference_times),
-        'total_parameters': sum(p.numel() for p in model.parameters()),
-        'predictions_distribution': np.bincount(predictions_np, minlength=n_cats).tolist(),
-        'targets_distribution': np.bincount(targets_np, minlength=n_cats).tolist()
-    })
+    # Calculate comprehensive metrics
+    print("\\n🔬 Computing comprehensive metrics...")
+    metrics_calc = GpcmMetrics()
+    eval_metrics = metrics_calc.benchmark_prediction_methods(all_predictions, all_targets, all_predictions.size(-1))
     
-    return eval_metrics
-
-
-def compare_models(results: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
-    """Compare multiple model results."""
-    if len(results) < 2:
-        return {"comparison": "Need at least 2 models for comparison"}
+    # Extract all prediction methods
+    results = {}
     
-    # Get baseline performance
-    baseline_name = None
-    baseline_metrics = None
+    for method_name, method_metrics in eval_metrics.items():
+        results[method_name] = method_metrics
     
-    for model_name, model_results in results.items():
-        if 'baseline' in model_name.lower():
-            baseline_name = model_name
-            baseline_metrics = model_results['evaluation']
-            break
-    
-    if baseline_metrics is None:
-        # Use first model as baseline
-        baseline_name = list(results.keys())[0]
-        baseline_metrics = results[baseline_name]['evaluation']
-    
-    comparison = {
-        'baseline_model': baseline_name,
-        'comparisons': {}
+    # Add inference performance metrics
+    results['performance'] = {
+        'avg_inference_time_ms': np.mean(inference_times) * 1000,
+        'total_samples': len(all_targets),
+        'samples_per_second': len(all_targets) / sum(inference_times)
     }
     
-    # Compare each model to baseline
-    for model_name, model_results in results.items():
-        if model_name == baseline_name:
-            continue
-        
-        model_metrics = model_results['evaluation']
-        model_comparison = {}
-        
-        # Key metrics comparison
-        key_metrics = ['categorical_acc', 'ordinal_acc', 'qwk', 'mae', 'avg_inference_time', 'total_parameters']
-        
-        for metric in key_metrics:
-            if metric in baseline_metrics and metric in model_metrics:
-                baseline_val = baseline_metrics[metric]
-                model_val = model_metrics[metric]
-                
-                if metric in ['mae']:  # Lower is better
-                    improvement = ((baseline_val - model_val) / baseline_val) * 100
-                else:  # Higher is better (except parameters and time)
-                    if metric in ['avg_inference_time', 'total_parameters']:
-                        improvement = ((baseline_val - model_val) / baseline_val) * 100
-                    else:
-                        improvement = ((model_val - baseline_val) / baseline_val) * 100
-                
-                model_comparison[metric] = {
-                    'baseline': baseline_val,
-                    'model': model_val,
-                    'improvement_percent': improvement,
-                    'better': improvement > 0
-                }
-        
-        comparison['comparisons'][model_name] = model_comparison
+    # Generate confusion matrix data for main prediction method
+    argmax_predictions = all_predictions.argmax(dim=-1)
+    n_cats = all_predictions.size(-1)
     
-    return comparison
+    confusion_matrix = torch.zeros(n_cats, n_cats, dtype=torch.int)
+    for target, pred in zip(all_targets, argmax_predictions):
+        confusion_matrix[target, pred] += 1
+    
+    results['confusion_matrix'] = confusion_matrix.numpy().tolist()
+    
+    return results
 
 
-def print_evaluation_summary(results: Dict[str, Dict[str, Any]], comparison: Dict[str, Any]):
-    """Print comprehensive evaluation summary."""
-    print("\n" + "="*80)
-    print("COMPREHENSIVE MODEL EVALUATION SUMMARY")
-    print("="*80)
+def print_evaluation_summary(results, model_name):
+    """Print formatted evaluation summary."""
+    print(f"\\n{'='*60}")
+    print(f"EVALUATION SUMMARY: {model_name}")
+    print(f"{'='*60}")
     
-    # Individual model results
-    for model_name, model_results in results.items():
-        eval_metrics = model_results['evaluation']
-        
-        print(f"\n📊 {model_name.upper()} PERFORMANCE:")
-        print("-" * 50)
-        print(f"Categorical Accuracy: {eval_metrics['categorical_acc']:.4f}")
-        print(f"Ordinal Accuracy: {eval_metrics['ordinal_acc']:.4f}")
-        print(f"QWK Score: {eval_metrics['qwk']:.4f}")
-        print(f"MAE: {eval_metrics['mae']:.4f}")
-        print(f"Parameters: {eval_metrics['total_parameters']:,}")
-        print(f"Inference Time: {eval_metrics['avg_inference_time']*1000:.1f}ms")
-        
-        if 'features' in model_results.get('model_info', {}):
-            features = model_results['model_info']['features']
-            print(f"Features: {', '.join(features)}")
+    # Main metrics (argmax)
+    if 'argmax' in results:
+        argmax_metrics = results['argmax']
+        print(f"\\n📈 MAIN METRICS (Argmax Prediction):")
+        print(f"  Categorical Accuracy:     {argmax_metrics['categorical_accuracy']:.4f}")
+        print(f"  Quadratic Weighted Kappa: {argmax_metrics['quadratic_weighted_kappa']:.4f}")
+        print(f"  Ordinal Accuracy:         {argmax_metrics['ordinal_accuracy']:.4f}")
+        print(f"  Mean Absolute Error:      {argmax_metrics['mean_absolute_error']:.4f}")
     
-    # Comparison results
-    if 'comparisons' in comparison:
-        print(f"\n🔬 COMPARATIVE ANALYSIS:")
-        print("-" * 50)
-        baseline_name = comparison['baseline_model']
-        print(f"Baseline: {baseline_name}")
-        
-        for model_name, comp_data in comparison['comparisons'].items():
-            print(f"\n{model_name} vs {baseline_name}:")
-            
-            for metric, metric_data in comp_data.items():
-                improvement = metric_data['improvement_percent']
-                symbol = "↑" if metric_data['better'] else "↓"
-                color_indicator = "✅" if metric_data['better'] else "❌"
-                
-                print(f"  {metric}: {symbol} {improvement:+.1f}% {color_indicator}")
+    # Alternative prediction methods
+    other_methods = [k for k in results.keys() if k not in ['argmax', 'performance', 'confusion_matrix']]
+    if other_methods:
+        print(f"\\n🔄 ALTERNATIVE PREDICTION METHODS:")
+        for method in other_methods:
+            if isinstance(results[method], dict) and 'categorical_accuracy' in results[method]:
+                acc = results[method]['categorical_accuracy']
+                qwk = results[method]['quadratic_weighted_kappa']
+                print(f"  {method:<20}: {acc:.4f} acc, {qwk:.4f} QWK")
     
-    print("\n" + "="*80)
+    # Performance metrics
+    if 'performance' in results:
+        perf = results['performance']
+        print(f"\\n⚡ PERFORMANCE METRICS:")
+        print(f"  Average inference time:   {perf['avg_inference_time_ms']:.2f} ms/batch")
+        print(f"  Samples per second:       {perf['samples_per_second']:.1f}")
+        print(f"  Total samples evaluated:  {perf['total_samples']:,}")
 
 
 def main():
-    """Main evaluation function."""
-    parser = argparse.ArgumentParser(description='Unified Deep-GPCM Evaluation')
-    parser.add_argument('--models', type=str, nargs='+', required=True,
-                        help='Paths to trained model checkpoints')
-    parser.add_argument('--dataset', type=str, default='synthetic_OC',
-                        help='Dataset name for evaluation')
-    parser.add_argument('--batch_size', type=int, default=32,
-                        help='Evaluation batch size')
-    parser.add_argument('--device', type=str, default='auto',
-                        help='Device to use (auto, cpu, cuda)')
-    parser.add_argument('--output', type=str, default='results/evaluation',
-                        help='Output directory for results')
-    parser.add_argument('--compare', action='store_true',
-                        help='Generate comparison analysis')
+    parser = argparse.ArgumentParser(description='Unified Deep-GPCM Model Evaluation')
+    parser.add_argument('--model_path', required=True, help='Path to trained model')
+    parser.add_argument('--dataset', default='synthetic_OC', help='Dataset name for evaluation')
+    parser.add_argument('--batch_size', type=int, default=32, help='Batch size for evaluation')
+    parser.add_argument('--device', default=None, help='Device (cuda/cpu)')
     
     args = parser.parse_args()
     
-    # Set device
-    if args.device == "auto":
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    else:
+    # Device setup
+    if args.device:
         device = torch.device(args.device)
+    else:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    print(f"Using device: {device}")
+    print("=" * 80)
+    print("UNIFIED DEEP-GPCM MODEL EVALUATION")
+    print("=" * 80)
+    print(f"Model path: {args.model_path}")
+    print(f"Dataset: {args.dataset}")
+    print(f"Device: {device}")
+    print(f"Batch size: {args.batch_size}")
+    print()
     
-    # Load test data (assuming same for all models)
-    test_path = f"data/{args.dataset}/{args.dataset.lower()}_test.txt"
-    test_seqs, test_questions, test_responses, n_cats = load_gpcm_data(test_path)
+    # Create results directory
+    os.makedirs('results/test', exist_ok=True)
     
-    print(f"Test data: {len(test_seqs)} sequences, {n_cats} categories")
-    
-    # Create test data loader
-    test_loader = UnifiedDataLoader(test_questions, test_responses,
-                                  args.batch_size, shuffle=False, device=device)
-    
-    # Evaluate each model
-    results = {}
-    metrics = GpcmMetrics()
-    
-    for model_path in args.models:
-        model_name = os.path.basename(model_path).replace('.pth', '')
+    try:
+        # Load trained model
+        model, config, training_metrics = load_trained_model(args.model_path, device)
         
-        print(f"\n=== Evaluating {model_name} ===")
+        # Load test data
+        train_path = f"data/{args.dataset}/{args.dataset.lower()}_train.txt"
+        test_path = f"data/{args.dataset}/{args.dataset.lower()}_test.txt"
         
         try:
-            # Load model
-            model, config, training_results = load_trained_model(model_path, device)
+            train_data, test_data, n_questions, n_cats = load_simple_data(train_path, test_path)
+            print(f"\\n📊 Test data loaded: {len(test_data)} sequences")
             
-            # Create loss function
-            loss_fn = create_loss_function(config.loss_type, n_cats)
-            
-            # Evaluate
-            eval_metrics = evaluate_model_comprehensive(
-                model, test_loader, loss_fn, metrics, device, n_cats
-            )
-            
-            # Get model info
-            if hasattr(model, 'get_model_info'):
-                model_info = model.get_model_info()
-            else:
-                model_info = {"name": config.model_type, "type": config.model_type}
-            
-            results[model_name] = {
-                'model_path': model_path,
-                'config': config.__dict__,
-                'model_info': model_info,
-                'evaluation': eval_metrics,
-                'training_results': training_results
-            }
-            
-            print(f"✅ Evaluation completed for {model_name}")
-            print(f"   Categorical Accuracy: {eval_metrics['categorical_acc']:.4f}")
-            print(f"   Ordinal Accuracy: {eval_metrics['ordinal_acc']:.4f}")
-            print(f"   QWK Score: {eval_metrics['qwk']:.4f}")
-            
-        except Exception as e:
-            print(f"❌ Failed to evaluate {model_name}: {e}")
-            continue
+            # Verify data compatibility
+            if n_questions != config['n_questions'] or n_cats != config['n_cats']:
+                print(f"⚠️  WARNING: Data dimensions mismatch!")
+                print(f"   Model expects: {config['n_questions']} questions, {config['n_cats']} categories")
+                print(f"   Data contains: {n_questions} questions, {n_cats} categories")
+                print(f"   Using model dimensions for evaluation...")
+        except FileNotFoundError:
+            print(f"❌ Dataset {args.dataset} not found at {test_path}")
+            return
+        
+        # Create test data loader
+        _, test_loader = create_data_loaders(train_data, test_data, args.batch_size)
+        
+        # Evaluate model
+        results = evaluate_model(model, test_loader, device)
+        
+        # Print summary
+        model_name = config['model_type']
+        print_evaluation_summary(results, model_name)
+        
+        # Save detailed results
+        output_data = {
+            'timestamp': datetime.now().isoformat(),
+            'model_path': args.model_path,
+            'config': config,
+            'dataset': args.dataset,
+            'evaluation_config': {
+                'batch_size': args.batch_size,
+                'device': str(device)
+            },
+            'training_metrics': training_metrics,
+            'evaluation_results': results
+        }
+        
+        # Generate output filename
+        model_name = config['model_type']
+        dataset_name = config.get('dataset', args.dataset)
+        output_path = f"results/test/test_results_{model_name}_{dataset_name}.json"
+        
+        with open(output_path, 'w') as f:
+            json.dump(output_data, f, indent=2)
+        
+        print(f"\\n💾 Results saved to: {output_path}")
+        print("\\n✅ Evaluation completed successfully!")
+        
+    except FileNotFoundError as e:
+        print(f"❌ Error: {e}")
+        return 1
+    except Exception as e:
+        print(f"❌ Evaluation failed: {e}")
+        return 1
     
-    # Generate comparison if requested
-    comparison = {}
-    if args.compare and len(results) > 1:
-        comparison = compare_models(results)
-    
-    # Print summary
-    print_evaluation_summary(results, comparison)
-    
-    # Save results
-    os.makedirs(args.output, exist_ok=True)
-    
-    output_file = os.path.join(args.output, f"evaluation_{args.dataset}.json")
-    final_results = {
-        'dataset': args.dataset,
-        'device': str(device),
-        'models': results,
-        'comparison': comparison
-    }
-    
-    with open(output_file, 'w') as f:
-        json.dump(final_results, f, indent=2)
-    
-    print(f"\n💾 Results saved to: {output_file}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    exit(main())

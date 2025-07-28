@@ -1,308 +1,500 @@
+#!/usr/bin/env python3
 """
-Unified Training Script for Deep-GPCM
-Supports baseline and AKVMN models with unified interface.
+Unified Training Script for Deep-GPCM Models
+Supports both baseline and Deep Integration models with optional k-fold cross-validation.
 """
 
 import os
 import torch
-import torch.nn as nn
-import numpy as np
-import argparse
 import json
 import time
+import argparse
+import numpy as np
 from datetime import datetime
-from typing import Dict, Any, Tuple
+from sklearn.model_selection import KFold
 
-from config import get_model_config, get_preset_configs
-from model_factory import create_model, print_model_summary
-from utils.gpcm_utils import load_gpcm_data
-from utils.data_utils import UnifiedDataLoader
-from utils.loss_utils import create_loss_function
+from models.baseline import BaselineGPCM
+from models.deep_integration_gpcm_proper import ProperDeepIntegrationGPCM
 from evaluation.metrics import GpcmMetrics
+import torch.utils.data as data_utils
+import torch.nn as nn
+import torch.optim as optim
 
 
-def train_epoch(model: nn.Module, train_loader: UnifiedDataLoader, 
-                optimizer: torch.optim.Optimizer, loss_fn: nn.Module,
-                device: torch.device, n_cats: int) -> Tuple[float, float]:
-    """Train model for one epoch."""
-    model.train()
-    total_loss = 0.0
-    correct_predictions = 0
-    total_predictions = 0
+def load_simple_data(train_path, test_path):
+    """Simple data loading function."""
+    def read_data(file_path):
+        sequences = []
+        with open(file_path, 'r') as f:
+            lines = f.readlines()
+            i = 0
+            while i < len(lines):
+                if i + 2 >= len(lines):
+                    break
+                seq_len = int(lines[i].strip())
+                questions = list(map(int, lines[i+1].strip().split(',')))
+                responses = list(map(int, lines[i+2].strip().split(',')))
+                
+                # Ensure lengths match
+                questions = questions[:seq_len]
+                responses = responses[:seq_len]
+                
+                sequences.append((questions, responses))
+                i += 3
+        return sequences
     
-    for q_batch, r_batch, mask_batch in train_loader:
-        optimizer.zero_grad()
-        
-        # Forward pass
-        _, _, _, gpcm_probs = model(q_batch, r_batch)
-        
-        # Compute loss
-        if mask_batch is not None:
-            valid_probs = gpcm_probs[mask_batch]
-            valid_targets = r_batch[mask_batch]
-        else:
-            valid_probs = gpcm_probs.view(-1, n_cats)
-            valid_targets = r_batch.view(-1)
-        
-        if hasattr(loss_fn, '__class__') and 'Ordinal' in loss_fn.__class__.__name__:
-            loss = loss_fn(valid_probs, valid_targets)
-        else:
-            loss = loss_fn(valid_probs.unsqueeze(1), valid_targets.unsqueeze(1))
-        
-        # Backward pass
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        optimizer.step()
-        
-        # Track metrics
-        total_loss += loss.item()
-        predictions = torch.argmax(valid_probs, dim=-1)
-        correct_predictions += (predictions == valid_targets).sum().item()
-        total_predictions += valid_targets.size(0)
+    train_data = read_data(train_path)
+    test_data = read_data(test_path)
     
-    avg_loss = total_loss / len(train_loader)
-    accuracy = correct_predictions / total_predictions
+    # Find number of questions and categories
+    all_questions = []
+    all_responses = []
+    for q, r in train_data + test_data:
+        all_questions.extend(q)
+        all_responses.extend(r)
     
-    return avg_loss, accuracy
+    n_questions = max(all_questions) + 1
+    n_cats = max(all_responses) + 1
+    
+    return train_data, test_data, n_questions, n_cats
 
 
-def evaluate_model(model: nn.Module, test_loader: UnifiedDataLoader,
-                  loss_fn: nn.Module, metrics: GpcmMetrics,
-                  device: torch.device, n_cats: int) -> Dict[str, float]:
-    """Evaluate model performance."""
-    model.eval()
-    total_loss = 0.0
-    all_predictions = []
-    all_targets = []
-    inference_times = []
+def pad_sequence_batch(batch):
+    """Collate function for padding sequences."""
+    questions_batch, responses_batch = zip(*batch)
     
-    with torch.no_grad():
-        for q_batch, r_batch, mask_batch in test_loader:
-            # Time inference
-            start_time = time.time()
-            _, _, _, gpcm_probs = model(q_batch, r_batch)
-            inference_time = time.time() - start_time
-            inference_times.append(inference_time)
-            
-            # Compute loss
-            if mask_batch is not None:
-                valid_probs = gpcm_probs[mask_batch]
-                valid_targets = r_batch[mask_batch]
-            else:
-                valid_probs = gpcm_probs.view(-1, n_cats)
-                valid_targets = r_batch.view(-1)
-            
-            if hasattr(loss_fn, '__class__') and 'Ordinal' in loss_fn.__class__.__name__:
-                loss = loss_fn(valid_probs, valid_targets)
-            else:
-                loss = loss_fn(valid_probs.unsqueeze(1), valid_targets.unsqueeze(1))
-            
-            total_loss += loss.item()
-            
-            # Collect predictions and targets
-            all_predictions.append(valid_probs.cpu())
-            all_targets.extend(valid_targets.cpu().numpy())
+    # Find max length in batch
+    max_len = max(len(seq) for seq in questions_batch)
     
-    # Compute comprehensive metrics
-    all_probs = torch.cat(all_predictions, dim=0)
-    targets_tensor = torch.tensor(all_targets, dtype=torch.long)
+    # Pad sequences
+    questions_padded = []
+    responses_padded = []
+    masks = []
     
-    eval_metrics = metrics.benchmark_prediction_methods(
-        all_probs, targets_tensor, n_cats
+    for q, r in zip(questions_batch, responses_batch):
+        q_len = len(q)
+        # Pad questions and responses
+        q_pad = q + [0] * (max_len - q_len)
+        r_pad = r + [0] * (max_len - q_len)
+        mask = [1] * q_len + [0] * (max_len - q_len)
+        
+        questions_padded.append(q_pad)
+        responses_padded.append(r_pad)
+        masks.append(mask)
+    
+    return (torch.tensor(questions_padded), 
+            torch.tensor(responses_padded), 
+            torch.tensor(masks))
+
+
+def create_data_loaders(train_data, test_data, batch_size=32):
+    """Create data loaders."""
+    class SequenceDataset(data_utils.Dataset):
+        def __init__(self, data):
+            self.data = data
+        
+        def __len__(self):
+            return len(self.data)
+        
+        def __getitem__(self, idx):
+            return self.data[idx]
+    
+    train_dataset = SequenceDataset(train_data)
+    test_dataset = SequenceDataset(test_data)
+    
+    train_loader = data_utils.DataLoader(
+        train_dataset, batch_size=batch_size, shuffle=True, collate_fn=pad_sequence_batch
+    )
+    test_loader = data_utils.DataLoader(
+        test_dataset, batch_size=batch_size, shuffle=False, collate_fn=pad_sequence_batch
     )
     
-    eval_metrics.update({
-        'test_loss': total_loss / len(test_loader),
-        'avg_inference_time': np.mean(inference_times)
-    })
-    
-    return eval_metrics
+    return train_loader, test_loader
 
 
-def save_model_and_results(model: nn.Module, config: Any, results: Dict[str, Any],
-                          save_dir: str, dataset_name: str):
-    """Save model checkpoint and training results."""
-    os.makedirs(save_dir, exist_ok=True)
+def create_model(model_type, n_questions, n_cats, device):
+    """Create model based on type."""
+    if model_type == 'baseline':
+        model = BaselineGPCM(
+            n_questions=n_questions,
+            n_cats=n_cats,
+            memory_size=50,
+            key_dim=50,
+            value_dim=200,
+            final_fc_dim=50
+        )
+    elif model_type == 'deep_integration':
+        model = ProperDeepIntegrationGPCM(
+            n_questions=n_questions,
+            n_cats=n_cats,
+            embed_dim=64,
+            memory_size=50,
+            key_dim=50,
+            value_dim=200,
+            final_fc_dim=50,
+            n_heads=4,
+            n_cycles=2,
+            embedding_strategy="linear_decay"
+        )
+    else:
+        raise ValueError(f"Unknown model type: {model_type}")
     
-    # Save model
-    model_path = os.path.join(save_dir, f"best_{config.model_type}_{dataset_name}.pth")
-    torch.save({
-        'model_state_dict': model.state_dict(),
-        'config': config.__dict__,
-        'results': results
-    }, model_path)
-    
-    # Save results
-    results_path = os.path.join(save_dir, f"results_{config.model_type}_{dataset_name}.json")
-    with open(results_path, 'w') as f:
-        json.dump(results, f, indent=2)
-    
-    return model_path, results_path
+    return model.to(device)
 
 
-def train_model(config, dataset_name: str, device: torch.device) -> Dict[str, Any]:
-    """
-    Train a model with given configuration.
+def train_single_fold(model, train_loader, test_loader, device, epochs, model_name, fold=None):
+    """Train a single model (one fold or no CV)."""
+    print(f"\\n🚀 TRAINING: {model_name}" + (f" (Fold {fold})" if fold is not None else ""))
+    print("-" * 60)
     
-    Args:
-        config: Model configuration
-        dataset_name: Name of the dataset
-        device: Computing device
-        
-    Returns:
-        Training results dictionary
-    """
-    print(f"\n=== Training {config.model_type.upper()} on {dataset_name} ===")
+    # Fresh model initialization
+    def init_weights(m):
+        if isinstance(m, nn.Linear):
+            torch.nn.init.kaiming_normal_(m.weight)
+            if m.bias is not None:
+                torch.nn.init.zeros_(m.bias)
+        elif isinstance(m, nn.Embedding):
+            torch.nn.init.kaiming_normal_(m.weight)
     
-    # Load data
-    train_path = f"data/{dataset_name}/{dataset_name.lower()}_train.txt"
-    test_path = f"data/{dataset_name}/{dataset_name.lower()}_test.txt"
+    model.apply(init_weights)
     
-    train_seqs, train_questions, train_responses, n_cats = load_gpcm_data(train_path)
-    test_seqs, test_questions, test_responses, _ = load_gpcm_data(test_path, n_cats)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.8, patience=3)
     
-    # Determine n_questions
-    all_questions = []
-    for q_seq in train_questions + test_questions:
-        all_questions.extend(q_seq)
-    n_questions = max(all_questions)
-    
-    # Update config
-    config.n_cats = n_cats
-    config.n_questions = n_questions
-    
-    print(f"Data: {len(train_seqs)} train, {len(test_seqs)} test")
-    print(f"Questions: {n_questions}, Categories: {n_cats}")
-    
-    # Create model
-    model = create_model(config, n_questions, device)
-    print_model_summary(model, config)
-    
-    # Create data loaders
-    train_loader = UnifiedDataLoader(train_questions, train_responses, 
-                                   config.batch_size, shuffle=True, device=device)
-    test_loader = UnifiedDataLoader(test_questions, test_responses,
-                                  config.batch_size, shuffle=False, device=device)
-    
-    # Create optimizer and loss function
-    optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
-    loss_fn = create_loss_function(config.loss_type, n_cats)
-    metrics = GpcmMetrics()
-    
-    # Training loop
-    best_accuracy = 0.0
     training_history = []
+    best_qwk = -1.0
+    best_epoch = 0
+    best_model_state = None
     
-    print(f"\nStarting training for {config.epochs} epochs...")
+    print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")
+    print(f"Model type: {type(model).__name__}")
+    print("Epoch | Train Loss | Train Acc | Test Acc | QWK | Ord.Acc | MAE | Grad.Norm | LR | Time(s)")
+    print("-" * 95)
     
-    for epoch in range(config.epochs):
-        # Training
-        train_loss, train_acc = train_epoch(
-            model, train_loader, optimizer, loss_fn, device, n_cats
-        )
+    for epoch in range(epochs):
+        start_time = time.time()
         
-        # Evaluation
-        eval_results = evaluate_model(
-            model, test_loader, loss_fn, metrics, device, n_cats
-        )
+        # Train
+        model.train()
+        total_loss = 0.0
+        correct = 0
+        total = 0
+        grad_norms = []
         
-        # Track best model
-        current_accuracy = eval_results['argmax']['categorical_accuracy']
-        if current_accuracy > best_accuracy:
-            best_accuracy = current_accuracy
-            best_results = eval_results.copy()
+        for batch_idx, (questions, responses, mask) in enumerate(train_loader):
+            questions = questions.to(device)
+            responses = responses.to(device)
+            
+            optimizer.zero_grad()
+            
+            # Forward pass
+            student_abilities, item_thresholds, discrimination_params, gpcm_probs = model(questions, responses)
+            
+            # Flatten for loss computation
+            probs_flat = gpcm_probs.view(-1, gpcm_probs.size(-1))
+            responses_flat = responses.view(-1)
+            
+            # Compute loss
+            loss = criterion(probs_flat, responses_flat)
+            
+            # Check for NaN
+            if torch.isnan(loss):
+                print(f"🚨 WARNING: NaN loss in epoch {epoch+1}, batch {batch_idx}")
+                continue
+            
+            loss.backward()
+            
+            # Monitor gradient norms
+            grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            grad_norms.append(grad_norm.item())
+            
+            optimizer.step()
+            
+            total_loss += loss.item()
+            predicted = probs_flat.argmax(dim=-1)
+            correct += (predicted == responses_flat).sum().item()
+            total += responses_flat.numel()
         
-        # Store epoch results
-        epoch_data = {
+        train_loss = total_loss / len(train_loader)
+        train_acc = correct / total
+        avg_grad_norm = np.mean(grad_norms) if grad_norms else 0.0
+        
+        # Evaluate
+        model.eval()
+        all_predictions = []
+        all_targets = []
+        
+        with torch.no_grad():
+            for questions, responses, mask in test_loader:
+                questions = questions.to(device)
+                responses = responses.to(device)
+                
+                student_abilities, item_thresholds, discrimination_params, gpcm_probs = model(questions, responses)
+                probs_flat = gpcm_probs.view(-1, gpcm_probs.size(-1))
+                responses_flat = responses.view(-1)
+                
+                all_predictions.append(probs_flat.cpu())
+                all_targets.append(responses_flat.cpu())
+        
+        # Combine predictions and compute metrics
+        all_predictions = torch.cat(all_predictions, dim=0)
+        all_targets = torch.cat(all_targets, dim=0)
+        
+        # Calculate comprehensive metrics
+        metrics_calc = GpcmMetrics()
+        eval_metrics = metrics_calc.benchmark_prediction_methods(all_predictions, all_targets, all_predictions.size(-1))
+        
+        # Extract argmax metrics
+        argmax_metrics = eval_metrics['argmax']
+        test_acc = argmax_metrics['categorical_accuracy']
+        qwk = argmax_metrics['quadratic_weighted_kappa']
+        ordinal_acc = argmax_metrics['ordinal_accuracy']
+        mae = argmax_metrics['mean_absolute_error']
+        
+        # Update learning rate
+        scheduler.step(qwk)
+        current_lr = optimizer.param_groups[0]['lr']
+        
+        epoch_time = time.time() - start_time
+        
+        print(f"{epoch+1:5d} | {train_loss:10.4f} | {train_acc:8.4f} | {test_acc:7.4f} | "
+              f"{qwk:6.3f} | {ordinal_acc:6.4f} | {mae:6.3f} | {avg_grad_norm:8.3f} | {current_lr:.2e} | {epoch_time:6.1f}")
+        
+        # Save best model
+        if qwk > best_qwk:
+            best_qwk = qwk
+            best_epoch = epoch + 1
+            best_model_state = model.state_dict().copy()
+        
+        # Record training history
+        training_history.append({
             'epoch': epoch + 1,
             'train_loss': train_loss,
             'train_accuracy': train_acc,
-            **eval_results
-        }
-        training_history.append(epoch_data)
+            'test_accuracy': test_acc,
+            'qwk': qwk,
+            'ordinal_accuracy': ordinal_acc,
+            'mae': mae,
+            'gradient_norm': avg_grad_norm,
+            'learning_rate': current_lr
+        })
         
-        # Print progress
-        if epoch % 5 == 0 or epoch == config.epochs - 1:
-            print(f"Epoch {epoch+1:3d}/{config.epochs}: "
-                  f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}, "
-                  f"Test Acc: {current_accuracy:.4f}")
+        # Early stopping on gradient explosion
+        if avg_grad_norm > 100:
+            print(f"\\n🚨 STOPPING: Gradient explosion detected (norm: {avg_grad_norm:.1f})")
+            break
     
-    # Compile final results
-    final_results = {
-        'model_type': config.model_type,
-        'dataset': dataset_name,
-        'config': config.__dict__,
-        'training_history': training_history,
-        'best_metrics': best_results,
-        'final_accuracy': best_accuracy
+    print(f"\\n✅ Training completed! Best QWK: {best_qwk:.3f} at epoch {best_epoch}")
+    
+    # Final metrics from best model
+    best_metrics = {
+        'categorical_accuracy': training_history[best_epoch-1]['test_accuracy'],
+        'ordinal_accuracy': training_history[best_epoch-1]['ordinal_accuracy'],
+        'quadratic_weighted_kappa': best_qwk,
+        'mean_absolute_error': training_history[best_epoch-1]['mae'],
+        'train_accuracy': training_history[best_epoch-1]['train_accuracy'],
+        'train_loss': training_history[best_epoch-1]['train_loss'],
+        'best_epoch': best_epoch,
+        'total_epochs': len(training_history),
+        'parameters': sum(p.numel() for p in model.parameters()),
+        'model_type': type(model).__name__
     }
     
-    # Save model and results
-    model_path, results_path = save_model_and_results(
-        model, config, final_results, config.save_dir, dataset_name
-    )
-    
-    print(f"\n✅ Training completed!")
-    print(f"Best accuracy: {best_accuracy:.4f}")
-    print(f"Model saved: {model_path}")
-    print(f"Results saved: {results_path}")
-    
-    return final_results
+    return best_model_state, best_metrics, training_history
 
 
 def main():
-    """Main training function."""
     parser = argparse.ArgumentParser(description='Unified Deep-GPCM Training')
-    parser.add_argument('--model', type=str, default='baseline',
-                        choices=['baseline', 'akvmn'],
-                        help='Model type to train')
-    parser.add_argument('--dataset', type=str, default='synthetic_OC',
-                        help='Dataset name')
-    parser.add_argument('--epochs', type=int, default=30,
-                        help='Number of training epochs')
-    parser.add_argument('--batch_size', type=int, default=32,
-                        help='Training batch size')
-    parser.add_argument('--learning_rate', type=float, default=0.001,
-                        help='Learning rate')
-    parser.add_argument('--device', type=str, default='auto',
-                        help='Device to use (auto, cpu, cuda)')
-    parser.add_argument('--config', type=str, default=None,
-                        help='Path to custom config file')
+    parser.add_argument('--model', choices=['baseline', 'deep_integration'], required=True,
+                        help='Model to train')
+    parser.add_argument('--dataset', default='synthetic_OC', help='Dataset name')
+    parser.add_argument('--epochs', type=int, default=30, help='Number of epochs')
+    parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
+    parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
+    parser.add_argument('--n_folds', type=int, default=5, help='Number of CV folds (0 = no CV)')
+    parser.add_argument('--no_cv', action='store_true', help='Disable cross-validation')
+    parser.add_argument('--seed', type=int, default=42, help='Random seed')
+    parser.add_argument('--device', default=None, help='Device (cuda/cpu)')
     
     args = parser.parse_args()
     
-    # Set device
-    if args.device == "auto":
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    else:
+    # Set seed
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    
+    # Device setup
+    if args.device:
         device = torch.device(args.device)
-    
-    print(f"Using device: {device}")
-    
-    # Load or create configuration
-    if args.config:
-        from config import load_config
-        config = load_config(args.config)
     else:
-        preset_configs = get_preset_configs()
-        if args.model in preset_configs:
-            config = preset_configs[args.model]
-        else:
-            config = get_model_config(args.model)
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    # Override config with command line arguments
-    config.epochs = args.epochs
-    config.batch_size = args.batch_size
-    config.learning_rate = args.learning_rate
-    config.dataset_name = args.dataset
-    
-    # Train model
-    results = train_model(config, args.dataset, device)
-    
-    print(f"\n🎯 Final Results Summary:")
-    print(f"Model: {config.model_type.upper()}")
+    print("=" * 80)
+    print(f"UNIFIED DEEP-GPCM TRAINING")
+    print("=" * 80)
+    print(f"Model: {args.model}")
     print(f"Dataset: {args.dataset}")
-    print(f"Final Accuracy: {results['final_accuracy']:.4f}")
+    print(f"Device: {device}")
+    print(f"Epochs: {args.epochs}")
+    print(f"Cross-validation: {'Disabled' if args.no_cv else f'{args.n_folds}-fold'}")
+    print()
+    
+    # Create directories
+    os.makedirs('save_models', exist_ok=True)
+    os.makedirs('logs', exist_ok=True)
+    
+    # Load data
+    train_path = f"data/{args.dataset}/{args.dataset.lower()}_train.txt"
+    test_path = f"data/{args.dataset}/{args.dataset.lower()}_test.txt"
+    
+    try:
+        train_data, test_data, n_questions, n_cats = load_simple_data(train_path, test_path)
+        print(f"📊 Data loaded: {len(train_data)} train, {len(test_data)} test")
+        print(f"Questions: {n_questions}, Categories: {n_cats}")
+    except FileNotFoundError:
+        print(f"❌ Dataset {args.dataset} not found at {train_path}")
+        return
+    
+    # Cross-validation or single training
+    if args.no_cv or args.n_folds == 0:
+        print("\\n📈 Single training (no cross-validation)")
+        
+        # Create data loaders
+        train_loader, test_loader = create_data_loaders(train_data, test_data, args.batch_size)
+        
+        # Create and train model
+        model = create_model(args.model, n_questions, n_cats, device)
+        best_model_state, best_metrics, training_history = train_single_fold(
+            model, train_loader, test_loader, device, args.epochs, args.model
+        )
+        
+        # Save model and logs
+        model_path = f"save_models/best_{args.model}_{args.dataset}.pth"
+        torch.save({
+            'model_state_dict': best_model_state,
+            'config': {
+                'model_type': args.model,
+                'n_questions': n_questions,
+                'n_cats': n_cats,
+                'dataset': args.dataset
+            },
+            'metrics': best_metrics
+        }, model_path)
+        
+        log_path = f"logs/train_results_{args.model}_{args.dataset}.json"
+        with open(log_path, 'w') as f:
+            json.dump({
+                'config': vars(args),
+                'metrics': best_metrics,
+                'training_history': training_history
+            }, f, indent=2)
+        
+        print(f"\\n💾 Model saved to: {model_path}")
+        print(f"📋 Logs saved to: {log_path}")
+        
+    else:
+        print(f"\\n📈 {args.n_folds}-fold cross-validation")
+        
+        # Combine all data for CV splitting
+        all_data = train_data + test_data
+        all_indices = np.arange(len(all_data))
+        
+        kfold = KFold(n_splits=args.n_folds, shuffle=True, random_state=args.seed)
+        fold_results = []
+        
+        for fold, (train_idx, test_idx) in enumerate(kfold.split(all_indices), 1):
+            print(f"\\n{'='*20} FOLD {fold}/{args.n_folds} {'='*20}")
+            
+            # Split data for this fold
+            fold_train_data = [all_data[i] for i in train_idx]
+            fold_test_data = [all_data[i] for i in test_idx]
+            
+            # Create data loaders
+            train_loader, test_loader = create_data_loaders(fold_train_data, fold_test_data, args.batch_size)
+            
+            # Create and train model
+            model = create_model(args.model, n_questions, n_cats, device)
+            best_model_state, best_metrics, training_history = train_single_fold(
+                model, train_loader, test_loader, device, args.epochs, args.model, fold
+            )
+            
+            # Save fold results
+            fold_results.append({
+                'fold': fold,
+                'metrics': best_metrics,
+                'training_history': training_history
+            })
+            
+            # Save model for this fold
+            model_path = f"save_models/best_{args.model}_{args.dataset}_fold_{fold}.pth"
+            torch.save({
+                'model_state_dict': best_model_state,
+                'config': {
+                    'model_type': args.model,
+                    'n_questions': n_questions,
+                    'n_cats': n_cats,
+                    'dataset': args.dataset,
+                    'fold': fold
+                },
+                'metrics': best_metrics
+            }, model_path)
+            
+            # Save fold logs
+            log_path = f"logs/train_results_{args.model}_{args.dataset}_fold_{fold}.json"
+            with open(log_path, 'w') as f:
+                json.dump({
+                    'config': vars(args),
+                    'fold': fold,
+                    'metrics': best_metrics,
+                    'training_history': training_history
+                }, f, indent=2)
+        
+        # Compute and display CV summary
+        print(f"\\n{'='*20} CV SUMMARY {'='*20}")
+        
+        metrics_names = ['categorical_accuracy', 'quadratic_weighted_kappa', 'ordinal_accuracy', 'mean_absolute_error']
+        cv_summary = {}
+        
+        for metric in metrics_names:
+            values = [fold['metrics'][metric] for fold in fold_results]
+            cv_summary[metric] = {
+                'mean': np.mean(values),
+                'std': np.std(values),
+                'values': values
+            }
+        
+        print(f"{'Metric':<25} {'Mean':<8} {'Std':<8} {'Folds'}")
+        print("-" * 60)
+        for metric, stats in cv_summary.items():
+            fold_str = " ".join([f"{v:.3f}" for v in stats['values']])
+            print(f"{metric:<25} {stats['mean']:<8.3f} {stats['std']:<8.3f} [{fold_str}]")
+        
+        # Save CV summary
+        cv_log_path = f"logs/train_results_{args.model}_{args.dataset}_cv_summary.json"
+        with open(cv_log_path, 'w') as f:
+            json.dump({
+                'config': vars(args),
+                'cv_summary': cv_summary,
+                'fold_results': fold_results
+            }, f, indent=2)
+        
+        print(f"\\n📋 CV summary saved to: {cv_log_path}")
+        
+        # Find and save best fold model as main model
+        best_fold_idx = np.argmax([fold['metrics']['quadratic_weighted_kappa'] for fold in fold_results])
+        best_fold = fold_results[best_fold_idx]['fold']
+        
+        best_fold_model_path = f"save_models/best_{args.model}_{args.dataset}_fold_{best_fold}.pth"
+        main_model_path = f"save_models/best_{args.model}_{args.dataset}.pth"
+        
+        # Copy best fold model as main model
+        import shutil
+        shutil.copy2(best_fold_model_path, main_model_path)
+        
+        print(f"\\n🏆 Best fold: {best_fold} (QWK: {fold_results[best_fold_idx]['metrics']['quadratic_weighted_kappa']:.3f})")
+        print(f"💾 Best model copied to: {main_model_path}")
+    
+    print("\\n✅ Training completed successfully!")
 
 
 if __name__ == "__main__":
