@@ -1,0 +1,50 @@
+{
+  "config": {
+    "model": "deep_integration",
+    "dataset": "synthetic_OC",
+    "epochs": 2,
+    "batch_size": 32,
+    "lr": 0.001,
+    "n_folds": 5,
+    "no_cv": false,
+    "seed": 42,
+    "device": null
+  },
+  "fold": 3,
+  "metrics": {
+    "categorical_accuracy": 0.5938796401023865,
+    "ordinal_accuracy": 0.7536306977272034,
+    "quadratic_weighted_kappa": 0.329637242978576,
+    "mean_absolute_error": 0.7795643210411072,
+    "train_accuracy": 0.6345850840336135,
+    "train_loss": 1.103970432281494,
+    "best_epoch": 2,
+    "total_epochs": 2,
+    "parameters": 174354,
+    "model_type": "ProperDeepIntegrationGPCM"
+  },
+  "training_history": [
+    {
+      "epoch": 1,
+      "train_loss": 1.1914631366729735,
+      "train_accuracy": 0.5446428571428571,
+      "test_accuracy": 0.5606846213340759,
+      "qwk": 0.04000474777448071,
+      "ordinal_accuracy": 0.7038381695747375,
+      "mae": 0.9050830006599426,
+      "gradient_norm": 0.7950695514678955,
+      "learning_rate": 0.001
+    },
+    {
+      "epoch": 2,
+      "train_loss": 1.103970432281494,
+      "train_accuracy": 0.6345850840336135,
+      "test_accuracy": 0.5938796401023865,
+      "qwk": 0.329637242978576,
+      "ordinal_accuracy": 0.7536306977272034,
+      "mae": 0.7795643210411072,
+      "gradient_norm": 0.37377429455518724,
+      "learning_rate": 0.001
+    }
+  ]
+}

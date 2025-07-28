@@ -162,6 +162,22 @@ python plot_metrics.py --plot_type curves --train_results logs/*.json
 python plot_metrics.py --plot_type confusion --test_results results/test/*.json
 ```
 
+#### IRT Parameter Analysis
+```bash
+# Extract and visualize IRT parameters from trained models
+python plot_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --plot_type all
+
+# Compare IRT parameters between models  
+python plot_irt.py --compare save_models/best_baseline_synthetic_OC.pth save_models/best_akvmn_synthetic_OC.pth
+
+# Extract and save parameters for later analysis
+python plot_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --save_params baseline_irt.npz
+
+# Generate specific plot types
+python plot_irt.py --model_path save_models/best_akvmn_synthetic_OC.pth --plot_type icc
+python plot_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --plot_type tif
+```
+
 ### 3. Data Generation
 ```bash
 # Generate synthetic datasets
@@ -204,6 +220,177 @@ python data_gen.py --format OC --categories 4 --students 800 --questions 30
 - `--test_results`: Test result JSON files  
 - `--output_dir`: Output directory for plots
 - `--plot_type`: Plot type (`all`/`final`/`curves`/`confusion`)
+
+#### plot_irt.py
+- `--model_path`: Path to trained model checkpoint for IRT analysis
+- `--compare`: Compare two models (`MODEL1.pth MODEL2.pth`)
+- `--irt_file`: Load IRT parameters from saved file (`.npz`/`.json`)
+- `--data_path`: Test data path (default: `data/synthetic_OC/synthetic_oc_test.txt`)
+- `--plot_type`: IRT plot type (`all`/`icc`/`iif`/`tif`/`wright`/`dist`)
+- `--save_params`: Save extracted IRT parameters to file
+- `--output_dir`: Output directory for IRT plots
+- `--labels`: Model labels for comparison plots
+
+#### animate_irt.py
+- `--model_path`: Path to trained model checkpoint for temporal analysis
+- `--data_path`: Test data path (default: `data/synthetic_OC/synthetic_oc_test.txt`)
+- `--output_dir`: Output directory for animations (default: `irt_animations`)
+- `--max_sequences`: Maximum number of sequences to analyze (default: 50)
+- `--sequence_idx`: Specific sequence index for student journey animation (default: 0)
+- `--animation_type`: Animation type (`journey`/`distributions`/`heatmap`/`stats`/`all`)
+
+## IRT Parameter Analysis
+
+### Overview
+The Deep-GPCM system extracts Item Response Theory (IRT) parameters from trained models, enabling detailed analysis of both student abilities and item characteristics. This functionality provides insights into model behavior and educational assessment quality.
+
+### IRT Parameters
+- **θ (theta)**: Student ability parameters - latent knowledge/skill level on scale [-3, 3]
+- **α (alpha)**: Item discrimination parameters - how well items differentiate between ability levels
+- **β (beta)**: Category threshold parameters - difficulty thresholds for transitioning between adjacent categories (K-1 per item)
+
+### Available Visualizations
+
+#### Item Characteristic Curves (ICC)
+Shows probability of responses across ability levels for individual items:
+```bash
+python plot_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --plot_type icc
+```
+
+#### Item Information Functions (IIF)
+Displays how much information each item provides across the ability range:
+```bash
+python plot_irt.py --model_path save_models/best_akvmn_synthetic_OC.pth --plot_type iif
+```
+
+#### Test Information Function (TIF)
+Shows total test information across ability levels:
+```bash
+python plot_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --plot_type tif
+```
+
+#### Wright Map (Item-Person Map)
+Compares distribution of student abilities with item difficulties:
+```bash
+python plot_irt.py --model_path save_models/best_akvmn_synthetic_OC.pth --plot_type wright
+```
+
+#### Parameter Distributions
+Histograms and statistics for all IRT parameters:
+```bash
+python plot_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --plot_type dist
+```
+
+### Model Comparison
+Compare IRT parameters between baseline and AKVMN models:
+```bash
+python plot_irt.py --compare save_models/best_baseline_synthetic_OC.pth save_models/best_akvmn_synthetic_OC.pth --labels "Baseline" "AKVMN"
+```
+
+### Parameter Extraction and Storage
+Extract and save IRT parameters for external analysis:
+```bash
+# Save as NumPy compressed format
+python plot_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --save_params baseline_irt.npz
+
+# Save as JSON format  
+python plot_irt.py --model_path save_models/best_akvmn_synthetic_OC.pth --save_params akvmn_irt.json
+```
+
+### Generated Output Files
+The IRT analysis creates organized visualizations:
+```
+irt_plots/
+├── baseline/                          # Baseline model analysis
+│   ├── item_characteristic_curves.png
+│   ├── item_information_functions.png
+│   ├── test_information_function.png
+│   ├── wright_map.png
+│   └── parameter_distributions.png
+├── akvmn/                            # AKVMN model analysis
+│   └── [same plot types]
+└── comparison/                       # Model comparison
+    ├── model_comparison.png
+    └── parameter_distributions.png
+```
+
+### Temporal IRT Animation Analysis
+
+The system includes advanced temporal animation capabilities that capture the dynamic evolution of IRT parameters as students progress through questions, revealing the true temporal nature of knowledge tracing.
+
+#### Animated Temporal Analysis
+```bash
+# Generate all temporal animations for a model
+python animate_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --animation_type all
+
+# Individual student learning journey animation  
+python animate_irt.py --model_path save_models/best_akvmn_synthetic_OC.pth --animation_type journey --sequence_idx 0
+
+# Parameter distribution evolution over time
+python animate_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --animation_type distributions
+
+# Ability trajectory heatmaps
+python animate_irt.py --model_path save_models/best_akvmn_synthetic_OC.pth --animation_type heatmap
+
+# Temporal summary statistics
+python animate_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --animation_type stats
+```
+
+#### Temporal Animation Types
+
+**Student Learning Journey** - Animated visualization of individual student parameter evolution:
+- Real-time student ability (θ) development 
+- Item discrimination (α) changes over time
+- Threshold parameter (β) evolution
+- Response pattern visualization
+- Question-by-question progression analysis
+
+**Parameter Distribution Evolution** - Animated histograms showing population-level changes:
+- Student ability distribution dynamics
+- Discrimination parameter trends
+- Threshold parameter shifts
+- Statistical measures (mean, variance) over time
+
+**Ability Trajectory Heatmap** - Population view of learning progressions:
+- Student ability evolution matrix (students × time)
+- Learning trajectory clustering patterns
+- Individual vs. population learning rates
+- Completion patterns and dropout analysis
+
+**Temporal Summary Statistics** - Aggregate parameter evolution:
+- Mean parameter evolution with confidence intervals
+- Population statistics by question number
+- Sample size changes over time
+- Learning curve characterization
+
+#### Generated Animation Files
+```
+irt_animations/
+├── student_journey_seq0_baseline_gpcm.gif      # Individual learning animation
+├── student_journey_seq0_akvmn_gpcm.gif         # AKVMN learning journey
+├── parameter_distributions_baseline_gpcm.gif   # Population evolution
+├── parameter_distributions_akvmn_gpcm.gif      # AKVMN population dynamics  
+├── ability_trajectories_baseline_gpcm.png      # Learning trajectory heatmap
+├── ability_trajectories_akvmn_gpcm.png         # AKVMN trajectory patterns
+├── temporal_summary_stats_baseline_gpcm.png    # Aggregate statistics
+└── temporal_summary_stats_akvmn_gpcm.png       # AKVMN summary trends
+```
+
+#### Key Insights from Temporal Analysis
+
+**Parameter Type Classification**:
+- **θ (Student Ability)**: TEMPORAL - evolves continuously as students progress through questions
+- **α (Discrimination)**: STATIC per question - same value for each unique question across all students  
+- **β (Thresholds)**: STATIC per question - same threshold array for each unique question across all students
+
+**Critical Findings**:
+- **True Ability Range**: Student abilities span much wider ranges than expected:
+  - Baseline: [-7.40, 13.79] (not capped at ±2)
+  - AKVMN: [-14.50, 11.91] (even wider dynamic range)
+- **Learning Trajectory Patterns**: Individual students show distinct temporal ability evolution curves
+- **Question-Specific Parameters**: 30 unique questions each have fixed discrimination and threshold values
+- **Model Comparison**: AKVMN shows more dynamic ability changes and wider parameter ranges
+- **Population Dynamics**: Temporal ability distributions reveal learning progression patterns across the student population
 
 ## Evaluation Metrics
 
@@ -262,6 +449,7 @@ data/
 - Final performance comparison
 - Confusion matrices
 - Adaptive plotting for any number of models
+- **IRT Parameter Analysis**: Extract and visualize Item Response Theory parameters
 
 ## Performance Optimization
 

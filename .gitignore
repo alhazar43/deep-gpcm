@@ -12,17 +12,17 @@ pip-delete-this-directory.txt
 .pytest_cache/
 
 # PyTorch
-*.pth
-*.pt
-checkpoints/
-runs/
-logs/
+# *.pth
+# *.pt
+# checkpoints/
+# runs/
+# logs/
 
 # Data (exclude generated synthetic data but keep structure)
-data/*/
-!data/synthetic_*/
-!data/**/metadata.json
-!data/**/true_irt_parameters.json
+# data/*/
+# !data/synthetic_*/
+# !data/**/metadata.json
+# !data/**/true_irt_parameters.json
 
 # IDE
 .vscode/

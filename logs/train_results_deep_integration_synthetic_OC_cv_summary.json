@@ -1,0 +1,256 @@
+{
+  "config": {
+    "model": "deep_integration",
+    "dataset": "synthetic_OC",
+    "epochs": 2,
+    "batch_size": 32,
+    "lr": 0.001,
+    "n_folds": 5,
+    "no_cv": false,
+    "seed": 42,
+    "device": null
+  },
+  "cv_summary": {
+    "categorical_accuracy": {
+      "mean": 0.6312896251678467,
+      "std": 0.023503536984836804,
+      "values": [
+        0.6504237055778503,
+        0.6505555510520935,
+        0.5938796401023865,
+        0.6131198406219482,
+        0.6484693884849548
+      ]
+    },
+    "quadratic_weighted_kappa": {
+      "mean": 0.3057217207633011,
+      "std": 0.1357653210037766,
+      "values": [
+        0.3645755525516703,
+        0.36777401873936,
+        0.329637242978576,
+        0.041232469264342986,
+        0.42538932028255627
+      ]
+    },
+    "ordinal_accuracy": {
+      "mean": 0.7622745513916016,
+      "std": 0.023111194257370144,
+      "values": [
+        0.7759534120559692,
+        0.7749999761581421,
+        0.7536306977272034,
+        0.7210744023323059,
+        0.7857142686843872
+      ]
+    },
+    "mean_absolute_error": {
+      "mean": 0.7363095045089721,
+      "std": 0.05953710127318797,
+      "values": [
+        0.6927965879440308,
+        0.6938889026641846,
+        0.7795643210411072,
+        0.8326446413993835,
+        0.6826530694961548
+      ]
+    }
+  },
+  "fold_results": [
+    {
+      "fold": 1,
+      "metrics": {
+        "categorical_accuracy": 0.6504237055778503,
+        "ordinal_accuracy": 0.7759534120559692,
+        "quadratic_weighted_kappa": 0.3645755525516703,
+        "mean_absolute_error": 0.6927965879440308,
+        "train_accuracy": 0.6326188016528925,
+        "train_loss": 1.107702660560608,
+        "best_epoch": 2,
+        "total_epochs": 2,
+        "parameters": 174354,
+        "model_type": "ProperDeepIntegrationGPCM"
+      },
+      "training_history": [
+        {
+          "epoch": 1,
+          "train_loss": 1.1883517265319825,
+          "train_accuracy": 0.5550411522633745,
+          "test_accuracy": 0.6366525292396545,
+          "qwk": 0.22213256415629046,
+          "ordinal_accuracy": 0.7552965879440308,
+          "mae": 0.7409957647323608,
+          "gradient_norm": 1.0110186815261841,
+          "learning_rate": 0.001
+        },
+        {
+          "epoch": 2,
+          "train_loss": 1.107702660560608,
+          "train_accuracy": 0.6326188016528925,
+          "test_accuracy": 0.6504237055778503,
+          "qwk": 0.3645755525516703,
+          "ordinal_accuracy": 0.7759534120559692,
+          "mae": 0.6927965879440308,
+          "gradient_norm": 0.3044989466667175,
+          "learning_rate": 0.001
+        }
+      ]
+    },
+    {
+      "fold": 2,
+      "metrics": {
+        "categorical_accuracy": 0.6505555510520935,
+        "ordinal_accuracy": 0.7749999761581421,
+        "quadratic_weighted_kappa": 0.36777401873936,
+        "mean_absolute_error": 0.6938889026641846,
+        "train_accuracy": 0.5774793388429752,
+        "train_loss": 1.1685967445373535,
+        "best_epoch": 1,
+        "total_epochs": 2,
+        "parameters": 174354,
+        "model_type": "ProperDeepIntegrationGPCM"
+      },
+      "training_history": [
+        {
+          "epoch": 1,
+          "train_loss": 1.1685967445373535,
+          "train_accuracy": 0.5774793388429752,
+          "test_accuracy": 0.6505555510520935,
+          "qwk": 0.36777401873936,
+          "ordinal_accuracy": 0.7749999761581421,
+          "mae": 0.6938889026641846,
+          "gradient_norm": 1.0815133988857268,
+          "learning_rate": 0.001
+        },
+        {
+          "epoch": 2,
+          "train_loss": 1.1094985008239746,
+          "train_accuracy": 0.6268004115226338,
+          "test_accuracy": 0.6627777814865112,
+          "qwk": 0.2729672758528948,
+          "ordinal_accuracy": 0.7861111164093018,
+          "mae": 0.6711111068725586,
+          "gradient_norm": 0.27993438541889193,
+          "learning_rate": 0.001
+        }
+      ]
+    },
+    {
+      "fold": 3,
+      "metrics": {
+        "categorical_accuracy": 0.5938796401023865,
+        "ordinal_accuracy": 0.7536306977272034,
+        "quadratic_weighted_kappa": 0.329637242978576,
+        "mean_absolute_error": 0.7795643210411072,
+        "train_accuracy": 0.6345850840336135,
+        "train_loss": 1.103970432281494,
+        "best_epoch": 2,
+        "total_epochs": 2,
+        "parameters": 174354,
+        "model_type": "ProperDeepIntegrationGPCM"
+      },
+      "training_history": [
+        {
+          "epoch": 1,
+          "train_loss": 1.1914631366729735,
+          "train_accuracy": 0.5446428571428571,
+          "test_accuracy": 0.5606846213340759,
+          "qwk": 0.04000474777448071,
+          "ordinal_accuracy": 0.7038381695747375,
+          "mae": 0.9050830006599426,
+          "gradient_norm": 0.7950695514678955,
+          "learning_rate": 0.001
+        },
+        {
+          "epoch": 2,
+          "train_loss": 1.103970432281494,
+          "train_accuracy": 0.6345850840336135,
+          "test_accuracy": 0.5938796401023865,
+          "qwk": 0.329637242978576,
+          "ordinal_accuracy": 0.7536306977272034,
+          "mae": 0.7795643210411072,
+          "gradient_norm": 0.37377429455518724,
+          "learning_rate": 0.001
+        }
+      ]
+    },
+    {
+      "fold": 4,
+      "metrics": {
+        "categorical_accuracy": 0.6131198406219482,
+        "ordinal_accuracy": 0.7210744023323059,
+        "quadratic_weighted_kappa": 0.041232469264342986,
+        "mean_absolute_error": 0.8326446413993835,
+        "train_accuracy": 0.49651342975206614,
+        "train_loss": 1.2848190546035767,
+        "best_epoch": 1,
+        "total_epochs": 2,
+        "parameters": 174354,
+        "model_type": "ProperDeepIntegrationGPCM"
+      },
+      "training_history": [
+        {
+          "epoch": 1,
+          "train_loss": 1.2848190546035767,
+          "train_accuracy": 0.49651342975206614,
+          "test_accuracy": 0.6131198406219482,
+          "qwk": 0.041232469264342986,
+          "ordinal_accuracy": 0.7210744023323059,
+          "mae": 0.8326446413993835,
+          "gradient_norm": 0.9049281597137451,
+          "learning_rate": 0.001
+        },
+        {
+          "epoch": 2,
+          "train_loss": 1.144958257675171,
+          "train_accuracy": 0.6024305555555556,
+          "test_accuracy": 0.6151859760284424,
+          "qwk": 0.03929742334279185,
+          "ordinal_accuracy": 0.7236570119857788,
+          "mae": 0.8238636255264282,
+          "gradient_norm": 0.22209762036800385,
+          "learning_rate": 0.001
+        }
+      ]
+    },
+    {
+      "fold": 5,
+      "metrics": {
+        "categorical_accuracy": 0.6484693884849548,
+        "ordinal_accuracy": 0.7857142686843872,
+        "quadratic_weighted_kappa": 0.42538932028255627,
+        "mean_absolute_error": 0.6826530694961548,
+        "train_accuracy": 0.6362811203319502,
+        "train_loss": 1.1022463321685791,
+        "best_epoch": 2,
+        "total_epochs": 2,
+        "parameters": 174354,
+        "model_type": "ProperDeepIntegrationGPCM"
+      },
+      "training_history": [
+        {
+          "epoch": 1,
+          "train_loss": 1.1764090299606322,
+          "train_accuracy": 0.5881742738589212,
+          "test_accuracy": 0.6295918226242065,
+          "qwk": 0.27026013799118953,
+          "ordinal_accuracy": 0.7551020383834839,
+          "mae": 0.7479591965675354,
+          "gradient_norm": 1.0693719565868378,
+          "learning_rate": 0.001
+        },
+        {
+          "epoch": 2,
+          "train_loss": 1.1022463321685791,
+          "train_accuracy": 0.6362811203319502,
+          "test_accuracy": 0.6484693884849548,
+          "qwk": 0.42538932028255627,
+          "ordinal_accuracy": 0.7857142686843872,
+          "mae": 0.6826530694961548,
+          "gradient_norm": 0.2312038853764534,
+          "learning_rate": 0.001
+        }
+      ]
+    }
+  ]
+}
