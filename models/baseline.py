@@ -1,7 +1,4 @@
-"""
-Baseline Deep-GPCM Implementation
-Consolidated implementation containing DKVMN memory network and Deep-GPCM model.
-"""
+"""DKVMN-GPCM baseline model."""
 
 import torch
 import torch.nn as nn
@@ -15,7 +12,7 @@ import os
 # ============================================================================
 
 class MemoryHeadGroup(nn.Module):
-    """Memory head group for DKVMN, handles read/write operations on memory matrix."""
+    """DKVMN memory head for read/write operations."""
     
     def __init__(self, memory_size, memory_state_dim, is_write=False):
         super(MemoryHeadGroup, self).__init__()
@@ -27,48 +24,48 @@ class MemoryHeadGroup(nn.Module):
             self.erase_linear = nn.Linear(memory_state_dim, memory_state_dim, bias=True)
             self.add_linear = nn.Linear(memory_state_dim, memory_state_dim, bias=True)
             
-            # Initialize weights
+            # Weight init
             nn.init.kaiming_normal_(self.erase_linear.weight)
             nn.init.kaiming_normal_(self.add_linear.weight)
             nn.init.constant_(self.erase_linear.bias, 0)
             nn.init.constant_(self.add_linear.bias, 0)
     
     def correlation_weight(self, embedded_query_vector, key_memory_matrix):
-        """Calculate correlation weight between query and key memory."""
+        """Compute query-key correlation weights."""
         similarity_scores = torch.matmul(embedded_query_vector, key_memory_matrix.t())
         correlation_weight = F.softmax(similarity_scores, dim=1)
         return correlation_weight
     
     def read(self, value_memory_matrix, correlation_weight):
-        """Read from value memory using correlation weights."""
+        """Read from memory."""
         read_content = torch.matmul(correlation_weight.unsqueeze(1), value_memory_matrix)
         return read_content.squeeze(1)
     
     def write(self, value_memory_matrix, embedded_content_vector, correlation_weight):
-        """Write to value memory using erase-add mechanism (matching old working interface)."""
+        """Write to memory with erase-add."""
         assert self.is_write, "This head group is not configured for writing"
         
-        # Generate erase and add signals
+        # Erase/add signals
         erase_signal = torch.sigmoid(self.erase_linear(embedded_content_vector))
         add_signal = torch.tanh(self.add_linear(embedded_content_vector))
         
-        # Reshape for broadcasting - matching reference implementations
+        # Reshape for broadcasting
         erase_signal_expanded = erase_signal.unsqueeze(1)  # (batch_size, 1, value_dim)
         add_signal_expanded = add_signal.unsqueeze(1)      # (batch_size, 1, value_dim)
         correlation_weight_expanded = correlation_weight.unsqueeze(2)  # (batch_size, memory_size, 1)
         
-        # Compute erase and add operations - matching reference style
+        # Erase/add operations
         erase_mul = torch.bmm(correlation_weight_expanded, erase_signal_expanded)  # (batch_size, memory_size, value_dim)
         add_mul = torch.bmm(correlation_weight_expanded, add_signal_expanded)    # (batch_size, memory_size, value_dim)
         
-        # Update memory: erase then add
+        # Memory update
         new_value_memory_matrix = value_memory_matrix * (1 - erase_mul) + add_mul
         
         return new_value_memory_matrix
 
 
 class DKVMN(nn.Module):
-    """Dynamic Key-Value Memory Network implementation."""
+    """Dynamic Key-Value Memory Network."""
     
     def __init__(self, memory_size, key_dim, value_dim):
         super(DKVMN, self).__init__()
@@ -76,53 +73,53 @@ class DKVMN(nn.Module):
         self.key_dim = key_dim
         self.value_dim = value_dim
         
-        # Memory matrices
+        # Key memory
         self.key_memory_matrix = nn.Parameter(torch.randn(memory_size, key_dim))
         nn.init.kaiming_normal_(self.key_memory_matrix)
         
-        # Memory head groups
+        # Read/write heads
         self.read_head = MemoryHeadGroup(memory_size, value_dim, is_write=False)
         self.write_head = MemoryHeadGroup(memory_size, value_dim, is_write=True)
         
-        # Query key network
+        # Query transformation
         self.query_key_linear = nn.Linear(key_dim, key_dim, bias=True)
         nn.init.kaiming_normal_(self.query_key_linear.weight)
         nn.init.constant_(self.query_key_linear.bias, 0)
         
-        # Value memory will be initialized per batch (matching old working model)
+        # Value memory (batch-initialized)
         self.value_memory_matrix = None
     
     def init_value_memory(self, batch_size, init_value_memory=None):
-        """Initialize value memory for a batch (matching old working interface)."""
+        """Initialize value memory."""
         if init_value_memory is not None:
             if init_value_memory.dim() == 2:
-                # Expand to batch dimension
+                # Expand batch dim
                 self.value_memory_matrix = init_value_memory.unsqueeze(0).expand(
                     batch_size, self.memory_size, self.value_dim
                 ).contiguous()
             else:
                 self.value_memory_matrix = init_value_memory.clone()
         else:
-            # Initialize with zeros
+            # Zero init
             device = next(self.parameters()).device
             self.value_memory_matrix = torch.zeros(
                 batch_size, self.memory_size, self.value_dim, device=device
             )
     
     def attention(self, embedded_query_vector):
-        """Compute attention weights for memory access (matching old working interface)."""
-        # Transform query for key lookup  
+        """Compute attention weights."""
+        # Query transform  
         query_key = torch.tanh(self.query_key_linear(embedded_query_vector))
         correlation_weight = self.read_head.correlation_weight(query_key, self.key_memory_matrix)
         return correlation_weight
     
     def read(self, correlation_weight):
-        """Read from value memory (matching old working interface)."""
+        """Read from memory."""
         read_content = self.read_head.read(self.value_memory_matrix, correlation_weight)
         return read_content
     
     def write(self, correlation_weight, embedded_content_vector):
-        """Write to value memory (matching old working interface)."""
+        """Write to memory."""
         new_value_memory = self.write_head.write(
             self.value_memory_matrix, embedded_content_vector, correlation_weight
         )
@@ -130,28 +127,17 @@ class DKVMN(nn.Module):
         return new_value_memory
     
     def forward(self, query_embedded, value_embedded, value_memory_matrix):
-        """
-        Forward pass through DKVMN (backward compatibility).
-        
-        Args:
-            query_embedded: Query vectors (batch_size, key_dim)
-            value_embedded: Value vectors (batch_size, value_dim)
-            value_memory_matrix: Current memory state (batch_size, memory_size, value_dim)
-            
-        Returns:
-            read_content: Read content from memory (batch_size, value_dim)
-            updated_memory: Updated memory matrix (batch_size, memory_size, value_dim)
-        """
-        # Transform query for key lookup
+        """DKVMN forward pass."""
+        # Query transform
         query_key = torch.tanh(self.query_key_linear(query_embedded))
         
-        # Compute correlation weights
+        # Attention weights
         correlation_weight = self.read_head.correlation_weight(query_key, self.key_memory_matrix)
         
-        # Read from memory
+        # Memory read
         read_content = self.read_head.read(value_memory_matrix, correlation_weight)
         
-        # Write to memory
+        # Memory write
         updated_memory = self.write_head.write(value_memory_matrix, value_embedded, correlation_weight)
         
         return read_content, updated_memory
@@ -162,24 +148,24 @@ class DKVMN(nn.Module):
 # ============================================================================
 
 def ordered_embedding(q_data, r_data, n_questions, n_cats):
-    """Strategy 1: Ordered Embedding - Most intuitive for partial credit models."""
+    """Ordered embedding for partial credit responses."""
     batch_size, seq_len = r_data.shape
     
-    # Binary correctness component
+    # Correctness component
     correctness_indicator = (r_data > 0).float().unsqueeze(-1)
     correctness_component = q_data * correctness_indicator
     
-    # Normalized score component
+    # Score component
     normalized_response = r_data.float().unsqueeze(-1) / (n_cats - 1)
     score_component = q_data * normalized_response
     
-    # Concatenate components
+    # Combine components
     embedded = torch.cat([correctness_component, score_component], dim=-1)
     return embedded
 
 
 def unordered_embedding(q_data, r_data, n_questions, n_cats):
-    """Strategy 2: Unordered Embedding - For MCQ-style responses."""
+    """Unordered embedding for categorical responses."""
     batch_size, seq_len = r_data.shape
     device = r_data.device
     
@@ -194,10 +180,7 @@ def unordered_embedding(q_data, r_data, n_questions, n_cats):
 
 
 def linear_decay_embedding(q_data, r_data, n_questions, n_cats):
-    """
-    Strategy 3: Linear Decay Embedding - R^(KQ)
-    x_t^(k) = max(0, 1 - |k-r_t|/(K-1)) * q_t
-    """
+    """Linear decay embedding with triangular weights."""
     batch_size, seq_len = r_data.shape
     device = r_data.device
     
@@ -228,7 +211,7 @@ def linear_decay_embedding(q_data, r_data, n_questions, n_cats):
 
 
 def adjacent_weighted_embedding(q_data, r_data, n_questions, n_cats):
-    """Strategy 4: Adjacent Weighted Embedding - Focus on actual + adjacent categories."""
+    """Adjacent weighted embedding for ordinal responses."""
     batch_size, seq_len = r_data.shape
     device = r_data.device
     
@@ -254,10 +237,7 @@ def adjacent_weighted_embedding(q_data, r_data, n_questions, n_cats):
 # ============================================================================
 
 class DeepGpcmModel(nn.Module):
-    """
-    Deep Generalized Partial Credit Model with DKVMN memory network.
-    Uses proper GPCM with IRT parameters (theta, beta, alpha).
-    """
+    """Deep GPCM with DKVMN memory network."""
     
     def __init__(self, n_questions, n_cats=4, memory_size=50, key_dim=50, value_dim=200,
                  final_fc_dim=50, embedding_strategy="linear_decay", prediction_method="cumulative",
@@ -276,62 +256,62 @@ class DeepGpcmModel(nn.Module):
         self.use_discrimination = use_discrimination
         self.dropout_rate = dropout_rate
         
-        # Determine embedding dimensions
+        # Embedding dims
         if embedding_strategy == "ordered":
             gpcm_embed_dim = 2 * n_questions  # 2Q
         else:
             gpcm_embed_dim = n_cats * n_questions  # KQ
         
-        # Embedding layers - following deep-2pl pattern
+        # Embeddings
         self.q_embed = nn.Embedding(n_questions + 1, key_dim, padding_idx=0)
         
-        # Value embedding for K-category responses
+        # Value embedding
         self.gpcm_value_embed = nn.Linear(gpcm_embed_dim, value_dim)
         
-        # Initialize DKVMN memory with proper interface
+        # DKVMN memory
         self.memory = DKVMN(memory_size, key_dim, value_dim)
         
-        # GPCM prediction networks
+        # Prediction networks
         summary_input_dim = value_dim + key_dim
         
-        # Summary vector network
+        # Summary network
         self.summary_network = nn.Sequential(
             nn.Linear(summary_input_dim, final_fc_dim),
             nn.Tanh(),
             nn.Dropout(dropout_rate)
         )
         
-        # Student ability network (theta)
+        # Ability network
         self.student_ability_network = nn.Linear(final_fc_dim, 1)
         
-        # Question difficulty thresholds (beta) - K-1 thresholds per question
+        # Threshold network
         self.question_threshold_network = nn.Sequential(
             nn.Linear(key_dim, n_cats - 1),
             nn.Tanh()
         )
         
-        # Discrimination parameter (alpha) - from summary + question embedding
+        # Discrimination network
         discrimination_input_dim = final_fc_dim + key_dim
         self.discrimination_network = nn.Sequential(
             nn.Linear(discrimination_input_dim, 1),
-            nn.Softplus()  # Ensures positive discrimination
+            nn.Softplus()  # Positive constraint
         )
         
-        # Initialize value memory parameter
+        # Init memory param
         self.init_value_memory = nn.Parameter(torch.randn(memory_size, value_dim))
         nn.init.kaiming_normal_(self.init_value_memory)
         
-        # Initialize weights
+        # Weight initialization
         self._init_weights()
     
     def _init_weights(self):
-        """Initialize model weights."""
-        # Initialize embedding layers
+        """Initialize weights."""
+        # Embedding init
         nn.init.kaiming_normal_(self.q_embed.weight)
         nn.init.kaiming_normal_(self.gpcm_value_embed.weight)
         nn.init.constant_(self.gpcm_value_embed.bias, 0)
         
-        # Initialize prediction networks
+        # Network init
         for module in self.summary_network:
             if isinstance(module, nn.Linear):
                 nn.init.kaiming_normal_(module.weight)
