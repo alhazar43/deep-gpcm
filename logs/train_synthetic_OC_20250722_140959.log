@@ -1,0 +1,33 @@
+2025-07-22 14:09:59,849 - INFO - Training Deep-GPCM on synthetic_OC
+2025-07-22 14:09:59,849 - INFO - Device: cpu, Categories: None, Loss: ordinal, Embedding: linear_decay
+2025-07-22 14:09:59,849 - INFO - Loading training data...
+2025-07-22 14:09:59,852 - INFO - Train data: 160 sequences, 4 categories
+2025-07-22 14:09:59,853 - INFO - Loading test data...
+2025-07-22 14:09:59,853 - INFO - Test data: 40 sequences
+2025-07-22 14:09:59,853 - INFO - Detected 29 unique questions
+2025-07-22 14:10:01,095 - INFO - Starting training...
+2025-07-22 14:10:01,095 - INFO - Epoch 1/3
+2025-07-22 14:10:03,048 - INFO - Train Loss: 2.0130
+2025-07-22 14:10:03,048 - INFO - Valid Loss: 1.9203, Cat Acc: 0.2082
+2025-07-22 14:10:03,049 - INFO - Ord Acc: 0.5706, MAE: 1.3284, QWK: 0.1347
+2025-07-22 14:10:03,049 - INFO - Pred Consistency: 0.2082, Ranking Acc: 0.2233
+2025-07-22 14:10:03,049 - INFO - Dist Consistency: 0.5588
+2025-07-22 14:10:03,049 - INFO - Learning Rate: 0.001000
+2025-07-22 14:10:03,055 - INFO - New best model saved! Valid Acc: 0.2082
+2025-07-22 14:10:03,056 - INFO - Epoch 2/3
+2025-07-22 14:10:04,624 - INFO - Train Loss: 1.8199
+2025-07-22 14:10:04,624 - INFO - Valid Loss: 1.7684, Cat Acc: 0.2413
+2025-07-22 14:10:04,624 - INFO - Ord Acc: 0.6620, MAE: 1.1124, QWK: 0.2961
+2025-07-22 14:10:04,624 - INFO - Pred Consistency: 0.2413, Ranking Acc: 0.4021
+2025-07-22 14:10:04,624 - INFO - Dist Consistency: 0.5734
+2025-07-22 14:10:04,624 - INFO - Learning Rate: 0.001000
+2025-07-22 14:10:04,631 - INFO - New best model saved! Valid Acc: 0.2413
+2025-07-22 14:10:04,631 - INFO - Epoch 3/3
+2025-07-22 14:10:09,982 - INFO - Train Loss: 1.6798
+2025-07-22 14:10:09,983 - INFO - Valid Loss: 1.6828, Cat Acc: 0.2683
+2025-07-22 14:10:09,983 - INFO - Ord Acc: 0.7169, MAE: 0.9826, QWK: 0.4101
+2025-07-22 14:10:09,983 - INFO - Pred Consistency: 0.2683, Ranking Acc: 0.4856
+2025-07-22 14:10:09,983 - INFO - Dist Consistency: 0.5888
+2025-07-22 14:10:09,984 - INFO - Learning Rate: 0.001000
+2025-07-22 14:10:09,995 - INFO - New best model saved! Valid Acc: 0.2683
+2025-07-22 14:10:09,998 - INFO - Training completed! Best valid accuracy: 0.2683

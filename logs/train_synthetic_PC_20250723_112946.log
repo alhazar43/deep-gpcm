@@ -1,0 +1,3 @@
+2025-07-23 11:29:46,877 - INFO - Training Deep-GPCM on synthetic_PC
+2025-07-23 11:29:46,878 - INFO - Device: cpu, Categories: None, Loss: ordinal, Embedding: ordered
+2025-07-23 11:29:46,878 - INFO - Loading training data...

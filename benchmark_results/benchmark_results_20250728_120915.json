@@ -1,0 +1,35 @@
+{
+  "timestamp": "20250728_120915",
+  "dataset": "synthetic_OC",
+  "results": {
+    "baseline": {
+      "test_accuracy": 0.45121949911117554,
+      "test_qwk": 0.4315344580255842,
+      "parameters": 134055,
+      "model_type": "baseline"
+    },
+    "akvmn": {
+      "test_accuracy": 0.39721253514289856,
+      "test_qwk": 0.24876852843374841,
+      "parameters": 174354,
+      "model_type": "akvmn"
+    },
+    "bayesian": {
+      "test_accuracy": 0.6836734693877551,
+      "test_qwk": 0.0,
+      "parameters": 172513,
+      "model_type": "bayesian"
+    }
+  },
+  "summary": {
+    "best_accuracy": {
+      "model": "bayesian",
+      "value": 0.6836734693877551
+    },
+    "best_qwk": {
+      "model": "baseline",
+      "value": 0.4315344580255842
+    },
+    "model_count": 3
+  }
+}

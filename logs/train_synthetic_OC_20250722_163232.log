@@ -1,0 +1,89 @@
+2025-07-22 16:32:32,919 - INFO - Training Deep-GPCM on synthetic_OC
+2025-07-22 16:32:32,919 - INFO - Device: cpu, Categories: None, Loss: ordinal, Embedding: adjacent_weighted
+2025-07-22 16:32:32,919 - INFO - Loading training data...
+2025-07-22 16:32:32,921 - INFO - Train data: 160 sequences, 4 categories
+2025-07-22 16:32:32,921 - INFO - Loading test data...
+2025-07-22 16:32:32,922 - INFO - Test data: 40 sequences
+2025-07-22 16:32:32,922 - INFO - Detected 29 unique questions
+2025-07-22 16:32:33,655 - INFO - Starting training...
+2025-07-22 16:32:33,655 - INFO - Epoch 1/10
+2025-07-22 16:32:36,055 - INFO - Train Loss: 2.0045
+2025-07-22 16:32:36,056 - INFO - Valid Loss: 1.9143, Cat Acc: 0.3493
+2025-07-22 16:32:36,056 - INFO - Ord Acc: 0.5784, MAE: 1.3145, QWK: 0.1485
+2025-07-22 16:32:36,056 - INFO - Pred Consistency: 0.2099, Ranking Acc: 0.2357
+2025-07-22 16:32:36,056 - INFO - Dist Consistency: 0.5592
+2025-07-22 16:32:36,056 - INFO - Learning Rate: 0.001000
+2025-07-22 16:32:36,087 - INFO - New best model saved! Valid Acc: 0.3493
+2025-07-22 16:32:36,087 - INFO - Epoch 2/10
+2025-07-22 16:32:39,135 - INFO - Train Loss: 1.8190
+2025-07-22 16:32:39,135 - INFO - Valid Loss: 1.7713, Cat Acc: 0.3955
+2025-07-22 16:32:39,135 - INFO - Ord Acc: 0.6568, MAE: 1.1228, QWK: 0.2921
+2025-07-22 16:32:39,135 - INFO - Pred Consistency: 0.2387, Ranking Acc: 0.4092
+2025-07-22 16:32:39,136 - INFO - Dist Consistency: 0.5732
+2025-07-22 16:32:39,136 - INFO - Learning Rate: 0.001000
+2025-07-22 16:32:39,143 - INFO - New best model saved! Valid Acc: 0.3955
+2025-07-22 16:32:39,143 - INFO - Epoch 3/10
+2025-07-22 16:32:41,601 - INFO - Train Loss: 1.6845
+2025-07-22 16:32:41,602 - INFO - Valid Loss: 1.6786, Cat Acc: 0.4355
+2025-07-22 16:32:41,604 - INFO - Ord Acc: 0.7204, MAE: 0.9747, QWK: 0.4172
+2025-07-22 16:32:41,604 - INFO - Pred Consistency: 0.2648, Ranking Acc: 0.4909
+2025-07-22 16:32:41,604 - INFO - Dist Consistency: 0.5887
+2025-07-22 16:32:41,604 - INFO - Learning Rate: 0.001000
+2025-07-22 16:32:41,614 - INFO - New best model saved! Valid Acc: 0.4355
+2025-07-22 16:32:41,614 - INFO - Epoch 4/10
+2025-07-22 16:32:43,549 - INFO - Train Loss: 1.5681
+2025-07-22 16:32:43,550 - INFO - Valid Loss: 1.5823, Cat Acc: 0.4791
+2025-07-22 16:32:43,550 - INFO - Ord Acc: 0.7491, MAE: 0.8824, QWK: 0.4877
+2025-07-22 16:32:43,550 - INFO - Pred Consistency: 0.3092, Ranking Acc: 0.5447
+2025-07-22 16:32:43,550 - INFO - Dist Consistency: 0.6068
+2025-07-22 16:32:43,550 - INFO - Learning Rate: 0.001000
+2025-07-22 16:32:43,555 - INFO - New best model saved! Valid Acc: 0.4791
+2025-07-22 16:32:43,555 - INFO - Epoch 5/10
+2025-07-22 16:32:45,041 - INFO - Train Loss: 1.4795
+2025-07-22 16:32:45,041 - INFO - Valid Loss: 1.5249, Cat Acc: 0.4904
+2025-07-22 16:32:45,041 - INFO - Ord Acc: 0.7674, MAE: 0.8449, QWK: 0.5199
+2025-07-22 16:32:45,041 - INFO - Pred Consistency: 0.3432, Ranking Acc: 0.5768
+2025-07-22 16:32:45,041 - INFO - Dist Consistency: 0.6234
+2025-07-22 16:32:45,041 - INFO - Learning Rate: 0.001000
+2025-07-22 16:32:45,049 - INFO - New best model saved! Valid Acc: 0.4904
+2025-07-22 16:32:45,049 - INFO - Epoch 6/10
+2025-07-22 16:32:46,746 - INFO - Train Loss: 1.4279
+2025-07-22 16:32:46,747 - INFO - Valid Loss: 1.4910, Cat Acc: 0.4922
+2025-07-22 16:32:46,747 - INFO - Ord Acc: 0.7718, MAE: 0.8328, QWK: 0.5343
+2025-07-22 16:32:46,747 - INFO - Pred Consistency: 0.3571, Ranking Acc: 0.5967
+2025-07-22 16:32:46,747 - INFO - Dist Consistency: 0.6370
+2025-07-22 16:32:46,747 - INFO - Learning Rate: 0.001000
+2025-07-22 16:32:46,757 - INFO - New best model saved! Valid Acc: 0.4922
+2025-07-22 16:32:46,757 - INFO - Epoch 7/10
+2025-07-22 16:32:48,156 - INFO - Train Loss: 1.3791
+2025-07-22 16:32:48,157 - INFO - Valid Loss: 1.4730, Cat Acc: 0.4948
+2025-07-22 16:32:48,157 - INFO - Ord Acc: 0.7735, MAE: 0.8267, QWK: 0.5387
+2025-07-22 16:32:48,157 - INFO - Pred Consistency: 0.3763, Ranking Acc: 0.6106
+2025-07-22 16:32:48,157 - INFO - Dist Consistency: 0.6457
+2025-07-22 16:32:48,157 - INFO - Learning Rate: 0.001000
+2025-07-22 16:32:48,163 - INFO - New best model saved! Valid Acc: 0.4948
+2025-07-22 16:32:48,163 - INFO - Epoch 8/10
+2025-07-22 16:32:49,305 - INFO - Train Loss: 1.3425
+2025-07-22 16:32:49,305 - INFO - Valid Loss: 1.4404, Cat Acc: 0.4956
+2025-07-22 16:32:49,305 - INFO - Ord Acc: 0.7796, MAE: 0.8232, QWK: 0.5404
+2025-07-22 16:32:49,305 - INFO - Pred Consistency: 0.3772, Ranking Acc: 0.6245
+2025-07-22 16:32:49,305 - INFO - Dist Consistency: 0.6504
+2025-07-22 16:32:49,305 - INFO - Learning Rate: 0.001000
+2025-07-22 16:32:49,311 - INFO - New best model saved! Valid Acc: 0.4956
+2025-07-22 16:32:49,311 - INFO - Epoch 9/10
+2025-07-22 16:32:50,616 - INFO - Train Loss: 1.3152
+2025-07-22 16:32:50,616 - INFO - Valid Loss: 1.4253, Cat Acc: 0.4991
+2025-07-22 16:32:50,616 - INFO - Ord Acc: 0.7814, MAE: 0.8171, QWK: 0.5441
+2025-07-22 16:32:50,616 - INFO - Pred Consistency: 0.3850, Ranking Acc: 0.6313
+2025-07-22 16:32:50,616 - INFO - Dist Consistency: 0.6533
+2025-07-22 16:32:50,616 - INFO - Learning Rate: 0.001000
+2025-07-22 16:32:50,624 - INFO - New best model saved! Valid Acc: 0.4991
+2025-07-22 16:32:50,625 - INFO - Epoch 10/10
+2025-07-22 16:32:51,775 - INFO - Train Loss: 1.2913
+2025-07-22 16:32:51,775 - INFO - Valid Loss: 1.4107, Cat Acc: 0.5000
+2025-07-22 16:32:51,775 - INFO - Ord Acc: 0.7814, MAE: 0.8118, QWK: 0.5509
+2025-07-22 16:32:51,775 - INFO - Pred Consistency: 0.3798, Ranking Acc: 0.6353
+2025-07-22 16:32:51,775 - INFO - Dist Consistency: 0.6547
+2025-07-22 16:32:51,775 - INFO - Learning Rate: 0.001000
+2025-07-22 16:32:51,780 - INFO - New best model saved! Valid Acc: 0.5000
+2025-07-22 16:32:51,782 - INFO - Training completed! Best valid accuracy: 0.5000

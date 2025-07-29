@@ -1,0 +1,17 @@
+2025-07-23 11:24:28,450 - INFO - Training Deep-GPCM on synthetic_OC
+2025-07-23 11:24:28,450 - INFO - Device: cpu, Categories: None, Loss: ordinal, Embedding: adjacent_weighted
+2025-07-23 11:24:28,450 - INFO - Loading training data...
+2025-07-23 11:24:28,451 - INFO - Train data: 160 sequences, 4 categories
+2025-07-23 11:24:28,452 - INFO - Loading test data...
+2025-07-23 11:24:28,452 - INFO - Test data: 40 sequences
+2025-07-23 11:24:28,452 - INFO - Detected 29 unique questions
+2025-07-23 11:24:29,050 - INFO - Starting training...
+2025-07-23 11:24:29,050 - INFO - Epoch 1/1
+2025-07-23 11:24:30,391 - INFO - Train Loss: 2.0045
+2025-07-23 11:24:30,392 - INFO - Valid Loss: 1.9143, Cat Acc: 0.2169
+2025-07-23 11:24:30,392 - INFO - Ord Acc: 0.7422, MAE: 1.0436, QWK: 0.1157
+2025-07-23 11:24:30,392 - INFO - Pred Consistency: 0.2099, Ranking Acc: 0.2357
+2025-07-23 11:24:30,392 - INFO - Dist Consistency: 0.5592
+2025-07-23 11:24:30,392 - INFO - Learning Rate: 0.001000
+2025-07-23 11:24:30,398 - INFO - New best model saved! Valid Acc: 0.2169
+2025-07-23 11:24:30,399 - INFO - Training completed! Best valid accuracy: 0.2169

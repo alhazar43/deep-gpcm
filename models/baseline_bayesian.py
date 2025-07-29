@@ -45,8 +45,9 @@ class NormalVariational(VariationalDistribution):
     
     def __init__(self, dim: int, prior_mean: float = 0.0, prior_std: float = 1.0):
         super().__init__(dim)
-        self.mean = nn.Parameter(torch.zeros(dim))
-        self.log_var = nn.Parameter(torch.zeros(dim))
+        # Initialize near prior mean with small variance
+        self.mean = nn.Parameter(torch.randn(dim) * 0.1 + prior_mean)
+        self.log_var = nn.Parameter(torch.ones(dim) * np.log(0.1))  # Start with small variance
         self.prior = Normal(prior_mean, prior_std)
     
     def rsample(self, n_samples: int = 1) -> torch.Tensor:
@@ -72,9 +73,9 @@ class LogNormalVariational(VariationalDistribution):
     
     def __init__(self, dim: int, prior_mean: float = 0.0, prior_std: float = 0.3):
         super().__init__(dim)
-        # Parameters are in log-space
-        self.log_mean = nn.Parameter(torch.zeros(dim))
-        self.log_var = nn.Parameter(torch.zeros(dim) - 1.0)  # Start with smaller variance
+        # Parameters are in log-space - initialize near prior mean
+        self.log_mean = nn.Parameter(torch.randn(dim) * 0.1 + prior_mean)
+        self.log_var = nn.Parameter(torch.ones(dim) * np.log(0.05))  # Start with very small variance
         self.prior_mean = prior_mean
         self.prior_std = prior_std
     
@@ -105,13 +106,13 @@ class OrderedNormalVariational(VariationalDistribution):
         self.n_questions = n_questions
         self.n_thresholds = n_thresholds
         
-        # Base difficulty per question
-        self.base_mean = nn.Parameter(torch.zeros(n_questions))
-        self.base_log_var = nn.Parameter(torch.zeros(n_questions))
+        # Base difficulty per question - initialize near zero with small variance
+        self.base_mean = nn.Parameter(torch.randn(n_questions) * 0.1)
+        self.base_log_var = nn.Parameter(torch.ones(n_questions) * np.log(0.1))
         
-        # Threshold offsets (positive to ensure ordering)
-        self.threshold_offsets = nn.Parameter(torch.ones(n_questions, n_thresholds - 1) * 0.5)
-        self.threshold_log_var = nn.Parameter(torch.zeros(n_questions, n_thresholds))
+        # Threshold offsets (positive to ensure ordering) - start with realistic spacing
+        self.threshold_offsets = nn.Parameter(torch.ones(n_questions, n_thresholds - 1) * 0.8)
+        self.threshold_log_var = nn.Parameter(torch.ones(n_questions, n_thresholds) * np.log(0.1))
     
     def rsample(self, n_samples: int = 1) -> torch.Tensor:
         """Sample ordered thresholds using reparameterization trick."""
@@ -178,6 +179,10 @@ class VariationalBayesianGPCM(nn.Module):
         self.n_categories = n_categories
         self.kl_weight = kl_weight
         
+        # KL annealing parameters
+        self.kl_warmup_epochs = 20
+        self.current_epoch = 0
+        
         # Variational distributions for IRT parameters
         self.theta_dist = NormalVariational(n_students, prior_mean=0.0, prior_std=1.0)
         self.alpha_dist = LogNormalVariational(n_questions, prior_mean=0.0, prior_std=0.3)
@@ -202,9 +207,8 @@ class VariationalBayesianGPCM(nn.Module):
         self.erase_layer = nn.Linear(memory_value_dim, memory_value_dim)
         self.add_layer = nn.Linear(memory_value_dim, memory_value_dim)
         
-        # Output layers
-        self.output_layer = nn.Linear(memory_value_dim + embed_dim, 256)
-        self.final_layer = nn.Linear(256, 1)  # Output single ability value
+        # Output layer (direct linear mapping for better IRT alignment)
+        self.final_layer = nn.Linear(memory_value_dim + embed_dim, 1)  # Direct output of single ability value
         
         # Initialize parameters
         self._initialize_weights()
@@ -243,79 +247,95 @@ class VariationalBayesianGPCM(nn.Module):
         alpha = self.alpha_dist.rsample(1).squeeze(0)  # [n_questions]
         beta = self.beta_dist.rsample(1).squeeze(0)    # [n_questions, n_categories-1]
         
-        # Get student abilities (handle missing student_ids)
-        if student_ids is not None:
-            student_abilities = theta[student_ids]  # [batch_size]
-        else:
-            # Use learned abilities from memory network
-            student_abilities = self._compute_abilities_from_memory(questions, responses)
+        # DIRECT IRT COMPUTATION PATH
+        # Use sampled IRT parameters directly for all students
         
-        # Question embeddings
-        q_embed = self.q_embed(questions)  # [batch_size, seq_len, embed_dim]
+        # For missing student_ids, create dummy IDs (this is a limitation we'll address)
+        if student_ids is None:
+            student_ids = torch.arange(batch_size, device=device) % self.n_students
         
-        # Response embeddings (linear decay strategy)
-        qa_embed = self._compute_response_embedding(questions, responses)
-        
-        # Memory network updates
-        memory_values = self.value_memory.unsqueeze(0).expand(batch_size, -1, -1)
-        
-        all_read_values = []
-        for t in range(seq_len):
-            # Read from memory
-            q_key = self.q_to_key(q_embed[:, t])  # [batch_size, memory_key_dim]
-            correlation = F.softmax(torch.matmul(q_key, self.key_memory.t()), dim=1)
-            read_value = torch.matmul(correlation.unsqueeze(1), memory_values).squeeze(1)
-            all_read_values.append(read_value)
-            
-            # Write to memory
-            qa_value = self.qa_to_value(qa_embed[:, t])
-            erase = torch.sigmoid(self.erase_layer(qa_value))
-            add = torch.tanh(self.add_layer(qa_value))
-            memory_values = memory_values * (1 - correlation.unsqueeze(2) * erase.unsqueeze(1))
-            memory_values = memory_values + correlation.unsqueeze(2) * add.unsqueeze(1)
-        
-        # Stack read values
-        read_values = torch.stack(all_read_values, dim=1)  # [batch_size, seq_len, memory_value_dim]
-        
-        # Combine with question embeddings
-        combined = torch.cat([read_values, q_embed], dim=2)
-        
-        # Predict abilities per time step
-        hidden = F.relu(self.output_layer(combined))
-        predicted_abilities = self.final_layer(hidden).squeeze(-1)  # [batch_size, seq_len]
-        
-        # Compute GPCM probabilities
+        # Compute GPCM probabilities directly from sampled IRT parameters
         probabilities = []
         for t in range(seq_len):
             q_ids = questions[:, t]
             
-            # Get parameters for current questions
-            q_alpha = alpha[q_ids]  # [batch_size]
-            q_beta = beta[q_ids]    # [batch_size, n_categories-1]
+            # Get IRT parameters for current questions and students
+            q_alpha = alpha[q_ids]  # [batch_size] - sampled discrimination
+            q_beta = beta[q_ids]    # [batch_size, n_categories-1] - sampled thresholds
+            q_theta = theta[student_ids]  # [batch_size] - sampled abilities
             
-            # Use predicted abilities
-            q_theta = predicted_abilities[:, t]  # [batch_size]
-            
-            # Compute GPCM probabilities
+            # Compute GPCM probabilities DIRECTLY from IRT parameters
             probs = self._gpcm_probability(q_theta, q_alpha, q_beta)
             probabilities.append(probs)
         
         probabilities = torch.stack(probabilities, dim=1)  # [batch_size, seq_len, n_categories]
         
-        # Compute KL divergence
+        # Optional: Add small memory network adjustment (much reduced influence)
+        # This preserves some sequential learning while prioritizing IRT structure
+        if hasattr(self, 'use_memory_adjustment') and self.use_memory_adjustment:
+            # Minimal memory network computation
+            q_embed = self.q_embed(questions)  # [batch_size, seq_len, embed_dim]
+            qa_embed = self._compute_response_embedding(questions, responses)
+            
+            memory_values = self.value_memory.unsqueeze(0).expand(batch_size, -1, -1)
+            memory_adjustments = []
+            
+            for t in range(seq_len):
+                q_key = self.q_to_key(q_embed[:, t])
+                correlation = F.softmax(torch.matmul(q_key, self.key_memory.t()), dim=1)
+                read_value = torch.matmul(correlation.unsqueeze(1), memory_values).squeeze(1)
+                
+                # Small adjustment to theta based on memory
+                combined = torch.cat([read_value, q_embed[:, t]], dim=1)
+                theta_adjustment = torch.tanh(self.final_layer(combined).squeeze(-1)) * 0.1  # Small adjustment
+                memory_adjustments.append(theta_adjustment)
+                
+                # Update memory
+                qa_value = self.qa_to_value(qa_embed[:, t])
+                write_weight = torch.sigmoid(self.erase_layer(qa_value)) * 0.1  # Reduced write strength
+                memory_values = memory_values * (1 - correlation.unsqueeze(2) * write_weight.unsqueeze(1))
+            
+            # Recompute probabilities with adjusted abilities
+            memory_adjustments = torch.stack(memory_adjustments, dim=1)  # [batch_size, seq_len]
+            
+            probabilities_adjusted = []
+            for t in range(seq_len):
+                q_ids = questions[:, t]
+                q_alpha = alpha[q_ids]
+                q_beta = beta[q_ids]
+                q_theta_adjusted = theta[student_ids] + memory_adjustments[:, t]  # Add small memory adjustment
+                
+                probs = self._gpcm_probability(q_theta_adjusted, q_alpha, q_beta)
+                probabilities_adjusted.append(probs)
+            
+            probabilities = torch.stack(probabilities_adjusted, dim=1)
+        
+        # Compute KL divergence with annealing
         kl_div = (self.theta_dist.kl_divergence() + 
                   self.alpha_dist.kl_divergence() + 
                   self.beta_dist.kl_divergence())
         
-        aux_dict = {'kl_divergence': kl_div * self.kl_weight}
+        # Apply KL annealing
+        kl_annealing_factor = min(1.0, self.current_epoch / self.kl_warmup_epochs) if self.kl_warmup_epochs > 0 else 1.0
+        effective_kl_weight = self.kl_weight * kl_annealing_factor
+        
+        aux_dict = {
+            'kl_divergence': kl_div * effective_kl_weight,
+            'raw_kl_divergence': kl_div,
+            'kl_annealing_factor': kl_annealing_factor
+        }
         
         if return_params:
             aux_dict['theta'] = theta
             aux_dict['alpha'] = alpha
             aux_dict['beta'] = beta
-            aux_dict['predicted_abilities'] = predicted_abilities
+            aux_dict['sampled_abilities'] = theta[student_ids] if student_ids is not None else theta[:batch_size]
         
         return probabilities, aux_dict
+    
+    def set_epoch(self, epoch: int):
+        """Update current epoch for KL annealing."""
+        self.current_epoch = epoch
     
     def _compute_abilities_from_memory(self, questions: torch.Tensor, 
                                      responses: torch.Tensor) -> torch.Tensor:
@@ -332,10 +352,9 @@ class VariationalBayesianGPCM(nn.Module):
         memory_values = self.value_memory.unsqueeze(0).expand(batch_size, -1, -1)
         read_value = torch.matmul(correlation.unsqueeze(1), memory_values).squeeze(1)
         
-        # Combine and predict
+        # Combine and predict (direct linear mapping)
         combined = torch.cat([read_value, q_embed], dim=1)
-        hidden = F.relu(self.output_layer(combined))
-        abilities = self.final_layer(hidden).squeeze(-1)
+        abilities = self.final_layer(combined).squeeze(-1)
         
         return abilities
     
@@ -402,26 +421,36 @@ class VariationalBayesianGPCM(nn.Module):
         """
         Compute ELBO loss = -log likelihood + KL divergence.
         
+        For GPCM, the likelihood is:
+        p(x|θ,α,β) = ∏ᵢ∏ₜ P(xᵢₜ|θᵢ,αⱼ,βⱼ)
+        
         Args:
-            probabilities: Predicted probabilities [batch_size, seq_len, n_categories]
+            probabilities: Predicted GPCM probabilities [batch_size, seq_len, n_categories]
             targets: True responses [batch_size, seq_len]
-            kl_divergence: KL divergence term
+            kl_divergence: KL divergence term (already summed across parameters)
             
         Returns:
-            loss: Scalar loss value
+            loss: Scalar ELBO loss
         """
-        # Negative log likelihood
-        targets_long = targets.long()
-        log_probs = torch.log(probabilities + 1e-8)
-        nll = F.nll_loss(
-            log_probs.reshape(-1, self.n_categories),
-            targets_long.reshape(-1),
-            reduction='mean'
-        )
+        batch_size, seq_len, n_categories = probabilities.shape
         
-        # ELBO = -NLL + KL
-        batch_size = probabilities.shape[0]
-        elbo = nll + kl_divergence / batch_size
+        # GPCM log-likelihood: sum of log P(x_it = k | parameters)
+        targets_long = targets.long()
+        
+        # Gather probabilities for observed responses
+        # probabilities[i, t, k] = P(X_it = k | theta_i, alpha_j, beta_j)
+        observed_probs = probabilities.gather(2, targets_long.unsqueeze(2)).squeeze(2)
+        
+        # Add small epsilon to prevent log(0)
+        observed_probs = torch.clamp(observed_probs, min=1e-8, max=1.0)
+        
+        # Negative log likelihood: -∑ᵢ∑ₜ log P(X_it = x_it | params)
+        log_likelihood = torch.log(observed_probs).sum()
+        nll = -log_likelihood / (batch_size * seq_len)  # Average per observation
+        
+        # ELBO = NLL + KL/N where N is total number of observations
+        total_observations = batch_size * seq_len
+        elbo = nll + kl_divergence / total_observations
         
         return elbo
     

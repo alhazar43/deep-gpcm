@@ -1,0 +1,12 @@
+2025-07-22 14:04:46,703 - INFO - Starting comprehensive Deep-GPCM analysis
+2025-07-22 14:04:46,704 - INFO - Loading all experimental data...
+2025-07-22 14:04:46,705 - INFO - Loaded comprehensive format comparison data
+2025-07-22 14:04:46,705 - INFO - Loaded individual training history for OC
+2025-07-22 14:04:46,706 - INFO - Loaded strategy analysis for OC
+2025-07-22 14:04:46,707 - INFO - Creating comprehensive OC vs PC comparison
+2025-07-22 14:04:51,348 - INFO - Comprehensive comparison saved to results/plots/comprehensive_oc_pc_comparison.png
+2025-07-22 14:04:51,349 - INFO - Analyzing prediction target mechanisms...
+2025-07-22 14:04:51,351 - INFO - Generating comprehensive analysis report
+2025-07-22 14:04:51,351 - INFO - Analyzing prediction target mechanisms...
+2025-07-22 14:04:51,352 - INFO - Comprehensive report saved to results/plots/comprehensive_analysis_report.txt
+2025-07-22 14:04:51,352 - INFO - Comprehensive analysis complete!

@@ -1,249 +1,204 @@
-# TODO: IRT Parameter Extraction and Visualization
+# Bayesian GPCM Enhancement Plan
 
-## Overview
-Add functionality to extract IRT (Item Response Theory) parameters from both baseline and AKVMN models and create visualization tools for these parameters.
+## Problem Analysis
 
-## Phase 1: Model Updates - IRT Parameter Extraction Methods
+### Current Status
+The Variational Bayesian GPCM model shows good predictive performance (68.8% accuracy) but poor IRT parameter recovery:
+- **Theta correlation**: 0.049 (should be >0.8)
+- **Alpha correlation**: 0.067 (should be >0.8)  
+- **Beta correlation**: -0.354 (should be >0.5)
 
-### 1.1 Update BaselineGPCM Model (`models/baseline.py`)
-- [ ] Add `get_irt_params()` method to BaselineGPCM class that extracts:
-  - **θ (theta)**: From `student_abilities` output (already computed in forward pass)
-  - **β (beta)**: From `item_thresholds` output (K-1 thresholds per item from `question_threshold_network`)
-  - **α (alpha)**: From `discrimination_params` output (from `discrimination_network`)
-- [ ] Add `extract_item_parameters(question_ids)` method to get parameters for specific items:
-  - Extract from `question_threshold_network` weights for beta values
-  - Extract from `discrimination_network` for base discrimination values
-- [ ] Add `extract_memory_states()` method to get DKVMN memory states:
-  - Key memory matrix from `self.gpcm_model.memory.key_memory_matrix`
-  - Value memory states from current batch
+### Root Cause Analysis
 
-### 1.2 Update AKVMNGPCM Model (`models/akvmn_gpcm.py`)
-- [ ] Add `get_irt_params()` method matching BaselineGPCM interface:
-  - Extract same parameters but handle iterative refinement cycles
-  - Average or select final cycle parameters
-- [ ] Add `get_refinement_history()` method specific to AKVMN:
-  - Track parameter evolution across refinement cycles
-  - Extract attention weights from multi-head attention layers
-- [ ] Ensure parameter scaling consistency:
-  - Both models use `ability_scale` parameter
-  - Both use same GPCM probability computation
+#### 1. **Memory Network Interference**
+The DKVMN memory network learns its own representations that may not align with IRT parameter structure:
+- Memory keys/values optimized for prediction, not parameter interpretability
+- Complex read/write operations create indirect mappings from IRT parameters to predictions
+- Neural embeddings may capture different latent factors than traditional IRT
 
-## Phase 2: Parameter Extraction Infrastructure
+#### 2. **Prediction vs Parameter Learning Trade-off**
+Current architecture prioritizes prediction accuracy over parameter recovery:
+- Final predictions come from memory network output, not direct IRT computation
+- Variational parameters become auxiliary rather than primary prediction mechanism
+- Model learns to ignore IRT structure in favor of memory-based patterns
 
-### 2.1 Create IRT Utils Module (`utils/irt_utils.py`)
-- [ ] Core extraction functions:
-  ```python
-  def extract_irt_params_from_checkpoint(checkpoint_path, device='cpu')
-  def extract_irt_params_from_model(model, data_loader, device='cpu')
-  def aggregate_cv_irt_params(fold_params_list)
-  ```
-- [ ] Parameter processing functions:
-  ```python
-  def compute_item_statistics(alphas, betas)  # Mean, std, percentiles
-  def compute_ability_statistics(thetas)      # Distribution stats
-  def compute_test_information(alphas, betas, theta_range)
-  ```
-- [ ] Save/Load utilities:
-  ```python
-  def save_irt_params(params_dict, filepath, format='npz')  # Support npz, json, csv
-  def load_irt_params(filepath)
-  def export_irt_for_analysis(params, output_dir)  # Multiple formats
-  ```
+#### 3. **Activation Function Issues**
+Neural network activations (ReLU, Tanh, Sigmoid) may distort IRT parameter relationships:
+- Non-linear transformations break IRT mathematical structure
+- Saturating activations limit parameter range and sensitivity
+- Gradient flow issues prevent proper variational learning
 
-### 2.2 Update Training Pipeline (`train.py`)
-- [ ] Add command-line arguments:
-  - `--extract_irt`: Enable IRT parameter extraction
-  - `--irt_output_dir`: Directory for IRT parameter files (default: 'irt_params/')
-  - `--irt_save_freq`: Save IRT params every N epochs (default: 5)
-- [ ] Modify training loop to extract parameters:
-  - After each epoch validation, optionally extract IRT params
-  - Save to `{irt_output_dir}/{model}_{dataset}_epoch{epoch}_irt.npz`
-- [ ] Add to final model saving:
-  - Extract final IRT parameters
-  - Include in training summary JSON
-  - Save as `{model}_{dataset}_final_irt.npz`
+## Enhancement Strategies
 
-## Phase 3: Visualization Tool (`plot_irt.py`)
+### Phase 1: Direct Parameter Integration (Immediate)
 
-### 3.1 Create plot_irt.py Script Structure
-- [ ] Command-line interface:
-  ```bash
-  python plot_irt.py --model_path MODEL_PATH --plot_type TYPE --output_dir OUTPUT
-  python plot_irt.py --irt_file IRT_PARAMS.npz --plot_type all
-  python plot_irt.py --compare model1.pth model2.pth --dataset synthetic_OC
-  ```
-- [ ] Argument parsing:
-  - `--model_path`: Path to trained model checkpoint
-  - `--irt_file`: Path to saved IRT parameters file
-  - `--compare`: Compare two models side-by-side
-  - `--plot_type`: icc, iif, tif, wright, dist, all
-  - `--items`: Specific item indices to plot (default: random sample)
-  - `--output_dir`: Directory for saving plots
+#### 1.1 Remove Neural Activations ✅ **NEXT**
+**Hypothesis**: Linear transformations preserve IRT mathematical structure better than non-linear activations.
 
-### 3.2 Plotting Functions to Implement
-- [ ] **Item Characteristic Curves (ICC)**:
-  ```python
-  def plot_icc(alphas, betas, item_indices, n_cats=4)
-  def plot_icc_grid(alphas, betas, n_items=9, n_cats=4)
-  ```
-- [ ] **Item Information Functions (IIF)**:
-  ```python
-  def plot_iif(alphas, betas, item_indices, theta_range=(-3, 3))
-  def plot_iif_overlay(alphas, betas, n_items=10)
-  ```
-- [ ] **Test Information Function (TIF)**:
-  ```python
-  def plot_tif(alphas, betas, theta_range=(-3, 3))
-  def plot_tif_comparison(params1, params2, labels=['Model 1', 'Model 2'])
-  ```
-- [ ] **Wright Map (Item-Person Map)**:
-  ```python
-  def plot_wright_map(thetas, betas, alphas)
-  def plot_wright_map_horizontal(thetas, betas)  # Alternative layout
-  ```
-- [ ] **Parameter Distributions**:
-  ```python
-  def plot_discrimination_dist(alphas, model_name='')
-  def plot_threshold_matrix(betas, n_cats=4)  # Heatmap of thresholds
-  def plot_ability_evolution(thetas_by_epoch)  # If tracking over time
-  ```
+**Implementation**:
+```python
+# Current (with activations)
+hidden = F.relu(self.output_layer(combined))
+predicted_abilities = self.final_layer(hidden).squeeze(-1)
 
-## Phase 4: Integration and Testing
+# Proposed (linear only)
+predicted_abilities = self.final_layer(combined).squeeze(-1)
+```
 
-### 4.1 Update Evaluation Pipeline (`evaluate.py`)
-- [ ] Add command-line arguments:
-  - `--extract_irt`: Extract and save IRT parameters
-  - `--plot_irt`: Generate IRT visualizations
-- [ ] Modify evaluation to include IRT analysis:
-  ```python
-  # After loading model and computing metrics
-  if args.extract_irt:
-      irt_params = extract_irt_params_from_model(model, test_loader, device)
-      save_irt_params(irt_params, f"{output_dir}/eval_irt_params.npz")
-      
-      # Add IRT statistics to evaluation report
-      irt_stats = compute_irt_statistics(irt_params)
-      evaluation_results['irt_analysis'] = irt_stats
-  ```
-- [ ] Add IRT-based metrics:
-  - Test information at different ability levels
-  - Item discrimination statistics
-  - Threshold ordering violations (if any)
+**Expected Impact**: Better gradient flow and parameter alignment with IRT theory.
 
-### 4.2 Testing with Synthetic Data
-- [ ] Create test script `test_irt_extraction.py`:
-  - Generate synthetic data with known IRT parameters
-  - Train model and extract parameters
-  - Compare extracted vs true parameters
-  - Compute recovery metrics (correlation, RMSE)
-- [ ] Test cases:
-  - Varying number of items (10, 30, 50)
-  - Different discrimination ranges
-  - Various threshold patterns
-  - Multiple student ability distributions
-- [ ] Validation checks:
-  - Parameter scale consistency
-  - Threshold ordering (β₁ < β₂ < β₃ for 4 categories)
-  - Discrimination positivity
-  - Ability distribution normality
+#### 1.2 Direct IRT Computation Path
+**Hypothesis**: Predictions should come directly from sampled IRT parameters, not memory network.
 
-## Phase 5: Documentation and Examples
+**Implementation**:
+```python
+# Add direct IRT prediction branch
+theta_sampled = self.theta_dist.rsample(1).squeeze(0)[student_ids]
+alpha_sampled = self.alpha_dist.rsample(1).squeeze(0)[question_ids]
+beta_sampled = self.beta_dist.rsample(1).squeeze(0)[question_ids]
 
-### 5.1 Update README.md
-- [ ] Add new section "IRT Parameter Analysis":
-  ```markdown
-  ## IRT Parameter Analysis
-  
-  ### Extracting IRT Parameters
-  \```bash
-  # During training
-  python train.py --model baseline --extract_irt --irt_save_freq 10
-  
-  # From trained model
-  python evaluate.py --model_path MODEL.pth --extract_irt
-  
-  # Visualize parameters
-  python plot_irt.py --model_path MODEL.pth --plot_type all
-  \```
-  
-  ### Parameter Interpretation
-  - **θ (theta)**: Student ability on scale [-3, 3]
-  - **α (alpha)**: Item discrimination (higher = better differentiation)
-  - **β (beta)**: Category thresholds (K-1 values per item)
-  ```
+# Direct GPCM computation
+direct_probs = self._gpcm_probability(theta_sampled, alpha_sampled, beta_sampled)
 
-### 5.2 Create Example Scripts
-- [ ] `examples/irt_extraction_example.py`:
-  ```python
-  # Example: Extract and analyze IRT parameters
-  from utils.irt_utils import extract_irt_params_from_checkpoint
-  from plot_irt import plot_icc_grid, plot_tif
-  
-  # Load and extract
-  params = extract_irt_params_from_checkpoint('model.pth')
-  
-  # Analyze
-  print(f"Mean discrimination: {params['alpha'].mean():.3f}")
-  print(f"Ability range: [{params['theta'].min():.2f}, {params['theta'].max():.2f}]")
-  
-  # Visualize
-  plot_icc_grid(params['alpha'], params['beta'])
-  plot_tif(params['alpha'], params['beta'])
-  ```
-- [ ] `examples/compare_models_irt.py`:
-  - Load baseline and AKVMN models
-  - Extract parameters from both
-  - Create comparison plots
-  - Statistical comparison of parameters
+# Weighted combination with memory predictions
+final_probs = alpha_weight * direct_probs + (1 - alpha_weight) * memory_probs
+```
 
-### 5.3 Theoretical Documentation
-- [ ] Create `docs/IRT_THEORY.md`:
-  - GPCM mathematical formulation
-  - Parameter interpretation in educational context
-  - Relationship to classical test theory
-  - Best practices for IRT analysis
+### Phase 2: Architecture Modifications (Medium-term)
 
-## Implementation Notes
+#### 2.1 Hybrid Memory-IRT Architecture
+**Approach**: Use memory network to inform IRT parameters rather than replace them.
 
-### Parameter Extraction Details from Code Analysis:
+**Implementation**:
+```python
+# Memory network predicts parameter adjustments
+memory_theta_adj = self.memory_to_theta(read_values)
+memory_alpha_adj = self.memory_to_alpha(q_embed)
+memory_beta_adj = self.memory_to_beta(q_embed)
 
-#### BaselineGPCM (models/baseline.py)
-- **Current outputs in forward()**: Returns tuple `(student_abilities, item_thresholds, discrimination_params, gpcm_probs)`
-- **θ extraction**: Already computed via `student_ability_network` (line 455)
-- **β extraction**: From `question_threshold_network` output (line 456) 
-- **α extraction**: From `discrimination_network` output (line 460)
-- **Key networks to access**:
-  - `self.gpcm_model.student_ability_network`
-  - `self.gpcm_model.question_threshold_network`
-  - `self.gpcm_model.discrimination_network`
-  - `self.gpcm_model.memory.key_memory_matrix` (for memory states)
+# Combine with variational parameters
+effective_theta = theta_base + memory_theta_adj
+effective_alpha = alpha_base + memory_alpha_adj
+effective_beta = beta_base + memory_beta_adj
+```
 
-#### AKVMNGPCM (models/akvmn_gpcm.py)
-- **Same output format**: Compatible with baseline
-- **Key differences**:
-  - Has `n_cycles` of iterative refinement
-  - Multi-head attention layers for each cycle
-  - Refinement gates and fusion layers
-- **Additional extractable**:
-  - Attention weights from `self.attention_layers[cycle]`
-  - Refinement history across cycles
-  - Gate activations showing update magnitudes
+#### 2.2 Parameter-Aware Memory Keys
+**Approach**: Initialize memory keys using IRT parameter structure.
 
-### Technical Considerations:
-1. Both models scale ability with `ability_scale` parameter (default 2.0-3.0)
-2. Both use same GPCM probability computation (cumulative logits)
-3. Parameters are extracted per time step in sequence
-4. Need to aggregate across sequences for item-level parameters
-5. Memory states are batch-specific and change during inference
+**Implementation**:
+```python
+# Initialize memory keys based on question parameters
+with torch.no_grad():
+    alpha_init = self.alpha_dist.rsample(1).squeeze(0)
+    self.key_memory.data = self.q_to_key(
+        self.q_embed.weight * alpha_init.unsqueeze(1)
+    )
+```
 
-### IRT Parameter Formulas:
-- **GPCM Probability**: P(X=k|θ,α,β) = exp(Σ[α(θ-β_h)]) / Σ exp(...)
-- **Information Function**: I(θ) = Σ α² * P * (1-P)
-- **Test Information**: TIF(θ) = Σ I_i(θ) across all items
+### Phase 3: Training Enhancements (Long-term)
 
-## Priority Order
-1. **Phase 1**: Model methods for parameter extraction (2-3 hours)
-2. **Phase 2**: IRT utilities and training integration (3-4 hours)
-3. **Phase 3**: Visualization tool (4-5 hours)
-4. **Phase 4**: Testing and validation (2-3 hours)
-5. **Phase 5**: Documentation and examples (1-2 hours)
+#### 3.1 Multi-Objective Loss Function
+**Approach**: Balance prediction accuracy with parameter recovery.
+
+**Implementation**:
+```python
+# Standard ELBO loss
+elbo_loss = self.elbo_loss(probabilities, responses, kl_div)
+
+# Parameter recovery loss
+if true_params is not None:
+    param_loss = self.parameter_recovery_loss(
+        self.get_posterior_stats(), true_params
+    )
+    total_loss = elbo_loss + lambda_param * param_loss
+```
+
+#### 3.2 Progressive Training Strategy
+**Approach**: Train in phases with different emphases.
+
+**Schedule**:
+1. **Phase 1 (Epochs 1-30)**: High KL annealing, focus on parameter learning
+2. **Phase 2 (Epochs 31-60)**: Balanced parameter-prediction learning  
+3. **Phase 3 (Epochs 61-100)**: Fine-tune for prediction accuracy
+
+#### 3.3 Regularization Techniques
+**Approaches**:
+- **Parameter orthogonality**: Encourage theta/alpha/beta to capture different aspects
+- **Temporal consistency**: Ensure parameters evolve smoothly across sequences
+- **Prior matching**: Explicit loss terms to match parameter distributions
+
+### Phase 4: Alternative Architectures (Research)
+
+#### 4.1 Transformer-Based Bayesian IRT
+**Approach**: Replace DKVMN with attention mechanisms that preserve IRT structure.
+
+#### 4.2 Variational Recurrent IRT
+**Approach**: Model temporal evolution of student abilities directly in IRT space.
+
+#### 4.3 Graph Neural Network IRT
+**Approach**: Model student-question interactions as graph with IRT edge features.
+
+## Implementation Priority
+
+### High Priority (This Week)
+1. ✅ **Remove neural activations** (1 day) - Test linear transformations only
+2. **Add direct IRT prediction path** (2 days) - Weighted combination approach
+3. **Implement parameter recovery loss** (1 day) - Multi-objective training
+
+### Medium Priority (Next Week)  
+4. **Hybrid memory-IRT architecture** (3 days) - Memory informs parameters
+5. **Progressive training strategy** (2 days) - Phase-based learning
+6. **Parameter-aware initialization** (1 day) - IRT-guided memory keys
+
+### Low Priority (Research Phase)
+7. **Multi-objective loss tuning** (1 week) - Optimize loss weights
+8. **Alternative architectures** (2-4 weeks) - Transformer/GNN experiments
+9. **Theoretical analysis** (ongoing) - Mathematical foundation for hybrid approaches
+
+## Success Metrics
+
+### Parameter Recovery Targets
+- **Theta correlation**: >0.7 (currently 0.049)
+- **Alpha correlation**: >0.7 (currently 0.067)
+- **Beta correlation**: >0.5 (currently -0.354)
+
+### Performance Maintenance  
+- **Predictive accuracy**: Maintain >65% (currently 68.8%)
+- **Training stability**: No gradient explosion or collapse
+- **Convergence time**: <100 epochs for stable results
+
+## Risk Assessment
+
+### High Risk
+- **Performance degradation**: Removing activations may hurt prediction accuracy
+- **Training instability**: Direct IRT computation may cause gradient issues
+- **Complexity increase**: Hybrid architectures may be harder to optimize
+
+### Mitigation Strategies
+- **A/B testing**: Compare each change against baseline
+- **Gradual rollout**: Implement changes incrementally with rollback options
+- **Extensive monitoring**: Track both prediction and parameter metrics
+
+### Backup Plans
+- **Revert to baseline**: If performance drops significantly
+- **Simplified hybrid**: Use weighted combination instead of full integration
+- **Traditional IRT baseline**: Fall back to classical IRT if neural approaches fail
+
+## Expected Outcomes
+
+### Best Case Scenario
+- **Parameter recovery**: >0.8 correlation for all IRT parameters
+- **Prediction accuracy**: Maintain or improve current 68.8%
+- **Training efficiency**: Faster convergence with better stability
+
+### Realistic Scenario
+- **Parameter recovery**: 0.5-0.7 correlation (significant improvement)
+- **Prediction accuracy**: 60-70% (acceptable trade-off)
+- **Training efficiency**: Similar convergence time with better interpretability
+
+### Worst Case Scenario
+- **Parameter recovery**: Marginal improvement (0.1-0.3 correlation)
+- **Prediction accuracy**: Degradation to <60%
+- **Training efficiency**: Slower convergence or instability
+
+**Contingency**: Revert to current baseline and pursue alternative research directions.

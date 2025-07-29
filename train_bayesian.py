@@ -14,6 +14,8 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import numpy as np
 from pathlib import Path
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 import seaborn as sns
 from datetime import datetime
@@ -44,7 +46,7 @@ def load_true_irt_params(data_dir: Path) -> Dict[str, np.ndarray]:
 
 def compute_irt_comparison_metrics(true_params: Dict[str, np.ndarray],
                                  learned_stats: Dict[str, Dict[str, torch.Tensor]]) -> Dict[str, float]:
-    """Compute metrics comparing true and learned IRT parameters."""
+    """Compute metrics comparing true and learned IRT parameters with normalization."""
     metrics = {}
     
     # Convert learned parameters to numpy
@@ -52,15 +54,13 @@ def compute_irt_comparison_metrics(true_params: Dict[str, np.ndarray],
     learned_alpha = learned_stats['alpha']['mean'].cpu().numpy()
     learned_beta = learned_stats['beta']['mean'].cpu().numpy()
     
-    # Theta comparison (student abilities)
-    if len(true_params['theta']) == len(learned_theta):
-        # Correlation (invariant to linear transformation)
-        metrics['theta_correlation'] = np.corrcoef(true_params['theta'], learned_theta)[0, 1]
-        
-        # Standardize for MSE comparison
-        true_theta_std = (true_params['theta'] - true_params['theta'].mean()) / true_params['theta'].std()
-        learned_theta_std = (learned_theta - learned_theta.mean()) / learned_theta.std()
-        metrics['theta_mse'] = np.mean((true_theta_std - learned_theta_std) ** 2)
+    # Fix size mismatch: use only the first N students from true params to match learned
+    n_learned_students = len(learned_theta)
+    true_theta_subset = true_params['theta'][:n_learned_students]
+    
+    # Theta comparison (student abilities) - use raw values since both should be ~N(0,1)
+    metrics['theta_correlation'] = np.corrcoef(true_theta_subset, learned_theta)[0, 1]
+    metrics['theta_mse'] = np.mean((true_theta_subset - learned_theta) ** 2)
     
     # Alpha comparison (discrimination)
     metrics['alpha_correlation'] = np.corrcoef(true_params['alpha'], learned_alpha)[0, 1]
@@ -105,7 +105,7 @@ def compute_irt_comparison_metrics(true_params: Dict[str, np.ndarray],
 def plot_irt_comparison(true_params: Dict[str, np.ndarray],
                        learned_stats: Dict[str, Dict[str, torch.Tensor]],
                        save_path: Path):
-    """Create comparison plots for true vs learned IRT parameters."""
+    """Create comparison plots for true vs learned IRT parameters with normalization."""
     fig, axes = plt.subplots(2, 3, figsize=(15, 10))
     
     # Convert learned parameters
@@ -113,70 +113,128 @@ def plot_irt_comparison(true_params: Dict[str, np.ndarray],
     learned_alpha = learned_stats['alpha']['mean'].cpu().numpy()
     learned_beta = learned_stats['beta']['mean'].cpu().numpy()
     
-    # Theta comparison
+    # Fix size mismatch: use only the first N students from true params to match learned
+    n_learned_students = len(learned_theta)
+    true_theta_subset = true_params['theta'][:n_learned_students]
+    
+    # Don't over-normalize! The priors are:
+    # θ ~ N(0,1), α ~ LogN(0,0.3), β ~ Ordered Normal(0,1)
+    # The learned parameters should naturally follow these priors
+    
+    # Theta comparison (both should be ~N(0,1) due to prior)
     ax = axes[0, 0]
-    ax.scatter(true_params['theta'], learned_theta, alpha=0.5, s=20)
-    ax.plot([true_params['theta'].min(), true_params['theta'].max()],
-            [true_params['theta'].min(), true_params['theta'].max()], 'r--', label='y=x')
-    ax.set_xlabel('True θ (Student Ability)')
-    ax.set_ylabel('Learned θ')
-    ax.set_title(f'Student Abilities (r={np.corrcoef(true_params["theta"], learned_theta)[0, 1]:.3f})')
+    ax.scatter(true_theta_subset, learned_theta, alpha=0.6, s=25, color='steelblue', edgecolors='white', linewidth=0.5)
+    
+    # y=x line should span the range of both distributions
+    min_val = min(true_theta_subset.min(), learned_theta.min())
+    max_val = max(true_theta_subset.max(), learned_theta.max())
+    ax.plot([min_val, max_val], [min_val, max_val], 'r--', label='y=x', linewidth=2)
+    
+    correlation = np.corrcoef(true_theta_subset, learned_theta)[0, 1]
+    ax.set_title(f'Student Abilities (r={correlation:.3f})', fontweight='bold')
+    ax.set_xlabel('True θ ~ N(0,1)')
+    ax.set_ylabel('Learned θ ~ N(0,1)')
     ax.legend()
     ax.grid(True, alpha=0.3)
     
-    # Alpha comparison
+    # Alpha comparison (both should be ~LogN(0,0.3) due to prior)
     ax = axes[0, 1]
-    ax.scatter(true_params['alpha'], learned_alpha, alpha=0.5, s=20)
-    ax.plot([0, true_params['alpha'].max()], [0, true_params['alpha'].max()], 'r--', label='y=x')
-    ax.set_xlabel('True α (Discrimination)')
-    ax.set_ylabel('Learned α')
-    ax.set_title(f'Discrimination Parameters (r={np.corrcoef(true_params["alpha"], learned_alpha)[0, 1]:.3f})')
+    ax.scatter(true_params['alpha'], learned_alpha, alpha=0.6, s=25, color='mediumseagreen', edgecolors='white', linewidth=0.5)
+    
+    # y=x line should span the range of both distributions
+    min_val = min(true_params['alpha'].min(), learned_alpha.min())
+    max_val = max(true_params['alpha'].max(), learned_alpha.max())
+    ax.plot([min_val, max_val], [min_val, max_val], 'r--', label='y=x', linewidth=2)
+    
+    correlation = np.corrcoef(true_params['alpha'], learned_alpha)[0, 1]
+    ax.set_title(f'Discrimination Parameters (r={correlation:.3f})', fontweight='bold')
+    ax.set_xlabel('True α ~ LogN(0,0.3)')
+    ax.set_ylabel('Learned α ~ LogN(0,0.3)')
     ax.legend()
     ax.grid(True, alpha=0.3)
     
-    # Beta comparison (mean per question)
+    # Beta comparison (mean per question, both should follow ordered normal prior)
     ax = axes[0, 2]
     true_beta_mean = true_params['beta'].mean(axis=1)
     learned_beta_mean = learned_beta.mean(axis=1)
-    ax.scatter(true_beta_mean, learned_beta_mean, alpha=0.5, s=20)
-    ax.plot([true_beta_mean.min(), true_beta_mean.max()],
-            [true_beta_mean.min(), true_beta_mean.max()], 'r--', label='y=x')
-    ax.set_xlabel('True β (Mean Threshold)')
-    ax.set_ylabel('Learned β')
-    ax.set_title(f'Mean Thresholds (r={np.corrcoef(true_beta_mean, learned_beta_mean)[0, 1]:.3f})')
+    ax.scatter(true_beta_mean, learned_beta_mean, alpha=0.6, s=25, color='coral', edgecolors='white', linewidth=0.5)
+    
+    # y=x line should span the range of both distributions
+    min_val = min(true_beta_mean.min(), learned_beta_mean.min())
+    max_val = max(true_beta_mean.max(), learned_beta_mean.max())
+    ax.plot([min_val, max_val], [min_val, max_val], 'r--', label='y=x', linewidth=2)
+    
+    correlation = np.corrcoef(true_beta_mean, learned_beta_mean)[0, 1]
+    ax.set_title(f'Mean Thresholds (r={correlation:.3f})', fontweight='bold')
+    ax.set_xlabel('True β (Mean)')
+    ax.set_ylabel('Learned β (Mean)')
     ax.legend()
     ax.grid(True, alpha=0.3)
     
-    # Distribution comparisons
-    # Theta distributions
+    # Distribution comparisons with KDE
+    from scipy.stats import gaussian_kde
+    
+    # Theta distributions (both should be ~N(0,1))
     ax = axes[1, 0]
-    ax.hist(true_params['theta'], bins=20, alpha=0.5, label='True θ ~ N(0,1)', density=True, color='blue')
-    ax.hist(learned_theta, bins=20, alpha=0.5, label='Learned θ', density=True, color='orange')
+    # Histogram
+    ax.hist(true_theta_subset, bins=15, alpha=0.4, label='True θ ~ N(0,1)', density=True, color='steelblue', edgecolor='white')
+    ax.hist(learned_theta, bins=15, alpha=0.4, label='Learned θ ~ N(0,1)', density=True, color='orange', edgecolor='white')
+    
+    # KDE overlay
+    try:
+        x_range = np.linspace(min(true_theta_subset.min(), learned_theta.min()),
+                              max(true_theta_subset.max(), learned_theta.max()), 100)
+        kde_true = gaussian_kde(true_theta_subset)
+        kde_learned = gaussian_kde(learned_theta)
+        ax.plot(x_range, kde_true(x_range), color='steelblue', linewidth=2, alpha=0.8)
+        ax.plot(x_range, kde_learned(x_range), color='orange', linewidth=2, alpha=0.8)
+    except:
+        pass  # Skip KDE if it fails
+    
     ax.set_xlabel('θ (Student Ability)')
     ax.set_ylabel('Density')
-    ax.set_title('Student Ability Distributions')
+    ax.set_title('Student Ability Distributions', fontweight='bold')
     ax.legend()
     ax.grid(True, alpha=0.3)
     
-    # Alpha distributions
+    # Alpha distributions (both should be ~LogN(0,0.3))
     ax = axes[1, 1]
-    ax.hist(true_params['alpha'], bins=20, alpha=0.5, label='True α ~ LogN(0,0.3)', density=True, color='blue')
-    ax.hist(learned_alpha, bins=20, alpha=0.5, label='Learned α', density=True, color='orange')
+    # Histogram
+    ax.hist(true_params['alpha'], bins=15, alpha=0.4, label='True α ~ LogN(0,0.3)', density=True, color='mediumseagreen', edgecolor='white')
+    ax.hist(learned_alpha, bins=15, alpha=0.4, label='Learned α ~ LogN(0,0.3)', density=True, color='orange', edgecolor='white')
+    
+    # KDE overlay
+    try:
+        x_range = np.linspace(min(true_params['alpha'].min(), learned_alpha.min()),
+                              max(true_params['alpha'].max(), learned_alpha.max()), 100)
+        kde_true = gaussian_kde(true_params['alpha']) 
+        kde_learned = gaussian_kde(learned_alpha)
+        ax.plot(x_range, kde_true(x_range), color='mediumseagreen', linewidth=2, alpha=0.8)
+        ax.plot(x_range, kde_learned(x_range), color='orange', linewidth=2, alpha=0.8)
+    except:
+        pass  # Skip KDE if it fails
+        
     ax.set_xlabel('α (Discrimination)')
     ax.set_ylabel('Density')
-    ax.set_title('Discrimination Distributions')
+    ax.set_title('Discrimination Distributions', fontweight='bold')
     ax.legend()
     ax.grid(True, alpha=0.3)
     
-    # Beta spread comparison
+    # Beta spread comparison (both should follow ordered normal)
     ax = axes[1, 2]
     true_beta_std = true_params['beta'].std(axis=1)
     learned_beta_std = learned_beta.std(axis=1)
-    ax.scatter(true_beta_std, learned_beta_std, alpha=0.5, s=20)
-    ax.plot([0, true_beta_std.max()], [0, true_beta_std.max()], 'r--', label='y=x')
+    ax.scatter(true_beta_std, learned_beta_std, alpha=0.6, s=25, color='coral', edgecolors='white', linewidth=0.5)
+    
+    # y=x line should span the range of both distributions
+    min_val = min(true_beta_std.min(), learned_beta_std.min())
+    max_val = max(true_beta_std.max(), learned_beta_std.max())
+    ax.plot([min_val, max_val], [min_val, max_val], 'r--', label='y=x', linewidth=2)
+    
+    correlation = np.corrcoef(true_beta_std, learned_beta_std)[0, 1]
+    ax.set_title(f'Threshold Spread per Question (r={correlation:.3f})', fontweight='bold')
     ax.set_xlabel('True β Spread (STD)')
-    ax.set_ylabel('Learned β Spread')
-    ax.set_title('Threshold Spread per Question')
+    ax.set_ylabel('Learned β Spread (STD)')
     ax.legend()
     ax.grid(True, alpha=0.3)
     
@@ -224,7 +282,6 @@ def train_epoch(model: nn.Module, data_loader: DataLoader, optimizer: optim.Opti
     """Train for one epoch."""
     model.train()
     total_loss = 0
-    total_elbo = 0
     total_kl = 0
     n_batches = 0
     
@@ -240,7 +297,7 @@ def train_epoch(model: nn.Module, data_loader: DataLoader, optimizer: optim.Opti
         # Forward pass with variational sampling
         probabilities, aux_dict = model(questions, responses)
         
-        # Compute ELBO loss
+        # Compute loss
         kl_div = aux_dict['kl_divergence']
         elbo_loss = model.elbo_loss(probabilities, responses, kl_div)
         
@@ -248,10 +305,8 @@ def train_epoch(model: nn.Module, data_loader: DataLoader, optimizer: optim.Opti
         elbo_loss.backward()
         optimizer.step()
         
-        # Track losses
         total_loss += elbo_loss.item()
-        total_elbo += elbo_loss.item()
-        total_kl += kl_div.item()
+        total_kl += aux_dict.get('raw_kl_divergence', kl_div).item()
         n_batches += 1
         
         # Store predictions
@@ -260,14 +315,14 @@ def train_epoch(model: nn.Module, data_loader: DataLoader, optimizer: optim.Opti
         all_targets.extend(responses.cpu().numpy().flatten())
     
     # Compute metrics
-    correct = np.sum(np.array(all_preds) == np.array(all_targets))
-    total = len(all_targets)
-    metrics = {'categorical_accuracy': correct / total}
+    all_preds = np.array(all_preds)
+    all_targets = np.array(all_targets)
     
-    avg_loss = total_loss / n_batches
-    avg_kl = total_kl / n_batches
+    metrics = {
+        'categorical_accuracy': (all_preds == all_targets).mean()
+    }
     
-    return avg_loss, avg_kl, metrics
+    return total_loss / n_batches, total_kl / n_batches, metrics
 
 
 def evaluate(model: nn.Module, data_loader: DataLoader, device: torch.device,
@@ -292,22 +347,28 @@ def evaluate(model: nn.Module, data_loader: DataLoader, device: torch.device,
             # Compute loss
             kl_div = aux_dict['kl_divergence']
             elbo_loss = model.elbo_loss(probabilities, responses, kl_div)
-            
             total_loss += elbo_loss.item()
             n_batches += 1
             
-            # Store predictions
+            # Store predictions for evaluation
             preds = probabilities.argmax(dim=-1)
             all_preds.extend(preds.cpu().numpy().flatten())
             all_targets.extend(responses.cpu().numpy().flatten())
             all_probs.extend(probabilities.cpu().numpy().reshape(-1, n_categories))
     
-    # Compute metrics
-    correct = np.sum(np.array(all_preds) == np.array(all_targets))
-    total = len(all_targets)
-    metrics = {'categorical_accuracy': correct / total}
+    # Compute metrics using GpcmMetrics class
+    all_probs_array = np.array(all_probs)
+    all_probs_tensor = torch.tensor(all_probs_array)
+    all_targets_tensor = torch.tensor(all_targets)
     
-    avg_loss = total_loss / n_batches
+    metrics = {
+        'categorical_accuracy': GpcmMetrics.categorical_accuracy(all_probs_tensor, all_targets_tensor),
+        'quadratic_weighted_kappa': GpcmMetrics.quadratic_weighted_kappa(all_probs_tensor, all_targets_tensor, n_categories),
+        'ordinal_accuracy': GpcmMetrics.ordinal_accuracy(all_probs_tensor, all_targets_tensor),
+        'mean_absolute_error': GpcmMetrics.mean_absolute_error(all_probs_tensor, all_targets_tensor)
+    }
+    
+    avg_loss = total_loss / n_batches if n_batches > 0 else 0.0
     
     return avg_loss, metrics
 
@@ -316,7 +377,7 @@ def main():
     parser = argparse.ArgumentParser(description='Train Variational Bayesian GPCM model')
     parser.add_argument('--dataset', type=str, default='synthetic_OC',
                        help='Dataset name')
-    parser.add_argument('--epochs', type=int, default=50,
+    parser.add_argument('--epochs', type=int, default=100,
                        help='Number of training epochs')
     parser.add_argument('--batch_size', type=int, default=32,
                        help='Batch size')
@@ -324,7 +385,7 @@ def main():
                        help='Learning rate')
     parser.add_argument('--kl_weight', type=float, default=1.0,
                        help='Weight for KL divergence term')
-    parser.add_argument('--kl_annealing', action='store_true',
+    parser.add_argument('--kl_annealing', action='store_true', default=True,
                        help='Use KL annealing schedule')
     parser.add_argument('--device', type=str, default='cuda',
                        help='Device to use (cuda/cpu)')
@@ -398,6 +459,8 @@ def main():
         'test_loss': [],
         'test_accuracy': [],
         'test_qwk': [],
+        'test_ordinal_accuracy': [],
+        'test_mae': [],
         'kl_weight': []
     }
     
@@ -407,10 +470,13 @@ def main():
     best_epoch = 0
     
     for epoch in range(args.epochs):
+        # Update model epoch for KL annealing
+        model.set_epoch(epoch)
+        
         # KL annealing schedule
         if args.kl_annealing:
-            # Linear annealing from 0 to 1 over half the epochs
-            kl_weight = min(1.0, epoch / (args.epochs // 2))
+            # Linear annealing from 0 to 1 over first 20 epochs
+            kl_weight = min(1.0, epoch / 20.0)
             model.kl_weight = kl_weight
             history['kl_weight'].append(kl_weight)
         else:
@@ -428,12 +494,14 @@ def main():
         history['train_accuracy'].append(train_metrics['categorical_accuracy'])
         history['test_loss'].append(test_loss)
         history['test_accuracy'].append(test_metrics['categorical_accuracy'])
-        history['test_qwk'].append(test_metrics.get('quadratic_weighted_kappa', 0.0))
+        history['test_qwk'].append(test_metrics['quadratic_weighted_kappa'])
+        history['test_ordinal_accuracy'].append(test_metrics['ordinal_accuracy'])
+        history['test_mae'].append(test_metrics['mean_absolute_error'])
         
         # Print progress
         print(f"Epoch {epoch+1}/{args.epochs}")
         print(f"  Train Loss: {train_loss:.4f}, KL: {train_kl:.4f}, Acc: {train_metrics['categorical_accuracy']:.3f}")
-        print(f"  Test Loss: {test_loss:.4f}, Acc: {test_metrics['categorical_accuracy']:.3f}, QWK: {test_metrics.get('quadratic_weighted_kappa', 0.0):.3f}")
+        print(f"  Test Loss: {test_loss:.4f}, Acc: {test_metrics['categorical_accuracy']:.3f}, QWK: {test_metrics['quadratic_weighted_kappa']:.3f}, Ord: {test_metrics['ordinal_accuracy']:.3f}, MAE: {test_metrics['mean_absolute_error']:.3f}")
         
         # Save best model
         if test_metrics['categorical_accuracy'] > best_test_accuracy:
@@ -448,7 +516,9 @@ def main():
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'test_accuracy': test_metrics['categorical_accuracy'],
-                'test_qwk': test_metrics.get('quadratic_weighted_kappa', 0.0),
+                'test_qwk': test_metrics['quadratic_weighted_kappa'],
+                'test_ordinal_accuracy': test_metrics['ordinal_accuracy'],
+                'test_mae': test_metrics['mean_absolute_error'],
                 'posterior_stats': posterior_stats,
                 'args': vars(args)
             }
