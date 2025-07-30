@@ -8,7 +8,7 @@ Models analyzed: 2
 Analysis settings:
 - Student ability method: last
 - Item parameter method: average
-- Analysis types: recovery
+- Analysis types: temporal
 
 Parameter normalization:
 - Student ability (θ): Normal prior (mean=0, std=1)
@@ -20,50 +20,24 @@ Parameter normalization:
 MODEL: BASELINE
   Type: baseline
 
-  Student Ability (θ) Recovery:
-    Correlation: -0.0400
-    Students analyzed: 160
-
-  Item Parameter Recovery:
-    Discrimination (α): 0.0148
-    Items analyzed: 399/400
-    Threshold correlations:
-      β_0: 0.7768
-      β_1: 0.3992
-      β_2: 0.6275
-    Average β correlation: 0.6012
-
   Student ability statistics:
-    Range: [-1.876, 1.711]
-    Mean: 0.046, Std: 0.681
+    Range: [-2.064, 1.856]
+    Mean: -0.060, Std: 0.744
 
   Discrimination statistics:
-    Range: [4.252, 6.473]
-    Mean: 5.274, Std: 0.364
+    Range: [7.738, 10.204]
+    Mean: 9.210, Std: 0.413
 
 MODEL: AKVMN
   Type: enhanced_attention
 
-  Student Ability (θ) Recovery:
-    Correlation: -0.0586
-    Students analyzed: 160
-
-  Item Parameter Recovery:
-    Discrimination (α): 0.0563
-    Items analyzed: 399/400
-    Threshold correlations:
-      β_0: 0.7058
-      β_1: 0.7332
-      β_2: 0.8146
-    Average β correlation: 0.7512
-
   Student ability statistics:
-    Range: [-3.591, 3.372]
-    Mean: -0.114, Std: 1.604
+    Range: [-3.345, 2.696]
+    Mean: -0.208, Std: 1.380
 
   Discrimination statistics:
-    Range: [1.723, 3.277]
-    Mean: 2.367, Std: 0.294
+    Range: [3.238, 4.992]
+    Mean: 4.186, Std: 0.278
 
 --------------------------------------------------------------------------------
 

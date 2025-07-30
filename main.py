@@ -111,7 +111,21 @@ def run_complete_pipeline(models=['baseline', 'akvmn'], dataset='synthetic_OC',
         print("⏭️  Skipping plotting (no successful training)")
         results['plotting'] = False
     
-    # 4. Summary
+    # 4. IRT Analysis phase
+    print(f"\n{'='*20} IRT ANALYSIS PHASE {'='*20}")
+    if any(results['training'].values()):
+        cmd = [
+            sys.executable, "analysis/irt_analysis.py",
+            "--dataset", dataset,
+            "--analysis_types", "recovery", "temporal"
+        ]
+        success = run_command(cmd, "Running IRT analysis")
+        results['irt_analysis'] = success
+    else:
+        print("⏭️  Skipping IRT analysis (no successful training)")
+        results['irt_analysis'] = False
+    
+    # 5. Summary
     print(f"\n{'='*20} PIPELINE SUMMARY {'='*20}")
     train_success = sum(results['training'].values())
     eval_success = sum(results['evaluation'].values())
@@ -119,8 +133,12 @@ def run_complete_pipeline(models=['baseline', 'akvmn'], dataset='synthetic_OC',
     print(f"Training: {train_success}/{len(models)} models successful")
     print(f"Evaluation: {eval_success}/{len(models)} models successful")
     print(f"Plotting: {'✅' if results.get('plotting', False) else '❌'}")
+    print(f"IRT Analysis: {'✅' if results.get('irt_analysis', False) else '❌'}")
     
-    if train_success == len(models) and eval_success == len(models) and results.get('plotting', False):
+    all_success = (train_success == len(models) and eval_success == len(models) and 
+                   results.get('plotting', False) and results.get('irt_analysis', False))
+    
+    if all_success:
         print("🎉 Complete pipeline executed successfully!")
     else:
         print("⚠️  Pipeline completed with some failures")

@@ -37,6 +37,10 @@ class UnifiedIRTAnalyzer:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
+        # Initialize consistent model coloring system
+        self.model_colors = {}
+        self.color_sequence = 0
+        
         # Load data
         data_dir = Path('data') / dataset
         train_path = data_dir / f'{dataset.lower()}_train.txt'
@@ -59,6 +63,36 @@ class UnifiedIRTAnalyzer:
         
         with open(true_params_path, 'r') as f:
             return json.load(f)
+    
+    def get_model_color(self, model_name: str) -> str:
+        """Get consistent color for a model, matching the main plotting system."""
+        if model_name not in self.model_colors:
+            # Use predefined colors for known models (matching plot_metrics.py)
+            known_colors = {
+                'akvmn': '#1f77b4',      # Blue
+                'baseline': '#ff7f0e',   # Orange
+                'attention': '#1f77b4',  # Blue (alias for akvmn)
+                'enhanced': '#2ca02c',   # Green
+                'bayesian': '#d62728',   # Red
+            }
+            
+            if model_name in known_colors:
+                self.model_colors[model_name] = known_colors[model_name]
+            else:
+                # Use tab10 colors for unknown models
+                colors = plt.cm.tab10.colors if hasattr(plt.cm.tab10, 'colors') else plt.cm.tab10(range(10))
+                base_idx = self.color_sequence % 10
+                if self.color_sequence >= 10:
+                    # Darken or lighten for additional models
+                    factor = 0.7 if (self.color_sequence // 10) % 2 == 0 else 1.3
+                    color = tuple(min(1.0, c * factor) for c in colors[base_idx][:3])
+                else:
+                    color = colors[base_idx][:3]  # RGB only
+                
+                self.model_colors[model_name] = color
+                self.color_sequence += 1
+        
+        return self.model_colors[model_name]
     
     def find_models(self):
         """Automatically find all trained models for the dataset."""
@@ -155,6 +189,7 @@ class UnifiedIRTAnalyzer:
             'student_abilities': [],  # List of sequences
             'item_discriminations': [],
             'item_thresholds': [],
+            'gpcm_probabilities': [],  # GPCM probability predictions
             'question_ids': [],
             'responses': [],
             'masks': [],
@@ -170,7 +205,7 @@ class UnifiedIRTAnalyzer:
                 batch_size, seq_len = questions.shape
                 
                 # Forward pass
-                student_abilities, item_thresholds, discrimination_params, _ = model(questions, responses)
+                student_abilities, item_thresholds, discrimination_params, gpcm_probs = model(questions, responses)
                 
                 # Store temporal sequences for each student
                 for i in range(batch_size):
@@ -186,6 +221,9 @@ class UnifiedIRTAnalyzer:
                         )
                         temporal_data['item_thresholds'].append(
                             item_thresholds[i, :valid_len].cpu().numpy()
+                        )
+                        temporal_data['gpcm_probabilities'].append(
+                            gpcm_probs[i, :valid_len].cpu().numpy()
                         )
                         temporal_data['question_ids'].append(
                             questions[i, :valid_len].cpu().numpy()
@@ -375,20 +413,51 @@ class UnifiedIRTAnalyzer:
         if n_models == 1:
             axes = axes.reshape(1, -1)
         
+        # Determine best model first
+        best_model = None
+        best_avg_corr = -1
+        
+        if len(models_with_corr) > 1:
+            for model_name, results in models_with_corr:
+                corr = results['correlations']
+                # Calculate average absolute correlation
+                correlations = []
+                if 'theta_correlation' in corr:
+                    correlations.append(abs(corr['theta_correlation']))
+                if 'alpha_correlation' in corr:
+                    correlations.append(abs(corr['alpha_correlation']))
+                if 'beta_correlations' in corr:
+                    correlations.extend([abs(c) for c in corr['beta_correlations']])
+                
+                if correlations:
+                    avg_corr = np.mean(correlations)
+                    if avg_corr > best_avg_corr:
+                        best_avg_corr = avg_corr
+                        best_model = model_name
+
         for idx, (model_name, results) in enumerate(models_with_corr):
                 
             params = results['aggregated_params']
             corr = results['correlations']
+            model_color = self.get_model_color(model_name)
+            is_best = (model_name == best_model)
             
             # Student ability plot
             if 'theta_correlation' in corr:
                 ax = axes[idx, 0]
                 ax.scatter(results['true_thetas_norm'][:corr['n_students']], 
-                          results['learned_thetas_norm'], alpha=0.6)
+                          results['learned_thetas_norm'], alpha=0.6, color=model_color)
                 ax.plot([-3, 3], [-3, 3], 'r--', label='Perfect recovery')
                 ax.set_xlabel('True θ')
                 ax.set_ylabel('Learned θ')
-                ax.set_title(f'{model_name.upper()}\nStudent Ability (r={corr["theta_correlation"]:.3f})')
+                
+                # Add star and green color for best model
+                title_text = f'{model_name.upper()}\nStudent Ability (r={corr["theta_correlation"]:.3f})'
+                if is_best:
+                    title_text += ' ★'
+                    ax.set_title(title_text, color='green', fontweight='bold')
+                else:
+                    ax.set_title(title_text)
                 ax.legend()
                 ax.grid(True, alpha=0.3)
             
@@ -396,11 +465,16 @@ class UnifiedIRTAnalyzer:
             if 'alpha_correlation' in corr:
                 ax = axes[idx, 1]
                 ax.scatter(results['true_alphas_norm'][results['valid_indices']], 
-                          results['learned_alphas_norm'], alpha=0.6)
+                          results['learned_alphas_norm'], alpha=0.6, color=model_color)
                 ax.plot([0, 3], [0, 3], 'r--', label='Perfect recovery')
                 ax.set_xlabel('True α')
                 ax.set_ylabel('Learned α')
-                ax.set_title(f'Discrimination (r={corr["alpha_correlation"]:.3f})')
+                
+                title_text = f'Discrimination (r={corr["alpha_correlation"]:.3f})'
+                if is_best:
+                    ax.set_title(title_text, color='green', fontweight='bold')
+                else:
+                    ax.set_title(title_text)
                 ax.legend()
                 ax.grid(True, alpha=0.3)
             
@@ -409,16 +483,21 @@ class UnifiedIRTAnalyzer:
                 for k in range(3):
                     ax = axes[idx, k + 2]
                     ax.scatter(results['true_betas_norm'][results['valid_indices'], k], 
-                              results['learned_betas_norm'][:, k], alpha=0.6)
+                              results['learned_betas_norm'][:, k], alpha=0.6, color=model_color)
                     ax.plot([-3, 3], [-3, 3], 'r--', label='Perfect recovery')
                     ax.set_xlabel(f'True β_{k}')
                     ax.set_ylabel(f'Learned β_{k}')
-                    ax.set_title(f'Threshold {k} (r={corr["beta_correlations"][k]:.3f})')
+                    
+                    title_text = f'Threshold {k} (r={corr["beta_correlations"][k]:.3f})'
+                    if is_best:
+                        ax.set_title(title_text, color='green', fontweight='bold')
+                    else:
+                        ax.set_title(title_text)
                     ax.legend()
                     ax.grid(True, alpha=0.3)
         
         plt.suptitle('IRT Parameter Recovery Analysis\n' +
-                    'All parameters normalized with standard IRT priors',
+                    'All parameters normalized with standard IRT priors\n★ = Best average correlation',
                     fontsize=14, fontweight='bold')
         plt.tight_layout()
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
@@ -433,12 +512,14 @@ class UnifiedIRTAnalyzer:
             axes = axes.reshape(1, -1)
         
         for idx, (model_name, temporal_data) in enumerate(temporal_data_dict.items()):
+            model_color = self.get_model_color(model_name)
+            
             # Plot 1: Student ability evolution
             ax = axes[idx, 0]
             n_samples = min(10, len(temporal_data['student_abilities']))
             for i in range(n_samples):
                 abilities = temporal_data['student_abilities'][i]
-                ax.plot(abilities, alpha=0.5, linewidth=1)
+                ax.plot(abilities, alpha=0.5, linewidth=1, color=model_color)
             ax.set_xlabel('Time Step')
             ax.set_ylabel('Student Ability (θ)')
             ax.set_title(f'{model_name.upper()}: Student Ability Evolution')
@@ -462,11 +543,11 @@ class UnifiedIRTAnalyzer:
             avg_trajectory = np.array(avg_trajectory)
             std_trajectory = np.array(std_trajectory)
             
-            ax.plot(avg_trajectory, 'b-', linewidth=2, label='Mean')
+            ax.plot(avg_trajectory, color=model_color, linewidth=2, label='Mean')
             ax.fill_between(range(len(avg_trajectory)), 
                            avg_trajectory - std_trajectory,
                            avg_trajectory + std_trajectory,
-                           alpha=0.3, label='±1 SD')
+                           color=model_color, alpha=0.3, label='±1 SD')
             ax.set_xlabel('Time Step')
             ax.set_ylabel('Average Student Ability')
             ax.set_title('Population Ability Trajectory')
@@ -491,10 +572,327 @@ class UnifiedIRTAnalyzer:
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
         plt.close()
     
+    def select_students_by_static_hit_rate(self, temporal_data, n_students=20):
+        """Select students based on static hit rate (overall prediction accuracy)."""
+        hit_rates = []
+        
+        for student_idx in range(len(temporal_data['gpcm_probabilities'])):
+            gpcm_probs = temporal_data['gpcm_probabilities'][student_idx]  # (seq_len, n_cats)
+            responses = temporal_data['responses'][student_idx]  # (seq_len,)
+            seq_len = len(responses)
+            
+            if seq_len < 10:  # Need sufficient sequence length
+                continue
+                
+            # Calculate overall hit rate (correct predictions)
+            correct_predictions = 0
+            total_predictions = 0
+            
+            for t in range(seq_len):
+                if 0 <= responses[t] < gpcm_probs.shape[1]:
+                    predicted_category = np.argmax(gpcm_probs[t])
+                    actual_category = int(responses[t])
+                    if predicted_category == actual_category:
+                        correct_predictions += 1
+                    total_predictions += 1
+            
+            hit_rate = correct_predictions / total_predictions if total_predictions > 0 else 0.0
+            hit_rates.append((student_idx, hit_rate))
+        
+        # Sort by hit rate and select students with diverse performance levels
+        hit_rates.sort(key=lambda x: x[1], reverse=True)
+        
+        # Select students across different performance levels
+        if len(hit_rates) >= n_students:
+            # Take students from different quartiles for diversity
+            selected_indices = []
+            scores_per_quartile = max(1, n_students // 4)
+            
+            # High performers (top quartile)
+            selected_indices.extend([x[0] for x in hit_rates[:scores_per_quartile]])
+            
+            # Medium-high performers
+            q2_start = len(hit_rates) // 4
+            selected_indices.extend([x[0] for x in hit_rates[q2_start:q2_start + scores_per_quartile]])
+            
+            # Medium-low performers  
+            q3_start = len(hit_rates) // 2
+            selected_indices.extend([x[0] for x in hit_rates[q3_start:q3_start + scores_per_quartile]])
+            
+            # Low performers (bottom quartile)
+            remaining = n_students - len(selected_indices)
+            q4_start = 3 * len(hit_rates) // 4
+            selected_indices.extend([x[0] for x in hit_rates[q4_start:q4_start + remaining]])
+            
+        else:
+            selected_indices = [x[0] for x in hit_rates[:n_students]]
+        
+        return selected_indices, hit_rates
+    
+    def plot_temporal_theta_heatmap(self, temporal_data_dict, save_path):
+        """Create temporal theta heatmap visualization (students x questions)."""
+        n_models = len(temporal_data_dict)
+        
+        # Adaptive figure height based on number of students (fixed height per model)
+        height_per_model = 6  # Fixed height for each model's heatmap
+        fig, axes = plt.subplots(n_models, 1, figsize=(12, height_per_model * n_models))
+        
+        if n_models == 1:
+            axes = [axes]
+        
+        for idx, (model_name, temporal_data) in enumerate(temporal_data_dict.items()):
+            model_color = self.get_model_color(model_name)
+            ax = axes[idx]
+            
+            # Select students based on temporal hit rate (limit to first 50 questions)
+            max_questions = min(50, max(len(q_seq) for q_seq in temporal_data['question_ids']))
+            selected_students, _ = self.select_students_by_static_hit_rate(temporal_data, n_students=20)
+            n_students = len(selected_students)
+            
+            # Create theta matrix - rows: selected students, cols: questions (time steps)
+            theta_matrix = np.full((n_students, max_questions), np.nan)
+            student_labels = []  # Track which students we're showing
+            
+            for display_idx, student_idx in enumerate(selected_students):
+                abilities = temporal_data['student_abilities'][student_idx]
+                seq_len = min(max_questions, len(abilities))
+                theta_matrix[display_idx, :seq_len] = abilities[:seq_len]
+                student_labels.append(f"S{student_idx+1}")  # Student labels starting from 1
+            
+            # Create heatmap
+            im = ax.imshow(theta_matrix, cmap='RdYlBu_r', aspect='auto', 
+                          interpolation='nearest', vmin=-3, vmax=3)
+            
+            # Set labels and title
+            ax.set_xlabel('Question/Time Steps')
+            ax.set_ylabel('Students')
+            ax.set_title(f'{model_name.upper()}: Student Ability (θ) Evolution Over Questions', 
+                        color=model_color, fontweight='bold')
+            
+            # Add colorbar
+            cbar = plt.colorbar(im, ax=ax)
+            cbar.set_label('Student Ability (θ)', rotation=270, labelpad=15)
+            
+            # Set reasonable tick spacing
+            if max_questions > 20:
+                x_ticks = np.arange(0, max_questions, max(1, max_questions // 10))
+                ax.set_xticks(x_ticks)
+                ax.set_xticklabels(x_ticks + 1)  # Questions start from 1
+            
+            # Set y-ticks for students (show actual student IDs, every 4th)
+            y_ticks = np.arange(0, n_students, 4)
+            ax.set_yticks(y_ticks)
+            ax.set_yticklabels([student_labels[i] for i in y_ticks])  # Show actual student IDs
+        
+        plt.suptitle('Temporal Theta Heatmaps', fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close()
+    
+    def plot_temporal_gpcm_probs_heatmap(self, temporal_data_dict, save_path):
+        """Create temporal GPCM probabilities heatmap for predicted categories."""
+        n_models = len(temporal_data_dict)
+        
+        # Adaptive figure height based on number of students (fixed height per model)
+        height_per_model = 6  # Fixed height for each model's heatmap
+        fig, axes = plt.subplots(n_models, 1, figsize=(12, height_per_model * n_models))
+        
+        if n_models == 1:
+            axes = [axes]
+        
+        for idx, (model_name, temporal_data) in enumerate(temporal_data_dict.items()):
+            model_color = self.get_model_color(model_name)
+            ax = axes[idx]
+            
+            # Select students based on temporal hit rate (limit to first 50 questions)
+            max_questions = min(50, max(len(q_seq) for q_seq in temporal_data['question_ids']))
+            selected_students, _ = self.select_students_by_static_hit_rate(temporal_data, n_students=20)
+            n_students = len(selected_students)
+            
+            # Create probability matrix - rows: selected students, cols: questions (time steps)
+            prob_matrix = np.full((n_students, max_questions), np.nan)
+            student_labels = []  # Track which students we're showing
+            
+            for display_idx, student_idx in enumerate(selected_students):
+                gpcm_probs = temporal_data['gpcm_probabilities'][student_idx]  # (seq_len, n_cats)
+                seq_len = min(max_questions, len(gpcm_probs))
+                student_labels.append(f"S{student_idx+1}")  # Student labels starting from 1
+                
+                # Extract probabilities for the predicted response categories (argmax)
+                for t in range(seq_len):
+                    predicted_category = np.argmax(gpcm_probs[t])  # Get predicted category
+                    prob_matrix[display_idx, t] = gpcm_probs[t, predicted_category]  # Probability of predicted category
+            
+            # Create heatmap
+            im = ax.imshow(prob_matrix, cmap='RdYlGn', aspect='auto', 
+                          interpolation='nearest', vmin=0, vmax=1)
+            
+            # Set labels and title
+            ax.set_xlabel('Question/Time Steps')
+            ax.set_ylabel('Students')
+            ax.set_title(f'{model_name.upper()}: GPCM Probabilities (using temporal α,β)', 
+                        color=model_color, fontweight='bold')
+            
+            # Add colorbar
+            cbar = plt.colorbar(im, ax=ax)
+            cbar.set_label('Probability of Predicted Category', rotation=270, labelpad=15)
+            
+            # Set reasonable tick spacing
+            if max_questions > 20:
+                x_ticks = np.arange(0, max_questions, max(1, max_questions // 10))
+                ax.set_xticks(x_ticks)
+                ax.set_xticklabels(x_ticks + 1)  # Questions start from 1
+            
+            # Set y-ticks for students (show actual student IDs, every 4th)
+            y_ticks = np.arange(0, n_students, 4)
+            ax.set_yticks(y_ticks)
+            ax.set_yticklabels([student_labels[i] for i in y_ticks])  # Show actual student IDs
+        
+        plt.suptitle('Temporal GPCM Probability Heatmaps\n(Probabilities computed using temporal α and β parameters)', fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close()
+    
+    def plot_temporal_parameters_combined(self, temporal_data_dict, save_path):
+        """Create combined visualization showing temporal α, β, and resulting GPCM probabilities."""
+        n_models = len(temporal_data_dict)
+        
+        # Create subplots: 3 rows per model (alpha, beta_0, probabilities)
+        fig, axes = plt.subplots(n_models * 3, 1, figsize=(14, 6 * n_models))
+        
+        if n_models * 3 == 1:
+            axes = [axes]
+        elif n_models == 1:
+            # Single model, 3 subplots
+            pass
+        
+        plot_idx = 0
+        for model_idx, (model_name, temporal_data) in enumerate(temporal_data_dict.items()):
+            model_color = self.get_model_color(model_name)
+            
+            # Select students and limit questions
+            max_questions = min(50, max(len(q_seq) for q_seq in temporal_data['question_ids']))
+            selected_students, _ = self.select_students_by_static_hit_rate(temporal_data, n_students=20)
+            n_students = len(selected_students)
+            
+            # Create matrices for parameters and probabilities
+            alpha_matrix = np.full((n_students, max_questions), np.nan)
+            beta_matrix = np.full((n_students, max_questions), np.nan)  # First threshold
+            prob_matrix = np.full((n_students, max_questions), np.nan)
+            student_labels = []
+            
+            for display_idx, student_idx in enumerate(selected_students):
+                # Get temporal parameters
+                alphas = temporal_data['item_discriminations'][student_idx]
+                betas = temporal_data['item_thresholds'][student_idx]  # Shape: (seq_len, n_cats-1)
+                gpcm_probs = temporal_data['gpcm_probabilities'][student_idx]
+                
+                seq_len = min(max_questions, len(alphas))
+                student_labels.append(f"S{student_idx+1}")
+                
+                # Fill matrices
+                alpha_matrix[display_idx, :seq_len] = alphas[:seq_len]
+                beta_matrix[display_idx, :seq_len] = betas[:seq_len, 0]  # First threshold
+                
+                # Extract probabilities for predicted categories
+                for t in range(seq_len):
+                    predicted_category = np.argmax(gpcm_probs[t])
+                    prob_matrix[display_idx, t] = gpcm_probs[t, predicted_category]
+            
+            # Plot 1: Temporal Alpha (Discrimination)
+            ax_alpha = axes[plot_idx]
+            im_alpha = ax_alpha.imshow(alpha_matrix, cmap='viridis', aspect='auto', 
+                                     interpolation='nearest')
+            ax_alpha.set_ylabel('Students')
+            ax_alpha.set_title(f'{model_name.upper()}: Temporal Discrimination (α)', 
+                             color=model_color, fontweight='bold')
+            plt.colorbar(im_alpha, ax=ax_alpha, label='α value')
+            
+            # Set y-ticks
+            y_ticks = np.arange(0, n_students, 4)
+            ax_alpha.set_yticks(y_ticks)
+            ax_alpha.set_yticklabels([student_labels[i] for i in y_ticks])
+            plot_idx += 1
+            
+            # Plot 2: Temporal Beta (First Threshold)  
+            ax_beta = axes[plot_idx]
+            im_beta = ax_beta.imshow(beta_matrix, cmap='plasma', aspect='auto',
+                                   interpolation='nearest')
+            ax_beta.set_ylabel('Students')
+            ax_beta.set_title(f'{model_name.upper()}: Temporal Threshold β₀', 
+                            color=model_color, fontweight='bold')
+            plt.colorbar(im_beta, ax=ax_beta, label='β₀ value')
+            
+            # Set y-ticks
+            ax_beta.set_yticks(y_ticks)
+            ax_beta.set_yticklabels([student_labels[i] for i in y_ticks])
+            plot_idx += 1
+            
+            # Plot 3: Resulting GPCM Probabilities
+            ax_prob = axes[plot_idx]
+            im_prob = ax_prob.imshow(prob_matrix, cmap='RdYlGn', aspect='auto',
+                                   interpolation='nearest', vmin=0, vmax=1)
+            ax_prob.set_xlabel('Question/Time Steps')
+            ax_prob.set_ylabel('Students')
+            ax_prob.set_title(f'{model_name.upper()}: Resulting GPCM Probabilities', 
+                            color=model_color, fontweight='bold')
+            plt.colorbar(im_prob, ax=ax_prob, label='Probability')
+            
+            # Set ticks for all plots
+            if max_questions > 20:
+                x_ticks = np.arange(0, max_questions, max(1, max_questions // 10))
+                for ax in [ax_alpha, ax_beta, ax_prob]:
+                    ax.set_xticks(x_ticks)
+                    ax.set_xticklabels(x_ticks + 1)
+            
+            ax_prob.set_yticks(y_ticks)
+            ax_prob.set_yticklabels([student_labels[i] for i in y_ticks])
+            plot_idx += 1
+        
+        plt.suptitle('Temporal IRT Parameters → GPCM Probabilities\n(α and β evolve over time, determining probability calculations)', 
+                    fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close()
+    
+    def print_student_summary(self, temporal_data_dict):
+        """Print summary of selected students and their static hit rates."""
+        print(f"\n" + "="*75)
+        print("SELECTED STUDENTS SUMMARY (Static Hit Rate)")
+        print("="*75)
+        
+        for model_name, temporal_data in temporal_data_dict.items():
+            print(f"\n{model_name.upper()} Model:")
+            
+            # Get static hit rates for all students
+            selected_students, hit_rates = self.select_students_by_static_hit_rate(temporal_data, n_students=20)
+            
+            # Extract hit rate statistics
+            rates = [rate[1] for rate in hit_rates]
+            
+            print(f"  Total students analyzed: {len(hit_rates)}")
+            print(f"  Static hit rate range: {min(rates):.3f} - {max(rates):.3f}")
+            print(f"  Average static hit rate: {np.mean(rates):.3f}")
+            
+            print(f"  Selected students (showing 5 across performance spectrum):")
+            for i in [0, 4, 9, 14, 19]:  # Show sample students across performance range
+                student_idx = selected_students[i]
+                # Find the hit rate for this student
+                student_data = next(rate for rate in hit_rates if rate[0] == student_idx)
+                hit_rate = student_data[1]
+                
+                print(f"    S{student_idx+1}: hit_rate={hit_rate:.3f}")
+        
+        print(f"\nStatic Hit Rate: Overall prediction accuracy (correct predictions / total predictions)")
+        print("="*75)
+    
     def plot_irt_functions(self, params, model_name, output_dir):
         """Generate standard IRT plots (ICC, IIF, TIF, Wright Map)."""
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Get consistent model color
+        model_color = self.get_model_color(model_name)
         
         # Extract parameters
         alphas = params['item_discriminations']
@@ -559,7 +957,7 @@ class UnifiedIRTAnalyzer:
             
             total_info += item_info
         
-        ax.plot(theta_range, total_info, 'b-', linewidth=2)
+        ax.plot(theta_range, total_info, color=model_color, linewidth=2)
         ax.set_xlabel('Ability (θ)')
         ax.set_ylabel('Information')
         ax.set_title(f'{model_name} - Test Information Function')
@@ -574,7 +972,7 @@ class UnifiedIRTAnalyzer:
         
         # Student ability distribution
         if 'student_abilities' in params:
-            ax1.hist(thetas, bins=30, orientation='horizontal', alpha=0.7, color='blue')
+            ax1.hist(thetas, bins=30, orientation='horizontal', alpha=0.7, color=model_color)
             ax1.set_xlabel('Count')
             ax1.set_ylabel('Ability (θ)')
             ax1.set_title('Student Distribution')
@@ -582,7 +980,7 @@ class UnifiedIRTAnalyzer:
         
         # Item difficulty distribution
         avg_betas = np.mean(betas, axis=1)
-        ax2.scatter(np.ones_like(avg_betas), avg_betas, alpha=0.6, s=50)
+        ax2.scatter(np.ones_like(avg_betas), avg_betas, alpha=0.6, s=50, color=model_color)
         ax2.set_xlim(0, 2)
         ax2.set_xlabel('Items')
         ax2.set_title('Item Difficulty')
@@ -771,6 +1169,23 @@ class UnifiedIRTAnalyzer:
             plot_path = self.output_dir / 'temporal_analysis.png'
             self.plot_temporal_analysis(temporal_data_dict, plot_path)
             print(f"Temporal analysis plot saved to: {plot_path}")
+            
+            # Generate temporal heatmaps
+            theta_heatmap_path = self.output_dir / 'temporal_theta_heatmap.png'
+            self.plot_temporal_theta_heatmap(temporal_data_dict, theta_heatmap_path)
+            print(f"Temporal theta heatmap saved to: {theta_heatmap_path}")
+            
+            gpcm_heatmap_path = self.output_dir / 'temporal_gpcm_probs_heatmap.png'
+            self.plot_temporal_gpcm_probs_heatmap(temporal_data_dict, gpcm_heatmap_path)
+            print(f"Temporal GPCM probabilities heatmap saved to: {gpcm_heatmap_path}")
+            
+            # Generate combined temporal parameters visualization
+            combined_params_path = self.output_dir / 'temporal_parameters_combined.png'
+            self.plot_temporal_parameters_combined(temporal_data_dict, combined_params_path)
+            print(f"Combined temporal parameters visualization saved to: {combined_params_path}")
+            
+            # Print summary of selected students
+            self.print_student_summary(temporal_data_dict)
         
         if 'irt_plots' in args.analysis_types:
             for model_name, results in all_results.items():
