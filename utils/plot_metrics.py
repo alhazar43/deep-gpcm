@@ -286,28 +286,38 @@ class AdaptivePlotter:
                 if 'epoch' in model_data.columns and not model_data.empty:
                     # Group by fold if available
                     if 'fold' in model_data.columns:
-                        for fold in model_data['fold'].unique():
-                            fold_data = model_data[model_data['fold'] == fold]
-                            if not fold_data.empty:
-                                ax.plot(fold_data['epoch'], fold_data[metric], 
-                                       color=model_color_map[model], alpha=0.3, linewidth=1)
+                        # Calculate statistics per epoch across folds
+                        epoch_stats = model_data.groupby('epoch')[metric].agg(['mean', 'std', 'min', 'max', 'quantile']).reset_index()
+                        epoch_stats.columns = ['epoch', 'mean', 'std', 'min', 'max', 'q50']
                         
-                        # Plot mean across folds
-                        epoch_means = model_data.groupby('epoch')[metric].mean()
-                        epoch_stds = model_data.groupby('epoch')[metric].std()
+                        # Calculate quartiles for better band representation
+                        q25 = model_data.groupby('epoch')[metric].quantile(0.25)
+                        q75 = model_data.groupby('epoch')[metric].quantile(0.75)
                         
-                        ax.plot(epoch_means.index, epoch_means.values, 
-                               color=model_color_map[model], linewidth=2, label=f'{model} (mean)')
-                        ax.fill_between(epoch_means.index, 
-                                       epoch_means.values - epoch_stds.values,
-                                       epoch_means.values + epoch_stds.values,
-                                       color=model_color_map[model], alpha=0.2)
+                        # Create confidence band using IQR-style approach
+                        # Use quartiles for main band and std for secondary band
+                        
+                        # Primary band (IQR): Q1 to Q3 - more visible (no legend)
+                        ax.fill_between(epoch_stats['epoch'], q25.values, q75.values,
+                                       color=model_color_map[model], alpha=0.3)
+                        
+                        # Secondary band (mean ± std) - subtle background (no legend)
+                        ax.fill_between(epoch_stats['epoch'], 
+                                       epoch_stats['mean'] - epoch_stats['std'],
+                                       epoch_stats['mean'] + epoch_stats['std'],
+                                       color=model_color_map[model], alpha=0.1)
+                        
+                        # Highlighted mean line - bold and prominent (only this in legend)
+                        ax.plot(epoch_stats['epoch'], epoch_stats['mean'], 
+                               color=model_color_map[model], linewidth=3, 
+                               label=f'{model} (mean)', linestyle='-', 
+                               marker='o', markersize=3, markevery=3)
                         
                         # Add final mean value annotation only for best model - position below curve
-                        if len(epoch_means) > 0 and model == best_model:
-                            final_epoch = epoch_means.index[-1]
-                            final_mean = epoch_means.values[-1]
-                            final_std = epoch_stds.values[-1]
+                        if len(epoch_stats) > 0 and model == best_model:
+                            final_epoch = epoch_stats['epoch'].iloc[-1]
+                            final_mean = epoch_stats['mean'].iloc[-1]
+                            final_std = epoch_stats['std'].iloc[-1]
                             
                             # Position annotation below/above the curve endpoint based on metric type
                             higher_is_better = not any(keyword in metric.lower() for keyword in 
@@ -921,23 +931,30 @@ class AdaptivePlotter:
             if isinstance(model_color, tuple):
                 model_color = model_color[:3]  # RGB only
             
+            # Convert to percentage matrix for coloring (row-wise percentages)
+            row_sums = matrix.sum(axis=1, keepdims=True)
+            row_sums[row_sums == 0] = 1  # Avoid division by zero
+            percentage_matrix = matrix / row_sums * 100
+            
             # Create colormap from white to model color
             from matplotlib.colors import LinearSegmentedColormap
             colors = ['white', model_color]
             custom_cmap = LinearSegmentedColormap.from_list(f'{model}_cmap', colors, N=256)
             
-            # Plot heatmap
-            im = ax.imshow(matrix, interpolation='nearest', cmap=custom_cmap)
+            # Plot heatmap using percentage matrix for coloring
+            im = ax.imshow(percentage_matrix, interpolation='nearest', cmap=custom_cmap, vmin=0, vmax=100)
             
-            # Add colorbar
+            # Add colorbar showing percentages
             cbar = plt.colorbar(im, ax=ax)
-            cbar.set_label('Count', rotation=270, labelpad=15)
+            cbar.set_label('Row Percentage (%)', rotation=270, labelpad=15)
             
-            # Add text annotations
-            thresh = matrix.max() / 2.0
+            # Add text annotations with absolute counts
+            thresh = 50.0  # 50% threshold for text color (white vs black)
             for i in range(matrix.shape[0]):
                 for j in range(matrix.shape[1]):
-                    color = 'white' if matrix[i, j] > thresh else 'black'
+                    # Use percentage for text color determination
+                    color = 'white' if percentage_matrix[i, j] > thresh else 'black'
+                    # Display absolute count
                     ax.text(j, i, f'{matrix[i, j]}', 
                            ha='center', va='center', color=color, fontweight='bold')
             

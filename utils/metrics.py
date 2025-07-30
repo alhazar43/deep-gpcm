@@ -311,18 +311,24 @@ def compute_model_metrics(model, data_loader, device, n_cats: int = 4,
         for questions, responses, masks in data_loader:
             questions = questions.to(device)
             responses = responses.to(device)
+            masks = masks.to(device)
             
             # Forward pass
             _, _, _, probs = model(questions, responses)
             
-            # Flatten and collect
+            # Flatten and apply mask to exclude padding tokens
             probs_flat = probs.view(-1, probs.size(-1))
             targets_flat = responses.view(-1)
-            preds_flat = probs_flat.argmax(dim=-1)
+            masks_flat = masks.view(-1).bool()
             
-            all_targets.append(targets_flat.cpu())
-            all_predictions.append(preds_flat.cpu())
-            all_probabilities.append(probs_flat.cpu())
+            # Filter out padding tokens
+            valid_probs = probs_flat[masks_flat]
+            valid_targets = targets_flat[masks_flat]
+            valid_preds = valid_probs.argmax(dim=-1)
+            
+            all_targets.append(valid_targets.cpu())
+            all_predictions.append(valid_preds.cpu())
+            all_probabilities.append(valid_probs.cpu())
     
     # Combine all batches
     all_targets = torch.cat(all_targets)

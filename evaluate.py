@@ -78,7 +78,7 @@ def pad_sequence_batch(batch):
         # Pad questions and responses
         q_pad = q + [0] * (max_len - q_len)
         r_pad = r + [0] * (max_len - q_len)
-        mask = [1] * q_len + [0] * (max_len - q_len)
+        mask = [True] * q_len + [False] * (max_len - q_len)
         
         questions_padded.append(q_pad)
         responses_padded.append(r_pad)
@@ -86,7 +86,7 @@ def pad_sequence_batch(batch):
     
     return (torch.tensor(questions_padded), 
             torch.tensor(responses_padded), 
-            torch.tensor(masks))
+            torch.tensor(masks, dtype=torch.bool))
 
 
 def create_data_loaders(train_data, test_data, batch_size=32):
@@ -192,7 +192,13 @@ def evaluate_model(model, test_loader, device):
     model.eval()
     all_predictions = []
     all_targets = []
+    all_masks = []
     inference_times = []
+    
+    # Advanced data collection for plotting
+    all_sequences = []
+    all_responses = []
+    attention_weights = []
     
     print(f"Processing {len(test_loader)} batches...")
     
@@ -200,6 +206,7 @@ def evaluate_model(model, test_loader, device):
         for batch_idx, (questions, responses, mask) in enumerate(test_loader):
             questions = questions.to(device)
             responses = responses.to(device)
+            mask = mask.to(device)
             
             # Time inference
             start_time = time.time()
@@ -210,21 +217,48 @@ def evaluate_model(model, test_loader, device):
             inference_time = time.time() - start_time
             inference_times.append(inference_time)
             
-            # Collect predictions and targets
+            # Collect sequence-level data for advanced analysis
+            batch_size, seq_len = questions.shape
+            for i in range(batch_size):
+                seq_mask = mask[i].cpu().numpy()
+                valid_len = int(seq_mask.sum())
+                
+                if valid_len > 0:
+                    # Store sequence data
+                    all_sequences.append(questions[i, :valid_len].cpu().numpy())
+                    all_responses.append(responses[i, :valid_len].cpu().numpy())
+            
+            # Collect attention weights if available
+            if hasattr(model, 'attention_weights') and model.attention_weights is not None:
+                attention_weights.append(model.attention_weights.cpu().numpy())
+            elif hasattr(model, 'memory') and hasattr(model.memory, 'attention_weights'):
+                if model.memory.attention_weights is not None:
+                    attention_weights.append(model.memory.attention_weights.cpu().numpy())
+            
+            # Collect predictions and targets (flatten but keep mask for filtering)
             probs_flat = gpcm_probs.view(-1, gpcm_probs.size(-1))
             responses_flat = responses.view(-1)
+            mask_flat = mask.view(-1)
             
             all_predictions.append(probs_flat.cpu())
             all_targets.append(responses_flat.cpu())
+            all_masks.append(mask_flat.cpu())
             
             if (batch_idx + 1) % 10 == 0:
                 print(f"  Processed {batch_idx + 1}/{len(test_loader)} batches")
     
-    # Combine all predictions and targets
+    # Combine all predictions, targets, and masks
     all_predictions = torch.cat(all_predictions, dim=0)
     all_targets = torch.cat(all_targets, dim=0)
+    all_masks = torch.cat(all_masks, dim=0)
+    
+    # Filter out padding tokens using mask
+    valid_indices = all_masks.bool()
+    all_predictions = all_predictions[valid_indices]
+    all_targets = all_targets[valid_indices]
     
     print(f"📊 Total samples: {len(all_targets)}")
+    import numpy as np
     print(f"⏱️  Average inference time: {np.mean(inference_times)*1000:.2f}ms per batch")
     
     # Calculate comprehensive metrics using simplified system
@@ -253,7 +287,51 @@ def evaluate_model(model, test_loader, device):
             confusion_matrix[target, pred] += 1
         results['confusion_matrix'] = confusion_matrix.numpy().tolist()
     
+    # Add advanced visualization data that plot_metrics.py expects
+    # Ordinal distances for distance distribution plots
+    ordinal_distances = torch.abs(all_targets - y_pred)
+    results['ordinal_distances'] = ordinal_distances.numpy().tolist()
+    
+    # Store probability predictions for ROC and calibration analysis
+    results['probability_predictions'] = all_predictions.numpy().tolist()
+    results['probabilities'] = all_predictions.numpy().tolist()  # For plot_metrics.py compatibility
+    results['actual'] = all_targets.numpy().tolist()  # For plot_metrics.py compatibility
+    
+    # Transition matrix calculation
+    if all_responses:
+        transition_matrix = _calculate_transition_matrix(all_responses, n_cats)
+        results['transition_matrix'] = transition_matrix.tolist()
+    
+    # Sequence data for time series analysis
+    if all_sequences and all_responses:
+        results['sequences'] = all_sequences
+        results['responses'] = all_responses
+    
+    # Attention weights if available
+    if attention_weights:
+        try:
+            stacked_attention = np.stack(attention_weights)
+            avg_attention = np.mean(stacked_attention, axis=0)
+            results['attention_weights'] = avg_attention.tolist()
+        except:
+            pass  # Skip if attention weights have inconsistent shapes
+    
     return results
+
+
+def _calculate_transition_matrix(sequences, n_cats=4):
+    """Calculate transition matrix from response sequences."""
+    import numpy as np
+    transitions = np.zeros((n_cats, n_cats), dtype=int)
+    
+    for sequence in sequences:
+        for i in range(len(sequence) - 1):
+            curr_resp = int(sequence[i])
+            next_resp = int(sequence[i + 1])
+            if 0 <= curr_resp < n_cats and 0 <= next_resp < n_cats:
+                transitions[curr_resp, next_resp] += 1
+    
+    return transitions
 
 
 def print_evaluation_summary(results, model_name):
@@ -293,14 +371,270 @@ def print_evaluation_summary(results, model_name):
         print(f"  Total samples evaluated:  {perf['total_samples']:,}")
 
 
+def find_trained_models(models_dir: str = "save_models") -> dict:
+    """Find all trained model files for batch evaluation."""
+    from pathlib import Path
+    
+    models_dir = Path(models_dir)
+    if not models_dir.exists():
+        print(f"❌ Models directory not found: {models_dir}")
+        return {}
+    
+    model_files = {}
+    for model_file in models_dir.glob("*.pth"):
+        model_name = model_file.stem
+        # Expected format: best_modeltype_dataset.pth
+        parts = model_name.split('_')
+        if len(parts) >= 3 and parts[0] == 'best':
+            model_type = parts[1]
+            dataset = '_'.join(parts[2:])
+            
+            if dataset not in model_files:
+                model_files[dataset] = {}
+            model_files[dataset][model_type] = str(model_file)
+    
+    return model_files
+
+
+def generate_evaluation_summary(results_dir: str = "results/test") -> dict:
+    """Generate summary of all evaluation results."""
+    from pathlib import Path
+    
+    results_dir = Path(results_dir)
+    if not results_dir.exists():
+        return {}
+    
+    summary = {}
+    for result_file in results_dir.glob("test_results_*.json"):
+        try:
+            with open(result_file, 'r') as f:
+                data = json.load(f)
+            
+            model_type = data['config'].get('model_type', 'unknown')
+            dataset = data['config'].get('dataset', 'unknown')
+            
+            if dataset not in summary:
+                summary[dataset] = {}
+            
+            # Handle both old and new JSON structures
+            if 'evaluation_results' in data:
+                eval_results = data['evaluation_results']
+                metrics = {
+                    'categorical_accuracy': eval_results.get('categorical_accuracy', 0),
+                    'ordinal_accuracy': eval_results.get('ordinal_accuracy', 0),
+                    'quadratic_weighted_kappa': eval_results.get('quadratic_weighted_kappa', 0),
+                    'mean_absolute_error': eval_results.get('mean_absolute_error', 0),
+                    'total_samples': eval_results.get('performance', {}).get('total_samples', 0),
+                    'timestamp': data.get('timestamp', 'unknown')
+                }
+            else:
+                # New flattened structure
+                metrics = {
+                    'categorical_accuracy': data.get('categorical_accuracy', 0),
+                    'ordinal_accuracy': data.get('ordinal_accuracy', 0),
+                    'quadratic_weighted_kappa': data.get('quadratic_weighted_kappa', 0),
+                    'mean_absolute_error': data.get('mean_absolute_error', 0),
+                    'total_samples': data.get('performance', {}).get('total_samples', 0),
+                    'timestamp': data.get('timestamp', 'unknown')
+                }
+            
+            summary[dataset][model_type] = metrics
+            
+        except Exception as e:
+            print(f"⚠️  Could not process {result_file}: {e}")
+    
+    return summary
+
+
+def print_evaluation_summary(summary: dict):
+    """Print formatted evaluation summary."""
+    print(f"\n{'='*80}")
+    print("EVALUATION SUMMARY")
+    print(f"{'='*80}")
+    
+    for dataset, models in summary.items():
+        print(f"\n📊 DATASET: {dataset}")
+        print("-" * 50)
+        
+        if not models:
+            print("  No evaluation results found")
+            continue
+        
+        print(f"{'Model':<12} {'Cat.Acc':<8} {'Ord.Acc':<8} {'QWK':<8} {'MAE':<8} {'Samples':<8}")
+        print("-" * 64)
+        
+        sorted_models = sorted(models.items(), 
+                             key=lambda x: x[1].get('categorical_accuracy', 0), 
+                             reverse=True)
+        
+        for model_type, metrics in sorted_models:
+            cat_acc = metrics.get('categorical_accuracy', 0)
+            ord_acc = metrics.get('ordinal_accuracy', 0)
+            qwk = metrics.get('quadratic_weighted_kappa', 0)
+            mae = metrics.get('mean_absolute_error', 0)
+            samples = metrics.get('total_samples', 0)
+            
+            is_best = model_type == sorted_models[0][0]
+            prefix = "🏆" if is_best else "  "
+            
+            print(f"{prefix}{model_type:<10} {cat_acc:.4f}   {ord_acc:.4f}   {qwk:.4f}   {mae:.4f}   {samples:>6,}")
+
+
+def batch_evaluate_models(dataset_filter=None, model_filter=None, batch_size=32, device=None, regenerate_plots=False, include_cv_folds=False):
+    """Batch evaluate all available models."""
+    available_models = find_trained_models()
+    
+    if not available_models:
+        print("❌ No trained models found in save_models/")
+        return
+    
+    # Filter out CV fold models by default (they lack corresponding data directories)
+    if not include_cv_folds:
+        main_models = {}
+        for dataset, models in available_models.items():
+            if '_fold_' not in dataset:
+                main_models[dataset] = models
+        available_models = main_models
+    
+    # Apply dataset filter
+    if dataset_filter:
+        if dataset_filter in available_models:
+            available_models = {dataset_filter: available_models[dataset_filter]}
+        else:
+            print(f"❌ Dataset '{dataset_filter}' not found in main models")
+            return
+    
+    print(f"🔍 Found models for {len(available_models)} datasets:")
+    for dataset, models in available_models.items():
+        model_list = ', '.join(models.keys())
+        print(f"  {dataset}: {model_list}")
+    
+    # Device setup
+    if device:
+        device_obj = torch.device(device)
+    else:
+        device_obj = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    print(f"\n🧪 BATCH EVALUATION")
+    print(f"Device: {device_obj}, Batch size: {batch_size}")
+    print("-" * 50)
+    
+    total_evaluations = 0
+    successful_evaluations = 0
+    
+    for dataset, models in available_models.items():
+        print(f"\n📊 Evaluating dataset: {dataset}")
+        
+        for model_type, model_path in models.items():
+            if model_filter and model_type not in model_filter:
+                continue
+            
+            total_evaluations += 1
+            print(f"🧪 Evaluating: {model_type}")
+            
+            try:
+                # Load and evaluate model
+                model, config, training_metrics = load_trained_model(model_path, device_obj)
+                train_path = f"data/{dataset}/{dataset.lower()}_train.txt"
+                test_path = f"data/{dataset}/{dataset.lower()}_test.txt"
+                
+                train_data, test_data, n_questions, n_cats = load_simple_data(train_path, test_path)
+                test_questions = [seq[0] for seq in test_data]
+                test_responses = [seq[1] for seq in test_data]
+                
+                from utils.data_utils import UnifiedDataLoader
+                test_loader = UnifiedDataLoader(test_questions, test_responses, 
+                                              batch_size=batch_size, shuffle=False, device=device_obj)
+                
+                results = evaluate_model(model, test_loader, device_obj)
+                results['config'] = config
+                results['training_metrics'] = training_metrics
+                
+                # Save results
+                result_file = f"results/test/test_results_{model_type}_{dataset}.json"
+                from utils.metrics import save_results
+                save_results(results, result_file)
+                
+                print_evaluation_summary({dataset: {model_type: {
+                    'categorical_accuracy': results.get('categorical_accuracy', 0),
+                    'ordinal_accuracy': results.get('ordinal_accuracy', 0),
+                    'quadratic_weighted_kappa': results.get('quadratic_weighted_kappa', 0),
+                    'mean_absolute_error': results.get('mean_absolute_error', 0),
+                    'total_samples': results.get('performance', {}).get('total_samples', 0)
+                }}})
+                
+                successful_evaluations += 1
+                print(f"✅ Success: {model_type}")
+                
+            except Exception as e:
+                print(f"❌ Failed: {model_type} - {e}")
+    
+    print(f"\n✅ BATCH EVALUATION COMPLETED")
+    print(f"Total: {total_evaluations}, Successful: {successful_evaluations}, Failed: {total_evaluations - successful_evaluations}")
+    
+    if successful_evaluations > 0:
+        print("\n📋 Final Summary:")
+        summary = generate_evaluation_summary()
+        print_evaluation_summary(summary)
+        
+        if regenerate_plots:
+            print("\n🎨 Regenerating plots...")
+            try:
+                from utils.plot_metrics import plot_all_results
+                generated_plots = plot_all_results()
+                print(f"Generated {len(generated_plots)} plots")
+            except Exception as e:
+                print(f"⚠️  Plot generation failed: {e}")
+
+
 def main():
     parser = argparse.ArgumentParser(description='Unified Deep-GPCM Model Evaluation')
-    parser.add_argument('--model_path', required=True, help='Path to trained model')
+    parser.add_argument('--model_path', help='Path to trained model (required for single evaluation)')
     parser.add_argument('--dataset', default='synthetic_OC', help='Dataset name for evaluation')
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size for evaluation')
     parser.add_argument('--device', default=None, help='Device (cuda/cpu)')
     
+    # Batch evaluation options
+    parser.add_argument('--all', action='store_true', help='Evaluate all available models (main models only)')
+    parser.add_argument('--models', nargs='+', help='Specific models to evaluate (for batch mode)')
+    parser.add_argument('--include_cv_folds', action='store_true', help='Include CV fold models in batch evaluation')
+    parser.add_argument('--summary_only', action='store_true', help='Only show summary of existing results')
+    parser.add_argument('--regenerate_plots', action='store_true', help='Regenerate all plots after evaluation')
+    
     args = parser.parse_args()
+    
+    print("=" * 80)
+    print("UNIFIED DEEP-GPCM MODEL EVALUATION")
+    print("=" * 80)
+    
+    # Create results directory
+    from utils.metrics import ensure_results_dirs
+    ensure_results_dirs()
+    
+    # Handle batch evaluation modes
+    if args.summary_only:
+        print("📋 Generating summary from existing results...")
+        summary = generate_evaluation_summary()
+        print_evaluation_summary(summary)
+        return
+    
+    if args.all:
+        print("🚀 BATCH EVALUATION MODE")
+        batch_evaluate_models(
+            dataset_filter=args.dataset if args.dataset != 'synthetic_OC' else None,
+            model_filter=args.models,
+            batch_size=args.batch_size,
+            device=args.device,
+            regenerate_plots=args.regenerate_plots,
+            include_cv_folds=args.include_cv_folds
+        )
+        return
+    
+    # Single model evaluation
+    if not args.model_path:
+        print("❌ --model_path is required for single model evaluation")
+        print("Use --all for batch evaluation or --summary_only for results summary")
+        return
     
     # Device setup
     if args.device:
@@ -308,18 +642,11 @@ def main():
     else:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    print("=" * 80)
-    print("UNIFIED DEEP-GPCM MODEL EVALUATION")
-    print("=" * 80)
     print(f"Model path: {args.model_path}")
     print(f"Dataset: {args.dataset}")
     print(f"Device: {device}")
     print(f"Batch size: {args.batch_size}")
     print()
-    
-    # Create results directory
-    from utils.metrics import ensure_results_dirs
-    ensure_results_dirs()
     
     try:
         # Load trained model
@@ -350,8 +677,10 @@ def main():
         results = evaluate_model(model, test_loader, device)
         
         # Print summary
-        model_name = config['model_type']
-        print_evaluation_summary(results, model_name)
+        model_name = config['model_type']  
+        # Create summary in expected format for single model
+        summary = {args.dataset: {model_name: results}}
+        print_evaluation_summary(summary)
         
         # Save detailed results
         output_data = {

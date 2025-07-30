@@ -78,7 +78,7 @@ def pad_sequence_batch(batch):
         # Pad questions and responses
         q_pad = q + [0] * (max_len - q_len)
         r_pad = r + [0] * (max_len - q_len)
-        mask = [1] * q_len + [0] * (max_len - q_len)
+        mask = [True] * q_len + [False] * (max_len - q_len)
         
         questions_padded.append(q_pad)
         responses_padded.append(r_pad)
@@ -86,7 +86,7 @@ def pad_sequence_batch(batch):
     
     return (torch.tensor(questions_padded), 
             torch.tensor(responses_padded), 
-            torch.tensor(masks))
+            torch.tensor(masks, dtype=torch.bool))
 
 
 def create_data_loaders(train_data, test_data, batch_size=32):
@@ -165,18 +165,24 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
         for batch_idx, (questions, responses, mask) in enumerate(train_loader):
             questions = questions.to(device)
             responses = responses.to(device)
+            mask = mask.to(device)
             
             optimizer.zero_grad()
             
             # Forward pass
             student_abilities, item_thresholds, discrimination_params, gpcm_probs = model(questions, responses)
             
-            # Flatten for loss computation
+            # Flatten for loss computation and apply mask
             probs_flat = gpcm_probs.view(-1, gpcm_probs.size(-1))
             responses_flat = responses.view(-1)
+            mask_flat = mask.view(-1).bool()
             
-            # Compute loss
-            loss = criterion(probs_flat, responses_flat)
+            # Only compute loss on valid (non-padded) tokens
+            valid_probs = probs_flat[mask_flat]
+            valid_responses = responses_flat[mask_flat]
+            
+            # Compute loss only on valid tokens
+            loss = criterion(valid_probs, valid_responses)
             
             # Check for NaN
             if torch.isnan(loss):
@@ -192,9 +198,9 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
             optimizer.step()
             
             total_loss += loss.item()
-            predicted = probs_flat.argmax(dim=-1)
-            correct += (predicted == responses_flat).sum().item()
-            total += responses_flat.numel()
+            predicted = valid_probs.argmax(dim=-1)
+            correct += (predicted == valid_responses).sum().item()
+            total += valid_responses.numel()
         
         train_loss = total_loss / len(train_loader)
         train_acc = correct / total
@@ -209,13 +215,21 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
             for questions, responses, mask in test_loader:
                 questions = questions.to(device)
                 responses = responses.to(device)
+                mask = mask.to(device)
                 
                 student_abilities, item_thresholds, discrimination_params, gpcm_probs = model(questions, responses)
+                
+                # Apply mask filtering to exclude padding tokens
                 probs_flat = gpcm_probs.view(-1, gpcm_probs.size(-1))
                 responses_flat = responses.view(-1)
+                mask_flat = mask.view(-1).bool()
                 
-                all_predictions.append(probs_flat.cpu())
-                all_targets.append(responses_flat.cpu())
+                # Only include valid (non-padded) tokens
+                valid_probs = probs_flat[mask_flat]
+                valid_responses = responses_flat[mask_flat]
+                
+                all_predictions.append(valid_probs.cpu())
+                all_targets.append(valid_responses.cpu())
         
         # Combine predictions and compute metrics
         all_predictions = torch.cat(all_predictions, dim=0)

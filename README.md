@@ -6,11 +6,11 @@ Production-ready Deep Generalized Partial Credit Model for polytomous response p
 
 ```bash
 # Complete pipeline (training, evaluation, plotting, IRT analysis)
-python main.py --dataset synthetic_OC --epochs 15
+python main.py --dataset synthetic_OC --epochs 30
 
 # Individual models
-python main.py --models baseline --dataset synthetic_OC --epochs 15
-python main.py --models akvmn --dataset synthetic_OC --epochs 15
+python main.py --models baseline --dataset synthetic_OC --epochs 30
+python main.py --models akvmn --dataset synthetic_OC --epochs 30
 ```
 
 ## Environment Setup
@@ -19,28 +19,31 @@ python main.py --models akvmn --dataset synthetic_OC --epochs 15
 # Activate conda environment (REQUIRED)
 source ~/anaconda3/etc/profile.d/conda.sh && conda activate vrec-env
 
-# Create directories
-mkdir -p logs save_models results/{train,test,valid,plots,irt}
+# Clean previous outputs (optional)
+rm -rf save_models/ results/ logs/ irt_plots/ irt_animations/
+
+# Create directories (done automatically by scripts)
+mkdir -p save_models results/{train,test,plots} logs irt_plots irt_animations
 ```
 
 ## Performance Results
 
 | Model | Categorical Accuracy | Quadratic Weighted Kappa | Ordinal Accuracy | MAE |
 |-------|---------------------|-------------------------|------------------|------|
-| **AKVMN** | **70.66%** ⭐ | 0.760 | **89.27%** ⭐ | **0.430** ⭐ |
-| **Baseline** | 70.46% | **0.761** ⭐ | 89.20% | 0.432 |
+| **AKVMN** | 55.9% | 0.694 | 86.8% | 0.600 |
+| **Baseline** | 58.3% | **0.716** ⭐ | **87.2%** ⭐ | **0.573** ⭐ |
 
-*Results from 15 epochs on synthetic_OC dataset*
+*Results with corrected padding handling - more accurate baseline metrics*
 
 ## Usage
 
 ### Complete Pipeline
 ```bash
-# Full pipeline with all phases
-python main.py --dataset synthetic_OC --epochs 15
+# Full pipeline with all phases (recommended)
+python main.py --dataset synthetic_OC --epochs 30 --cv_folds 5
 
 # Training only
-python main.py --action train --models baseline akvmn --dataset synthetic_OC
+python main.py --action train --models baseline akvmn --dataset synthetic_OC --epochs 30
 
 # Evaluation only  
 python main.py --action evaluate --models baseline akvmn --dataset synthetic_OC
@@ -48,23 +51,35 @@ python main.py --action evaluate --models baseline akvmn --dataset synthetic_OC
 
 ### Individual Components
 ```bash
-# Training with cross-validation
-python train.py --model baseline --dataset synthetic_OC --epochs 15 --n_folds 5
+# Training with cross-validation (default: 5-fold)
+python train.py --model baseline --dataset synthetic_OC --epochs 30 --n_folds 5
 
-# Model evaluation
-python evaluate.py --model_path save_models/best_baseline_synthetic_OC.pth
+# Batch evaluation (main models only - recommended)
+python evaluate.py --all --dataset synthetic_OC
 
-# Generate visualizations
+# Individual model evaluation
+python evaluate.py --model_path save_models/best_baseline_synthetic_OC.pth --dataset synthetic_OC
+
+# Show summary of existing results only
+python evaluate.py --summary_only --dataset synthetic_OC
+
+# Include CV fold models (requires corresponding fold data directories)
+python evaluate.py --all --dataset synthetic_OC --include_cv_folds
+
+# Generate visualizations from existing results
 python utils/plot_metrics.py
 
-# IRT parameter analysis
+# IRT parameter analysis with temporal heatmaps
 python analysis/irt_analysis.py --dataset synthetic_OC --analysis_types recovery temporal
 ```
 
 ### Data Generation
 ```bash
-# Standard synthetic dataset
+# Standard synthetic dataset (current default)
 python data_gen.py --format OC --categories 4 --students 800 --questions 400 --seed 42
+
+# Custom dataset sizes
+python data_gen.py --format OC --categories 4 --students 1000 --questions 200 --min_seq 50 --max_seq 200
 ```
 
 ## Architecture
@@ -127,9 +142,11 @@ python analysis/irt_analysis.py --dataset synthetic_OC --save_params
 ### Main Arguments
 - `--models`: Model types (`baseline`, `akvmn`)
 - `--dataset`: Dataset name (default: `synthetic_OC`)
-- `--epochs`: Training epochs (default: 15)
+- `--epochs`: Training epochs (default: 30)
 - `--cv_folds`: Cross-validation folds (default: 5)
+- `--batch_size`: Batch size (default: 32)
 - `--device`: Device selection (`cuda`/`cpu`)
+- `--action`: Pipeline action (`pipeline`, `train`, `evaluate`)
 
 ### Data Formats
 - **Ordered Categories (OC)**: Discrete responses {0, 1, 2, ..., K-1}
@@ -138,23 +155,33 @@ python analysis/irt_analysis.py --dataset synthetic_OC --save_params
 ## Results Structure
 ```
 results/
-├── plots/              # Training and evaluation visualizations
-├── irt/               # IRT analysis results and heatmaps  
+├── plots/              # Comprehensive visualizations (7 plots)
+│   ├── training_metrics.png         # Training curves and convergence
+│   ├── test_metrics.png            # Test performance metrics
+│   ├── training_vs_test_comparison.png # Training vs test comparison
+│   ├── categorical_breakdown.png    # Per-category performance
+│   ├── confusion_matrices_test.png  # Model comparison matrices
+│   ├── ordinal_distance_distribution_test.png # Error distance analysis
+│   └── category_transitions_test.png # Response transition patterns
+├── irt/               # IRT analysis results and heatmaps (5 plots)
 ├── train/             # Training metrics and histories
-└── test/              # Test evaluation results
+└── test/              # Test evaluation results with enhanced data
 ```
 
 ## Troubleshooting
 
 **Common Issues:**
 - CUDA out of memory → Reduce batch size
-- Model loading errors → Check model path
+- Model loading errors → Check model path  
 - Training instability → Adjust learning rate
+- Batch evaluation now excludes CV folds by default → Use `--include_cv_folds` if needed
+- CV fold evaluation requires corresponding fold data directories
 
 **Performance Expectations:**
-- Training: ~5-15 minutes (15 epochs, synthetic data)
+- Training: ~10-30 minutes (30 epochs, 5-fold CV, synthetic data)
 - Memory: ~2-4GB GPU
-- Accuracy: 60-75% categorical accuracy
+- Accuracy: 55-60% categorical accuracy (corrected metrics)
+- Sample Count: 41,115 test samples (excluding padding tokens)
 
 ---
 
