@@ -1,0 +1,59 @@
+================================================================================
+IRT PARAMETER RECOVERY ANALYSIS SUMMARY
+================================================================================
+
+Dataset: synthetic_OC
+Models analyzed: 2
+
+Normalization applied:
+- Discrimination (α): Log-normal prior with mean=1.0, std=0.5
+- Thresholds (β): Normal prior with mean=0.0, std=1.0
+
+--------------------------------------------------------------------------------
+
+MODEL: BASELINE
+  Type: baseline
+  Items analyzed: 399/400
+
+  Parameter correlations with true values:
+    Discrimination (α): 0.1566
+    Threshold β₀: 0.5588
+    Threshold β₁: 0.0884
+    Threshold β₂: 0.2621
+    Average β correlation: 0.3031
+
+  Student ability statistics:
+    Range: [-5.051, 4.675]
+    Mean: -1.036, Std: 1.699
+
+  Discrimination statistics:
+    Range: [0.000, 6.266]
+    Mean: 4.561, Std: 0.838
+
+MODEL: AKVMN
+  Type: attention
+  Items analyzed: 399/400
+
+  Parameter correlations with true values:
+    Discrimination (α): 0.2648
+    Threshold β₀: 0.3216
+    Threshold β₁: 0.6554
+    Threshold β₂: 0.6044
+    Average β correlation: 0.5271
+
+  Student ability statistics:
+    Range: [-9.649, 8.729]
+    Mean: -2.012, Std: 3.845
+
+  Discrimination statistics:
+    Range: [0.000, 5.069]
+    Mean: 2.632, Std: 1.245
+
+--------------------------------------------------------------------------------
+
+INTERPRETATION:
+- Correlations measure how well the model recovers true IRT parameters
+- Values closer to 1.0 indicate better parameter recovery
+- Deep-GPCM learns dynamic parameters that change over time
+- This temporal adaptation is a key difference from traditional static IRT
+================================================================================

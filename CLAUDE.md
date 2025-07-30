@@ -10,20 +10,22 @@ Deep-GPCM is a production-ready knowledge tracing system for polytomous response
 
 ### Environment Setup
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# Activate conda environment (REQUIRED)
+source ~/anaconda3/etc/profile.d/conda.sh && conda activate vrec-env
 
 # Create necessary directories
 mkdir -p logs save_models results/{train,test,plots}
+
+# Note: Intel MKL threading issue is automatically fixed in all Python scripts
 ```
 
 ### Data Generation
 ```bash
-# Generate synthetic datasets (both PC and OC formats)
-python data_gen.py --format both --categories 4 --students 800 --questions 50
+# Generate standard synthetic dataset
+python data_gen.py --format OC --categories 4 --students 800 --questions 50 --min_seq 10 --max_seq 50
 
-# Generate larger datasets for analysis
-python data_gen.py --format both --categories 4 --students 800 --output_dir data/large
+# Generate larger dataset for stable results (current default)
+python data_gen.py --format OC --categories 4 --students 800 --questions 400 --min_seq 100 --max_seq 400 --seed 42
 ```
 
 ### Training
@@ -40,11 +42,14 @@ python benchmark_optimal_losses.py --dataset synthetic_OC --epochs 15
 
 ### Evaluation and Analysis
 ```bash
-# Model evaluation
+# Complete pipeline (train both models with CV, evaluate, and plot)
+python main.py --models baseline akvmn --dataset synthetic_OC --epochs 30 --cv_folds 5
+
+# Individual model evaluation
 python evaluate.py --model_path save_models/best_model_synthetic_OC.pth --dataset synthetic_OC
 
-# Optimal loss function benchmark
-python benchmark_optimal_losses.py --dataset synthetic_OC --epochs 15
+# Generate plots from existing results (no retraining needed)
+python utils/plot_metrics.py
 
 # Comprehensive analysis with advanced metrics
 python comprehensive_analysis.py --save_path results/analysis

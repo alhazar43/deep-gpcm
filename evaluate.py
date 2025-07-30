@@ -5,6 +5,10 @@ Tests any trained model on comprehensive metrics with auto-detection.
 """
 
 import os
+
+# Fix Intel MKL threading issue
+os.environ['MKL_SERVICE_FORCE_INTEL'] = '1'
+
 import torch
 import json
 import time
@@ -12,9 +16,11 @@ import argparse
 import numpy as np
 from datetime import datetime
 
-from models.baseline import BaselineGPCM
-from models.akvmn_gpcm import AKVMNGPCM
-from evaluation.metrics import GpcmMetrics
+from core.model import DeepGPCM, AttentionGPCM
+from core.attention_enhanced import EnhancedAttentionGPCM
+from core.improved_attention import ImprovedEnhancedAttentionGPCM
+from core.integrated_attention import IntegratedAttentionGPCM
+from utils.metrics import compute_metrics, save_results
 import torch.utils.data as data_utils
 import torch.nn as nn
 
@@ -137,7 +143,7 @@ def load_trained_model(model_path, device):
     
     # Create model based on type
     if model_type == 'baseline':
-        model = BaselineGPCM(
+        model = DeepGPCM(
             n_questions=n_questions,
             n_cats=n_cats,
             memory_size=50,
@@ -146,7 +152,8 @@ def load_trained_model(model_path, device):
             final_fc_dim=50
         )
     elif model_type == 'akvmn':
-        model = AKVMNGPCM(
+        # Use enhanced version with learnable parameters
+        model = EnhancedAttentionGPCM(
             n_questions=n_questions,
             n_cats=n_cats,
             embed_dim=64,
@@ -156,7 +163,40 @@ def load_trained_model(model_path, device):
             final_fc_dim=50,
             n_heads=4,
             n_cycles=2,
-            embedding_strategy="linear_decay"
+            embedding_strategy="linear_decay",
+            ability_scale=2.0  # Default for old models
+        )
+    elif model_type == 'improved_akvmn':
+        # Use improved version with architectural enhancements
+        model = ImprovedEnhancedAttentionGPCM(
+            n_questions=n_questions,
+            n_cats=n_cats,
+            embed_dim=64,
+            memory_size=50,
+            key_dim=50,
+            value_dim=200,
+            final_fc_dim=50,
+            n_heads=4,
+            n_cycles=2,
+            embedding_strategy="linear_decay",
+            ability_scale=2.0,
+            dropout_rate=0.1
+        )
+    elif model_type == 'integrated_akvmn':
+        # Use truly integrated attention-memory model
+        model = IntegratedAttentionGPCM(
+            n_questions=n_questions,
+            n_cats=n_cats,
+            embed_dim=64,
+            memory_size=50,
+            key_dim=50,
+            value_dim=200,
+            final_fc_dim=50,
+            n_heads=4,
+            n_cycles=2,
+            embedding_strategy="linear_decay",
+            ability_scale=2.0,
+            dropout_rate=0.1
         )
     else:
         raise ValueError(f"Unknown model type: {model_type}")
@@ -221,16 +261,17 @@ def evaluate_model(model, test_loader, device):
     print(f"📊 Total samples: {len(all_targets)}")
     print(f"⏱️  Average inference time: {np.mean(inference_times)*1000:.2f}ms per batch")
     
-    # Calculate comprehensive metrics
+    # Calculate comprehensive metrics using simplified system
     print("\\n🔬 Computing comprehensive metrics...")
-    metrics_calc = GpcmMetrics()
-    eval_metrics = metrics_calc.benchmark_prediction_methods(all_predictions, all_targets, all_predictions.size(-1))
+    n_cats = all_predictions.size(-1)
     
-    # Extract all prediction methods
-    results = {}
+    # Get predictions
+    y_pred = all_predictions.argmax(dim=-1)
     
-    for method_name, method_metrics in eval_metrics.items():
-        results[method_name] = method_metrics
+    # Compute comprehensive metrics
+    eval_metrics = compute_metrics(all_targets, y_pred, all_predictions, n_cats=n_cats)
+    
+    results = eval_metrics.copy()
     
     # Add inference performance metrics
     results['performance'] = {
@@ -239,15 +280,12 @@ def evaluate_model(model, test_loader, device):
         'samples_per_second': len(all_targets) / sum(inference_times)
     }
     
-    # Generate confusion matrix data for main prediction method
-    argmax_predictions = all_predictions.argmax(dim=-1)
-    n_cats = all_predictions.size(-1)
-    
-    confusion_matrix = torch.zeros(n_cats, n_cats, dtype=torch.int)
-    for target, pred in zip(all_targets, argmax_predictions):
-        confusion_matrix[target, pred] += 1
-    
-    results['confusion_matrix'] = confusion_matrix.numpy().tolist()
+    # Add confusion matrix (already computed in metrics)
+    if 'confusion_matrix' not in results:
+        confusion_matrix = torch.zeros(n_cats, n_cats, dtype=torch.int)
+        for target, pred in zip(all_targets, y_pred):
+            confusion_matrix[target, pred] += 1
+        results['confusion_matrix'] = confusion_matrix.numpy().tolist()
     
     return results
 
@@ -258,24 +296,27 @@ def print_evaluation_summary(results, model_name):
     print(f"EVALUATION SUMMARY: {model_name}")
     print(f"{'='*60}")
     
-    # Main metrics (argmax)
-    if 'argmax' in results:
-        argmax_metrics = results['argmax']
-        print(f"\\n📈 MAIN METRICS (Argmax Prediction):")
-        print(f"  Categorical Accuracy:     {argmax_metrics['categorical_accuracy']:.4f}")
-        print(f"  Quadratic Weighted Kappa: {argmax_metrics['quadratic_weighted_kappa']:.4f}")
-        print(f"  Ordinal Accuracy:         {argmax_metrics['ordinal_accuracy']:.4f}")
-        print(f"  Mean Absolute Error:      {argmax_metrics['mean_absolute_error']:.4f}")
+    # Main metrics
+    print(f"\\n📈 CORE METRICS:")
+    core_metrics = ['categorical_accuracy', 'ordinal_accuracy', 'quadratic_weighted_kappa', 'mean_absolute_error']
+    for metric in core_metrics:
+        if metric in results:
+            print(f"  {metric.replace('_', ' ').title():<25}: {results[metric]:.4f}")
     
-    # Alternative prediction methods
-    other_methods = [k for k in results.keys() if k not in ['argmax', 'performance', 'confusion_matrix']]
-    if other_methods:
-        print(f"\\n🔄 ALTERNATIVE PREDICTION METHODS:")
-        for method in other_methods:
-            if isinstance(results[method], dict) and 'categorical_accuracy' in results[method]:
-                acc = results[method]['categorical_accuracy']
-                qwk = results[method]['quadratic_weighted_kappa']
-                print(f"  {method:<20}: {acc:.4f} acc, {qwk:.4f} QWK")
+    # Additional ordinal metrics
+    ordinal_metrics = ['kendall_tau', 'spearman_correlation', 'cohen_kappa', 'ordinal_loss']
+    ordinal_present = [m for m in ordinal_metrics if m in results]
+    if ordinal_present:
+        print(f"\\n🔄 ORDINAL METRICS:")
+        for metric in ordinal_present:
+            print(f"  {metric.replace('_', ' ').title():<25}: {results[metric]:.4f}")
+    
+    # Category breakdown
+    cat_metrics = [k for k in results.keys() if k.startswith('cat_') and k.endswith('_accuracy')]
+    if cat_metrics:
+        print(f"\\n📊 CATEGORY BREAKDOWN:")
+        for metric in sorted(cat_metrics):
+            print(f"  {metric.replace('_', ' ').title():<25}: {results[metric]:.4f}")
     
     # Performance metrics
     if 'performance' in results:
@@ -311,7 +352,8 @@ def main():
     print()
     
     # Create results directory
-    os.makedirs('results/test', exist_ok=True)
+    from utils.metrics import ensure_results_dirs
+    ensure_results_dirs()
     
     try:
         # Load trained model
@@ -359,13 +401,15 @@ def main():
             'evaluation_results': results
         }
         
-        # Generate output filename
+        # Save using simplified system
         model_name = config['model_type']
         dataset_name = config.get('dataset', args.dataset)
-        output_path = f"results/test/test_results_{model_name}_{dataset_name}.json"
         
-        with open(output_path, 'w') as f:
-            json.dump(output_data, f, indent=2)
+        filename = f"test_results_{model_name}_{dataset_name}.json"
+        
+        output_path = save_results(
+            output_data, f"results/test/{filename}"
+        )
         
         print(f"\\n💾 Results saved to: {output_path}")
         print("\\n✅ Evaluation completed successfully!")

@@ -6,73 +6,113 @@ Production-ready Deep Generalized Partial Credit Model for polytomous response p
 
 ### Complete Pipeline (Recommended)
 ```bash
-# Complete training, evaluation, and visualization pipeline
+# Train both baseline models and evaluate with plots
 python main.py --dataset synthetic_OC --epochs 15
 
-# Single model training  
-python train.py --model baseline --dataset synthetic_OC --epochs 15 --n_folds 5
-python train.py --model akvmn --dataset synthetic_OC --epochs 15 --n_folds 5
+# Train specific models
+python main.py --models baseline --dataset synthetic_OC --epochs 15
+python main.py --models akvmn --dataset synthetic_OC --epochs 15
+python main.py --models improved_akvmn --dataset synthetic_OC --epochs 15
 
-# Model evaluation
+# Train all three models
+python main.py --models baseline akvmn improved_akvmn --dataset synthetic_OC --epochs 15
+
+# Model evaluation (auto-detects model type)
 python evaluate.py --model_path save_models/best_baseline_synthetic_OC.pth
 python evaluate.py --model_path save_models/best_akvmn_synthetic_OC.pth
-
-# Generate visualizations
-python plot_metrics.py --train_results logs/*.json --test_results results/test/*.json
+python evaluate.py --model_path save_models/best_improved_akvmn_synthetic_OC.pth
 ```
 
 ### Environment Setup
 ```bash
-# Activate environment
+# Activate conda environment (REQUIRED)
 source ~/anaconda3/etc/profile.d/conda.sh && conda activate vrec-env
 
-# Install dependencies (if needed)
-pip install torch scikit-learn matplotlib seaborn numpy
+# Create necessary directories
+mkdir -p logs save_models results/{train,test,valid,plots}
+
+# Note: Intel MKL threading issue is automatically fixed in all Python scripts
 ```
 
 ## Performance Highlights
 
-### Current Results (15 epochs, 5-fold CV)
-| Model | Categorical Accuracy | Quadratic Weighted Kappa | Ordinal Accuracy | Parameters |
-|-------|---------------------|-------------------------|------------------|------------|
-| **Baseline GPCM** | 68.7% | 0.641 | 84.4% | 134K |
-| **AKVMN** | 70.3% | 0.687 | 86.0% | 174K |
+### Current Results (15 epochs, single-fold)
+| Model | Categorical Accuracy | Quadratic Weighted Kappa | Ordinal Accuracy | MAE | Parameters |
+|-------|---------------------|-------------------------|------------------|------|------------|
+| **AKVMN (Enhanced)** | **70.66%** ⭐ | 0.760 | **89.27%** ⭐ | **0.430** ⭐ | 572K |
+| **Baseline GPCM** | 70.46% | **0.761** ⭐ | 89.20% | 0.432 | 535K |
+| **AKVMN (Improved)** | 70.22% | 0.748 | 88.17% | 0.450 | 602K |
 
 *Results from unified pipeline on synthetic_OC dataset*
 
-**Key Improvements**:
-- AKVMN achieves 1.6% higher categorical accuracy
-- 4.6pp improvement in Quadratic Weighted Kappa 
-- Consistent performance across all ordinal metrics
-- Stable training with proper convergence patterns
+**Key Findings**:
+- AKVMN variants show only marginal improvement (0.2%) over baseline
+- The added complexity doesn't translate to proportional performance gains
+- See `AKVMN_ANALYSIS.md` for detailed analysis of why attention integration underperforms
+
+**Key Features**:
+- Enhanced AKVMN includes learnable ability scale and embedding weights
+- Improved AKVMN adds architectural enhancements for better performance
+- All models support comprehensive IRT analysis and visualization
+- Automatic model type detection in evaluation and analysis scripts
+- Integrated plotting in main pipeline - visualizations generated automatically
 
 ## Architecture Overview
 
-### Unified Pipeline Design
-- **Single Training Script** (`train.py`): Supports both models with k-fold cross-validation
-- **Auto-Detection Evaluation** (`evaluate.py`): Automatically detects model type from checkpoints
-- **Adaptive Plotting** (`plot_metrics.py`): Generates comprehensive visualizations for any number of models
-- **Pipeline Orchestrator** (`main.py`): Coordinates complete workflow execution
+### Unified Architecture
+The Deep-GPCM system follows a clean, unified architecture with consolidated components:
+
+#### Core Components (`core/`)
+- **Models** (`model.py`): DeepGPCM (baseline) and AttentionGPCM implementations
+- **Enhanced Models** (`attention_enhanced.py`): EnhancedAttentionGPCM with learnable parameters
+- **Improved Models** (`improved_attention.py`): ImprovedEnhancedAttentionGPCM with architectural enhancements
+- **Memory Networks** (`memory_networks.py`): DKVMN dynamic key-value memory architecture
+- **Embeddings** (`embeddings.py`): Response embedding strategies (linear_decay, ordered, etc.)
+- **Neural Layers** (`layers.py`): All neural network layers including IRT parameter extraction
+- **Model Factory** (`model_factory.py`): Centralized model creation with auto-detection
+
+#### Key Features
+- **Enhanced AKVMN**: Learnable ability scale and linear decay embedding weights
+- **Improved AKVMN**: Deeper networks, memory fusion, and refinement gates
+- **Unified Layers**: All neural components consolidated in `layers.py` for better organization
+- **Standardized Scaling**: `ability_scale=1.0` default (2.0 for AKVMN variants)
+- **Modular Design**: Pluggable embedding strategies and memory architectures
+- **Clean Imports**: Simplified import structure from core module
 
 ### Model Implementations
 
-#### Baseline GPCM
-- **Architecture**: DKVMN + GPCM predictor
-- **Memory Network**: Dynamic key-value memory for knowledge state tracking
-- **Parameters**: 134,055
-- **Training**: Stable convergence with cross-entropy loss
+#### DKVMN-GPCM (Baseline)
+- **Architecture**: Modular DKVMN + IRT parameter extraction + GPCM
+- **Memory**: Dynamic key-value memory network
+- **Parameters**: ~134K (varies by configuration)
+- **Features**: Pluggable embeddings, configurable memory size
 
-#### AKVMN GPCM  
-- **Architecture**: Enhanced DKVMN with multi-head attention and advanced embeddings
-- **Innovation**: Proper integration of memory networks with attention mechanisms
-- **Parameters**: 174,354  
-- **Training**: Improved performance through deep architectural integration
+#### Attention DKVMN-GPCM (AKVMN)
+- **Architecture**: Enhanced DKVMN with multi-head attention and iterative refinement
+- **Innovation**: Attention-based feature refinement with learnable gates
+- **Parameters**: ~175K+ (varies by attention configuration)
+- **Features**: Multi-cycle refinement, attention mechanisms
 
-### Core Components
-1. **Memory Network**: Dynamic key-value memory system
-2. **Embedding Strategy**: Linear decay embedding for polytomous responses
-3. **GPCM Predictor**: Multi-category probability prediction
-4. **Loss Function**: Cross-entropy loss with comprehensive ordinal metrics
+#### Enhanced AKVMN
+- **Architecture**: EnhancedAttentionGPCM with learnable IRT parameters
+- **Learnable Components**: 
+  - Ability scale parameter (initialized at 2.0)
+  - Linear decay embedding weights
+- **Backward Compatible**: Works with all existing analysis tools
+
+#### Improved AKVMN (Latest)
+- **Architecture**: ImprovedEnhancedAttentionGPCM with architectural enhancements
+- **Key Improvements**:
+  - Deeper summary network (2 layers with ReLU activation)
+  - Memory-attention fusion layers
+  - Refinement gates for controlled updates
+- **Modular Design**: Inherits from Enhanced AKVMN, maximizing code reuse
+
+### Key Improvements
+1. **Modularity**: Easy to add new models, memory networks, and embedding strategies
+2. **Extensibility**: Registry-based model creation and plugin architecture
+3. **Type Safety**: Full type hints for better IDE support and maintenance
+4. **Research Standards**: Follows PyTorch Lightning and HuggingFace patterns
 
 ## File Structure
 
@@ -84,12 +124,14 @@ plot_metrics.py    # Adaptive plotting for variable number of models
 main.py           # Complete pipeline orchestrator
 ```
 
-### Model Implementations
+### Core Model Components
 ```
-models/
-├── __init__.py                     # Module initialization
-├── baseline.py                     # Baseline DKVMN-GPCM implementation
-└── akvmn_gpcm.py # AKVMN model
+core/
+├── __init__.py          # Core module exports
+├── model.py            # DeepGPCM and AttentionGPCM implementations
+├── memory_networks.py  # DKVMN memory architecture
+├── embeddings.py       # Response embedding strategies
+└── layers.py          # Neural layers including IRT parameter extraction
 ```
 
 ### Supporting Infrastructure
@@ -114,20 +156,46 @@ save_models/           # Trained model checkpoints
 
 ### 1. Complete Pipeline Execution
 ```bash
-# Train both models, evaluate, and generate plots
+# Train both models and evaluate (no plotting)
 python main.py --dataset synthetic_OC --epochs 15
 
 # Train specific models only
 python main.py --models baseline --dataset synthetic_OC --epochs 15
 python main.py --models akvmn --dataset synthetic_OC --epochs 15
 
-# Skip training (evaluate existing models only)
-python main.py --skip_training --dataset synthetic_OC
+# Train only (no evaluation)
+python main.py --action train --models baseline akvmn --dataset synthetic_OC
+
+# Evaluate only (existing models)
+python main.py --action evaluate --models baseline akvmn --dataset synthetic_OC
+
+# Optimized training scheme (mixed precision, data loading optimizations)
+python main.py --training_scheme optimized --models baseline akvmn --epochs 15
 ```
 
 ### 2. Individual Component Usage
 
 #### Training
+
+##### Optimized Training (Safe Optimizations)
+```bash
+# Optimized training with mixed precision (baseline model)
+python train_optimized.py --model baseline --dataset synthetic_OC --epochs 15
+
+# Enhanced AKVMN with optimized training
+python train_optimized.py --model akvmn --dataset synthetic_OC --epochs 15
+
+# With gradient accumulation for larger effective batch size
+python train_optimized.py --model akvmn --dataset synthetic_OC --epochs 15 \
+    --batch_size 64 --gradient_accumulation_steps 2
+
+# Disable AMP for small models/datasets where overhead exceeds benefits
+python train_optimized.py --model baseline --dataset synthetic_OC --epochs 15 --no_amp
+
+# Note: Optimized training preserves model behavior (no parallel processing that breaks temporal dependencies)
+```
+
+##### Standard Training
 ```bash
 # Baseline model with 5-fold CV
 python train.py --model baseline --dataset synthetic_OC --epochs 15 --n_folds 5
@@ -151,40 +219,68 @@ python evaluate.py --model_path save_models/best_akvmn_synthetic_OC.pth --datase
 python evaluate.py --model_path save_models/best_*_synthetic_OC.pth
 ```
 
-#### Visualization
+#### Visualization (Separated from Main Pipeline)
 ```bash
-# Generate all plots
-python plot_metrics.py --train_results logs/*.json --test_results results/test/*.json
+# Generate plots from existing results (no retraining needed)
+python utils/plot_metrics.py
 
-# Specific plot types
-python plot_metrics.py --plot_type final --train_results logs/*.json
-python plot_metrics.py --plot_type curves --train_results logs/*.json
-python plot_metrics.py --plot_type confusion --test_results results/test/*.json
+# The plotting system automatically:
+# - Detects all model variants (baseline, akvmn, optimized versions)
+# - Distinguishes between standard and optimized training results
+# - Adapts subplot layout based on available metrics
+# - Highlights best performing models with gold color and star (★)
+# - Shows mean and std for cross-validation results
+# - Creates training curves, test comparisons, and train vs test plots
+# - Supports both standard and optimized training results
+
+# Note: Plotting is now separate from main.py to allow flexible re-plotting
+# without retraining. Run after training/evaluation is complete.
 ```
 
 #### IRT Parameter Analysis
 ```bash
-# Extract and visualize IRT parameters from trained models
-python plot_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --plot_type all
+# PRIMARY: Unified IRT analysis tool (recommended)
+python analysis/irt_analysis.py --dataset synthetic_OC
+
+# The unified tool provides:
+# - Automatic model detection for the dataset
+# - Temporal parameter extraction with flexible aggregation
+# - Parameter recovery analysis with true values
+# - Multiple visualization types (recovery, temporal, IRT plots)
+# - Comprehensive summary reports
+
+# Advanced usage examples:
+# Temporal analysis with average theta
+python analysis/irt_analysis.py --dataset synthetic_OC --theta_method average --analysis_types temporal
+
+# Complete analysis with all visualizations
+python analysis/irt_analysis.py --dataset synthetic_OC --analysis_types recovery temporal irt_plots
+
+# Extract and save parameters only
+python analysis/irt_analysis.py --dataset synthetic_OC --save_params --analysis_types none
+
+# LEGACY: Individual IRT visualization tools (still supported)
+# Standard IRT plots for a single model
+python analysis/plot_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --plot_type all
 
 # Compare IRT parameters between models  
-python plot_irt.py --compare save_models/best_baseline_synthetic_OC.pth save_models/best_akvmn_synthetic_OC.pth
+python analysis/plot_irt.py --compare save_models/best_baseline_synthetic_OC.pth save_models/best_akvmn_synthetic_OC.pth
 
-# Extract and save parameters for later analysis
-python plot_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --save_params baseline_irt.npz
+# Extract and save parameters for external analysis
+python analysis/plot_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --save_params baseline_irt.npz
 
 # Generate specific plot types
-python plot_irt.py --model_path save_models/best_akvmn_synthetic_OC.pth --plot_type icc
-python plot_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --plot_type tif
+python analysis/plot_irt.py --model_path save_models/best_akvmn_synthetic_OC.pth --plot_type icc
+python analysis/plot_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --plot_type tif
 ```
 
 ### 3. Data Generation
 ```bash
-# Generate synthetic datasets
-python data_gen.py --format both --categories 4 --students 800 --questions 50
+# Generate standard synthetic dataset
+python scripts/data_gen.py --format OC --categories 4 --students 800 --questions 50 --min_seq 10 --max_seq 50
 
-# Generate for specific format
-python data_gen.py --format OC --categories 4 --students 800 --questions 30
+# Generate larger dataset for stable results (current default)
+python scripts/data_gen.py --format OC --categories 4 --students 800 --questions 400 --min_seq 100 --max_seq 400 --seed 42
 ```
 
 ## Configuration Options
@@ -249,52 +345,58 @@ The Deep-GPCM system extracts Item Response Theory (IRT) parameters from trained
 - **α (alpha)**: Item discrimination parameters - how well items differentiate between ability levels
 - **β (beta)**: Category threshold parameters - difficulty thresholds for transitioning between adjacent categories (K-1 per item)
 
-### Available Visualizations
+### Unified IRT Analysis (Recommended)
+
+The unified IRT analysis tool automatically finds and analyzes all trained models, including enhanced AKVMN:
+
+```bash
+# Basic parameter recovery analysis (auto-detects all models)
+python analysis/irt_analysis.py --dataset synthetic_OC
+
+# Temporal analysis with average theta
+python analysis/irt_analysis.py --dataset synthetic_OC --theta_method average --analysis_types temporal
+
+# Complete analysis with all plots
+python analysis/irt_analysis.py --dataset synthetic_OC --analysis_types recovery temporal irt_plots
+
+# Extract and save parameters only
+python analysis/irt_analysis.py --dataset synthetic_OC --save_params --analysis_types none
+```
+
+The analysis automatically handles:
+- Standard baseline models
+- Enhanced AKVMN models with learnable parameters
+- Optimized training results
+- Cross-validation results
+
+### Individual IRT Visualizations
 
 #### Item Characteristic Curves (ICC)
 Shows probability of responses across ability levels for individual items:
 ```bash
-python plot_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --plot_type icc
-```
-
-#### Item Information Functions (IIF)
-Displays how much information each item provides across the ability range:
-```bash
-python plot_irt.py --model_path save_models/best_akvmn_synthetic_OC.pth --plot_type iif
+python analysis/plot_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --plot_type icc
 ```
 
 #### Test Information Function (TIF)
 Shows total test information across ability levels:
 ```bash
-python plot_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --plot_type tif
+python analysis/plot_irt.py --model_path save_models/best_akvmn_synthetic_OC.pth --plot_type tif
 ```
 
-#### Wright Map (Item-Person Map)
-Compares distribution of student abilities with item difficulties:
+#### Model Comparison
+Compare IRT parameters between models:
 ```bash
-python plot_irt.py --model_path save_models/best_akvmn_synthetic_OC.pth --plot_type wright
-```
-
-#### Parameter Distributions
-Histograms and statistics for all IRT parameters:
-```bash
-python plot_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --plot_type dist
-```
-
-### Model Comparison
-Compare IRT parameters between baseline and AKVMN models:
-```bash
-python plot_irt.py --compare save_models/best_baseline_synthetic_OC.pth save_models/best_akvmn_synthetic_OC.pth --labels "Baseline" "AKVMN"
+python analysis/plot_irt.py --compare save_models/best_baseline_synthetic_OC.pth save_models/best_akvmn_synthetic_OC.pth --labels "Baseline" "AKVMN"
 ```
 
 ### Parameter Extraction and Storage
 Extract and save IRT parameters for external analysis:
 ```bash
 # Save as NumPy compressed format
-python plot_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --save_params baseline_irt.npz
+python analysis/plot_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --save_params baseline_irt.npz
 
 # Save as JSON format  
-python plot_irt.py --model_path save_models/best_akvmn_synthetic_OC.pth --save_params akvmn_irt.json
+python analysis/plot_irt.py --model_path save_models/best_akvmn_synthetic_OC.pth --save_params akvmn_irt.json
 ```
 
 ### Generated Output Files
@@ -307,12 +409,32 @@ irt_plots/
 │   ├── test_information_function.png
 │   ├── wright_map.png
 │   └── parameter_distributions.png
-├── akvmn/                            # AKVMN model analysis
+├── akvmn/                            # Enhanced AKVMN model analysis (with learnable parameters)
 │   └── [same plot types]
 └── comparison/                       # Model comparison
     ├── model_comparison.png
     └── parameter_distributions.png
 ```
+
+### Understanding Dynamic IRT Parameters in Deep-GPCM
+
+Unlike traditional IRT where parameters are static, Deep-GPCM learns **dynamic parameters** that evolve over time:
+
+- **θ (Student Ability)**: Changes as students learn, showing knowledge growth trajectories
+- **α (Item Discrimination)**: Adapts based on the DKVMN memory state and student history
+- **β (Item Thresholds)**: Difficulty boundaries that adjust to student progress and context
+
+This dynamic nature allows Deep-GPCM to capture the temporal aspects of learning that static IRT models miss.
+
+### Enhanced AKVMN Model
+
+The AKVMN (Attention-based Knowledge Tracing with Value Memory Network) model includes enhanced features with learnable parameters:
+
+- **Learnable Ability Scale**: Dynamically adjusts the scaling of student abilities (initialized at 2.0)
+- **Learnable Linear Decay Embedding**: Adaptive decay weights for response embedding that learn from data
+- **Backward Compatibility**: The IRT analysis tool automatically detects and handles both standard and enhanced AKVMN models
+
+These enhancements improve the model's ability to capture complex learning patterns while maintaining compatibility with existing analysis tools.
 
 ### Temporal IRT Animation Analysis
 
@@ -321,19 +443,19 @@ The system includes advanced temporal animation capabilities that capture the dy
 #### Animated Temporal Analysis
 ```bash
 # Generate all temporal animations for a model
-python animate_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --animation_type all
+python analysis/animate_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --animation_type all
 
 # Individual student learning journey animation  
-python animate_irt.py --model_path save_models/best_akvmn_synthetic_OC.pth --animation_type journey --sequence_idx 0
+python analysis/animate_irt.py --model_path save_models/best_akvmn_synthetic_OC.pth --animation_type journey --sequence_idx 0
 
 # Parameter distribution evolution over time
-python animate_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --animation_type distributions
+python analysis/animate_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --animation_type distributions
 
 # Ability trajectory heatmaps
-python animate_irt.py --model_path save_models/best_akvmn_synthetic_OC.pth --animation_type heatmap
+python analysis/animate_irt.py --model_path save_models/best_akvmn_synthetic_OC.pth --animation_type heatmap
 
 # Temporal summary statistics
-python animate_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --animation_type stats
+python analysis/animate_irt.py --model_path save_models/best_baseline_synthetic_OC.pth --animation_type stats
 ```
 
 #### Temporal Animation Types

@@ -5,6 +5,10 @@ Supports both baseline and Deep Integration models with optional k-fold cross-va
 """
 
 import os
+
+# Fix Intel MKL threading issue
+os.environ['MKL_SERVICE_FORCE_INTEL'] = '1'
+
 import torch
 import json
 import time
@@ -13,9 +17,7 @@ import numpy as np
 from datetime import datetime
 from sklearn.model_selection import KFold
 
-from models.baseline import BaselineGPCM
-from models.akvmn_gpcm import AKVMNGPCM
-from evaluation.metrics import GpcmMetrics
+from utils.metrics import compute_metrics, save_results, ensure_results_dirs
 import torch.utils.data as data_utils
 import torch.nn as nn
 import torch.optim as optim
@@ -114,31 +116,9 @@ def create_data_loaders(train_data, test_data, batch_size=32):
 
 def create_model(model_type, n_questions, n_cats, device):
     """Create model based on type."""
-    if model_type == 'baseline':
-        model = BaselineGPCM(
-            n_questions=n_questions,
-            n_cats=n_cats,
-            memory_size=50,
-            key_dim=50,
-            value_dim=200,
-            final_fc_dim=50
-        )
-    elif model_type == 'akvmn':
-        model = AKVMNGPCM(
-            n_questions=n_questions,
-            n_cats=n_cats,
-            embed_dim=64,
-            memory_size=50,
-            key_dim=50,
-            value_dim=200,
-            final_fc_dim=50,
-            n_heads=4,
-            n_cycles=2,
-            embedding_strategy="linear_decay"
-        )
-    else:
-        raise ValueError(f"Unknown model type: {model_type}")
+    from core import create_model as factory_create_model
     
+    model = factory_create_model(model_type, n_questions, n_cats)
     return model.to(device)
 
 
@@ -241,16 +221,15 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
         all_predictions = torch.cat(all_predictions, dim=0)
         all_targets = torch.cat(all_targets, dim=0)
         
-        # Calculate comprehensive metrics
-        metrics_calc = GpcmMetrics()
-        eval_metrics = metrics_calc.benchmark_prediction_methods(all_predictions, all_targets, all_predictions.size(-1))
+        # Calculate comprehensive metrics using simplified system
+        y_pred = all_predictions.argmax(dim=-1)
+        eval_metrics = compute_metrics(all_targets, y_pred, all_predictions, n_cats=model.n_cats)
         
-        # Extract argmax metrics
-        argmax_metrics = eval_metrics['argmax']
-        test_acc = argmax_metrics['categorical_accuracy']
-        qwk = argmax_metrics['quadratic_weighted_kappa']
-        ordinal_acc = argmax_metrics['ordinal_accuracy']
-        mae = argmax_metrics['mean_absolute_error']
+        # Extract key metrics for display
+        test_acc = eval_metrics.get('categorical_accuracy', 0.0)
+        qwk = eval_metrics.get('quadratic_weighted_kappa', 0.0)
+        ordinal_acc = eval_metrics.get('ordinal_accuracy', 0.0)
+        mae = eval_metrics.get('mean_absolute_error', 0.0)
         
         # Update learning rate
         scheduler.step(qwk)
@@ -267,18 +246,20 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
             best_epoch = epoch + 1
             best_model_state = model.state_dict().copy()
         
-        # Record training history
-        training_history.append({
+        # Record training history with comprehensive metrics
+        epoch_metrics = {
             'epoch': epoch + 1,
             'train_loss': train_loss,
             'train_accuracy': train_acc,
-            'test_accuracy': test_acc,
-            'qwk': qwk,
-            'ordinal_accuracy': ordinal_acc,
-            'mae': mae,
             'gradient_norm': avg_grad_norm,
             'learning_rate': current_lr
-        })
+        }
+        # Add all evaluation metrics
+        for key, value in eval_metrics.items():
+            if isinstance(value, (int, float)) and not np.isnan(value):
+                epoch_metrics[key] = value
+        
+        training_history.append(epoch_metrics)
         
         # Early stopping on gradient explosion
         if avg_grad_norm > 100:
@@ -287,26 +268,22 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
     
     print(f"\\n✅ Training completed! Best QWK: {best_qwk:.3f} at epoch {best_epoch}")
     
-    # Final metrics from best model
-    best_metrics = {
-        'categorical_accuracy': training_history[best_epoch-1]['test_accuracy'],
-        'ordinal_accuracy': training_history[best_epoch-1]['ordinal_accuracy'],
-        'quadratic_weighted_kappa': best_qwk,
-        'mean_absolute_error': training_history[best_epoch-1]['mae'],
-        'train_accuracy': training_history[best_epoch-1]['train_accuracy'],
-        'train_loss': training_history[best_epoch-1]['train_loss'],
+    # Final metrics from best epoch
+    best_epoch_data = training_history[best_epoch-1]
+    best_metrics = best_epoch_data.copy()
+    best_metrics.update({
         'best_epoch': best_epoch,
         'total_epochs': len(training_history),
         'parameters': sum(p.numel() for p in model.parameters()),
         'model_type': type(model).__name__
-    }
+    })
     
     return best_model_state, best_metrics, training_history
 
 
 def main():
     parser = argparse.ArgumentParser(description='Unified Deep-GPCM Training')
-    parser.add_argument('--model', choices=['baseline', 'akvmn'], required=True,
+    parser.add_argument('--model', choices=['baseline', 'akvmn', 'improved_akvmn', 'integrated_akvmn'], required=True,
                         help='Model to train')
     parser.add_argument('--dataset', default='synthetic_OC', help='Dataset name')
     parser.add_argument('--epochs', type=int, default=30, help='Number of epochs')
@@ -341,7 +318,7 @@ def main():
     
     # Create directories
     os.makedirs('save_models', exist_ok=True)
-    os.makedirs('logs', exist_ok=True)
+    ensure_results_dirs()
     
     # Load data
     train_path = f"data/{args.dataset}/{args.dataset.lower()}_train.txt"
@@ -381,13 +358,16 @@ def main():
             'metrics': best_metrics
         }, model_path)
         
-        log_path = f"logs/train_results_{args.model}_{args.dataset}.json"
-        with open(log_path, 'w') as f:
-            json.dump({
-                'config': vars(args),
-                'metrics': best_metrics,
-                'training_history': training_history
-            }, f, indent=2)
+        # Save training results using simplified system
+        training_results = {
+            'config': vars(args),
+            'metrics': best_metrics,
+            'training_history': training_history
+        }
+        log_path = save_results(
+            training_results, 
+            f"results/train/train_results_{args.model}_{args.dataset}.json"
+        )
         
         print(f"\\n💾 Model saved to: {model_path}")
         print(f"📋 Logs saved to: {log_path}")
@@ -439,15 +419,16 @@ def main():
                 'metrics': best_metrics
             }, model_path)
             
-            # Save fold logs
-            log_path = f"logs/train_results_{args.model}_{args.dataset}_fold_{fold}.json"
-            with open(log_path, 'w') as f:
-                json.dump({
-                    'config': vars(args),
-                    'fold': fold,
-                    'metrics': best_metrics,
-                    'training_history': training_history
-                }, f, indent=2)
+            # Save fold logs using simplified system
+            fold_training_results = {
+                'config': {**vars(args), 'fold': fold},
+                'metrics': best_metrics,
+                'training_history': training_history
+            }
+            log_path = save_results(
+                fold_training_results,
+                f"results/train/train_results_{args.model}_{args.dataset}_fold_{fold}.json"
+            )
         
         # Compute and display CV summary
         print(f"\\n{'='*20} CV SUMMARY {'='*20}")
@@ -469,14 +450,16 @@ def main():
             fold_str = " ".join([f"{v:.3f}" for v in stats['values']])
             print(f"{metric:<25} {stats['mean']:<8.3f} {stats['std']:<8.3f} [{fold_str}]")
         
-        # Save CV summary
-        cv_log_path = f"logs/train_results_{args.model}_{args.dataset}_cv_summary.json"
-        with open(cv_log_path, 'w') as f:
-            json.dump({
-                'config': vars(args),
-                'cv_summary': cv_summary,
-                'fold_results': fold_results
-            }, f, indent=2)
+        # Save CV summary using simplified system
+        cv_summary_results = {
+            'config': vars(args),
+            'cv_summary': cv_summary,
+            'fold_results': fold_results
+        }
+        cv_log_path = save_results(
+            cv_summary_results,
+            f"results/train/train_results_{args.model}_{args.dataset}_cv_summary.json"
+        )
         
         print(f"\\n📋 CV summary saved to: {cv_log_path}")
         

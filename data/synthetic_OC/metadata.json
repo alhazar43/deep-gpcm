@@ -1,14 +1,14 @@
 {
-  "n_students": 200,
-  "n_questions": 30,
-  "n_categories": 4,
+  "n_students": 800,
+  "n_questions": 400,
+  "n_cats": 4,
   "response_type": "ordered_categorical",
   "format": "OC",
   "description": "Synthetic GPCM data with 4 ordered categories",
-  "train_students": 160,
-  "test_students": 40,
-  "sequence_length_range": [
-    10,
-    50
+  "train_students": 640,
+  "test_students": 160,
+  "seq_len_range": [
+    100,
+    400
   ]
 }
