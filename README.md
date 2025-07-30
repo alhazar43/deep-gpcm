@@ -12,15 +12,13 @@ python main.py --dataset synthetic_OC --epochs 15
 # Train specific models
 python main.py --models baseline --dataset synthetic_OC --epochs 15
 python main.py --models akvmn --dataset synthetic_OC --epochs 15
-python main.py --models improved_akvmn --dataset synthetic_OC --epochs 15
 
-# Train all three models
-python main.py --models baseline akvmn improved_akvmn --dataset synthetic_OC --epochs 15
+# Train both models
+python main.py --models baseline akvmn --dataset synthetic_OC --epochs 15
 
 # Model evaluation (auto-detects model type)
 python evaluate.py --model_path save_models/best_baseline_synthetic_OC.pth
 python evaluate.py --model_path save_models/best_akvmn_synthetic_OC.pth
-python evaluate.py --model_path save_models/best_improved_akvmn_synthetic_OC.pth
 ```
 
 ### Environment Setup
@@ -41,19 +39,17 @@ mkdir -p logs save_models results/{train,test,valid,plots}
 |-------|---------------------|-------------------------|------------------|------|------------|
 | **AKVMN (Enhanced)** | **70.66%** ⭐ | 0.760 | **89.27%** ⭐ | **0.430** ⭐ | 572K |
 | **Baseline GPCM** | 70.46% | **0.761** ⭐ | 89.20% | 0.432 | 535K |
-| **AKVMN (Improved)** | 70.22% | 0.748 | 88.17% | 0.450 | 602K |
 
 *Results from unified pipeline on synthetic_OC dataset*
 
 **Key Findings**:
-- AKVMN variants show only marginal improvement (0.2%) over baseline
+- AKVMN shows only marginal improvement (0.2%) over baseline
 - The added complexity doesn't translate to proportional performance gains
-- See `AKVMN_ANALYSIS.md` for detailed analysis of why attention integration underperforms
+- Enhanced AKVMN includes learnable ability scale and embedding weights from the original implementation
 
 **Key Features**:
 - Enhanced AKVMN includes learnable ability scale and embedding weights
-- Improved AKVMN adds architectural enhancements for better performance
-- All models support comprehensive IRT analysis and visualization
+- Both models support comprehensive IRT analysis and visualization
 - Automatic model type detection in evaluation and analysis scripts
 - Integrated plotting in main pipeline - visualizations generated automatically
 
@@ -65,7 +61,6 @@ The Deep-GPCM system follows a clean, unified architecture with consolidated com
 #### Core Components (`core/`)
 - **Models** (`model.py`): DeepGPCM (baseline) and AttentionGPCM implementations
 - **Enhanced Models** (`attention_enhanced.py`): EnhancedAttentionGPCM with learnable parameters
-- **Improved Models** (`improved_attention.py`): ImprovedEnhancedAttentionGPCM with architectural enhancements
 - **Memory Networks** (`memory_networks.py`): DKVMN dynamic key-value memory architecture
 - **Embeddings** (`embeddings.py`): Response embedding strategies (linear_decay, ordered, etc.)
 - **Neural Layers** (`layers.py`): All neural network layers including IRT parameter extraction
@@ -73,9 +68,8 @@ The Deep-GPCM system follows a clean, unified architecture with consolidated com
 
 #### Key Features
 - **Enhanced AKVMN**: Learnable ability scale and linear decay embedding weights
-- **Improved AKVMN**: Deeper networks, memory fusion, and refinement gates
 - **Unified Layers**: All neural components consolidated in `layers.py` for better organization
-- **Standardized Scaling**: `ability_scale=1.0` default (2.0 for AKVMN variants)
+- **Standardized Scaling**: `ability_scale=1.0` default (2.0 for AKVMN)
 - **Modular Design**: Pluggable embedding strategies and memory architectures
 - **Clean Imports**: Simplified import structure from core module
 
@@ -99,14 +93,6 @@ The Deep-GPCM system follows a clean, unified architecture with consolidated com
   - Ability scale parameter (initialized at 2.0)
   - Linear decay embedding weights
 - **Backward Compatible**: Works with all existing analysis tools
-
-#### Improved AKVMN (Latest)
-- **Architecture**: ImprovedEnhancedAttentionGPCM with architectural enhancements
-- **Key Improvements**:
-  - Deeper summary network (2 layers with ReLU activation)
-  - Memory-attention fusion layers
-  - Refinement gates for controlled updates
-- **Modular Design**: Inherits from Enhanced AKVMN, maximizing code reuse
 
 ### Key Improvements
 1. **Modularity**: Easy to add new models, memory networks, and embedding strategies

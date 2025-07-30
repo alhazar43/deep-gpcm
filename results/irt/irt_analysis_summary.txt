@@ -41,29 +41,29 @@ MODEL: BASELINE
     Range: [4.252, 6.473]
     Mean: 5.274, Std: 0.364
 
-MODEL: IMPROVED_AKVMN
-  Type: improved_attention
+MODEL: AKVMN
+  Type: enhanced_attention
 
   Student Ability (θ) Recovery:
-    Correlation: -0.0329
+    Correlation: -0.0586
     Students analyzed: 160
 
   Item Parameter Recovery:
-    Discrimination (α): 0.0900
+    Discrimination (α): 0.0563
     Items analyzed: 399/400
     Threshold correlations:
-      β_0: 0.5525
-      β_1: 0.7253
-      β_2: 0.7762
-    Average β correlation: 0.6847
+      β_0: 0.7058
+      β_1: 0.7332
+      β_2: 0.8146
+    Average β correlation: 0.7512
 
   Student ability statistics:
-    Range: [-14.899, 10.058]
-    Mean: -0.420, Std: 3.944
+    Range: [-3.591, 3.372]
+    Mean: -0.114, Std: 1.604
 
   Discrimination statistics:
-    Range: [1.086, 3.672]
-    Mean: 1.918, Std: 0.420
+    Range: [1.723, 3.277]
+    Mean: 2.367, Std: 0.294
 
 --------------------------------------------------------------------------------
 

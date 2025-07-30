@@ -136,7 +136,7 @@ def main():
                        default='pipeline', help='Action to perform (default: complete pipeline)')
     
     # Model and dataset selection
-    parser.add_argument('--models', nargs='+', choices=['baseline', 'akvmn', 'improved_akvmn', 'integrated_akvmn'], 
+    parser.add_argument('--models', nargs='+', choices=['baseline', 'akvmn'], 
                        default=['baseline', 'akvmn'], help='Models to train/evaluate')
     parser.add_argument('--dataset', default='synthetic_OC', help='Dataset name')
     

@@ -18,8 +18,6 @@ from datetime import datetime
 
 from core.model import DeepGPCM, AttentionGPCM
 from core.attention_enhanced import EnhancedAttentionGPCM
-from core.improved_attention import ImprovedEnhancedAttentionGPCM
-from core.integrated_attention import IntegratedAttentionGPCM
 from utils.metrics import compute_metrics, save_results
 import torch.utils.data as data_utils
 import torch.nn as nn
@@ -165,38 +163,6 @@ def load_trained_model(model_path, device):
             n_cycles=2,
             embedding_strategy="linear_decay",
             ability_scale=2.0  # Default for old models
-        )
-    elif model_type == 'improved_akvmn':
-        # Use improved version with architectural enhancements
-        model = ImprovedEnhancedAttentionGPCM(
-            n_questions=n_questions,
-            n_cats=n_cats,
-            embed_dim=64,
-            memory_size=50,
-            key_dim=50,
-            value_dim=200,
-            final_fc_dim=50,
-            n_heads=4,
-            n_cycles=2,
-            embedding_strategy="linear_decay",
-            ability_scale=2.0,
-            dropout_rate=0.1
-        )
-    elif model_type == 'integrated_akvmn':
-        # Use truly integrated attention-memory model
-        model = IntegratedAttentionGPCM(
-            n_questions=n_questions,
-            n_cats=n_cats,
-            embed_dim=64,
-            memory_size=50,
-            key_dim=50,
-            value_dim=200,
-            final_fc_dim=50,
-            n_heads=4,
-            n_cycles=2,
-            embedding_strategy="linear_decay",
-            ability_scale=2.0,
-            dropout_rate=0.1
         )
     else:
         raise ValueError(f"Unknown model type: {model_type}")

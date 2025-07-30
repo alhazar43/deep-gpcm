@@ -26,7 +26,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.model import DeepGPCM, AttentionGPCM
 from core.attention_enhanced import EnhancedAttentionGPCM
-from core.improved_attention import ImprovedEnhancedAttentionGPCM
 from train import load_simple_data, create_data_loaders
 
 
@@ -99,22 +98,7 @@ class UnifiedIRTAnalyzer:
             model_type = 'attention' if 'attention_refinement' in str(checkpoint['model_state_dict'].keys()) else 'baseline'
         
         # Create model
-        if has_memory_fusion or ('improved_akvmn' in model_path):
-            # Use ImprovedEnhancedAttentionGPCM for models with memory fusion
-            model = ImprovedEnhancedAttentionGPCM(
-                n_questions=self.n_questions, 
-                n_cats=self.n_cats,
-                memory_size=50,
-                key_dim=50,
-                value_dim=200,
-                final_fc_dim=50,
-                n_heads=4,
-                n_cycles=2,
-                embedding_strategy="linear_decay",
-                ability_scale=2.0
-            )
-            model_type = 'improved_attention'
-        elif has_learnable_params or ('akvmn' in model_path):
+        if has_learnable_params or ('akvmn' in model_path):
             # Use EnhancedAttentionGPCM for models with learnable parameters
             model = EnhancedAttentionGPCM(
                 n_questions=self.n_questions, 
