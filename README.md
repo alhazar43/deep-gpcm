@@ -8,11 +8,8 @@ Production-ready Deep Generalized Partial Credit Model for polytomous response p
 # Complete pipeline (training, evaluation, plotting, IRT analysis)
 python main.py --dataset synthetic_OC --epochs 30
 
-# Train with ordinal losses for better performance
-python main.py --models baseline coral --loss qwk --dataset synthetic_OC
-
-# Compare all models with combined loss
-python main.py --models baseline akvmn coral hybrid_coral --loss combined --qwk_weight 0.5
+# Main pipeline with automatic loss optimization (coral_gpcm included by default)
+python main.py --dataset synthetic_OC --epochs 30
 ```
 
 ## Environment Setup
@@ -32,12 +29,20 @@ mkdir -p save_models results/{train,test,plots} logs irt_plots irt_animations
 
 | Model | Categorical Accuracy | Quadratic Weighted Kappa | Ordinal Accuracy | MAE |
 |-------|---------------------|-------------------------|------------------|------|
-| **Baseline** | 58.3% | 0.716 | 87.2% | 0.573 |
-| **AKVMN** | 55.9% | 0.694 | 86.8% | 0.600 |
-| **CORAL** | TBD | TBD | TBD | TBD |
-| **Hybrid CORAL** | TBD | TBD | TBD | TBD |
+| **Deep-GPCM** | 58.3% | 0.716 | 87.2% | 0.573 |
+| **Attn-GPCM** | 55.9% | 0.694 | 86.8% | 0.600 |
+| **CORAL-GPCM** | TBD | TBD | TBD | TBD |
 
-*Results with corrected padding handling. CORAL models expected to improve QWK by 5-10%.*
+*Main pipeline now includes all three models by default with automatic loss optimization.*
+
+### Automatic Loss Configuration
+
+The main pipeline automatically applies optimal loss functions for each model:
+
+- **Deep-GPCM & Attn-GPCM**: Cross-entropy loss (standard approach)
+- **CORAL-GPCM**: Combined loss with CE weight 0.5 + CORAL weight 0.5 (balanced optimization)
+
+For custom loss configurations, use individual training via `train.py`.
 
 ## Usage
 
@@ -47,26 +52,26 @@ mkdir -p save_models results/{train,test,plots} logs irt_plots irt_animations
 python main.py --dataset synthetic_OC --epochs 30 --cv_folds 5
 
 # Training only
-python main.py --action train --models baseline akvmn --dataset synthetic_OC --epochs 30
+python main.py --action train --models deep_gpcm attn_gpcm --dataset synthetic_OC --epochs 30
 
 # Evaluation only  
-python main.py --action evaluate --models baseline akvmn --dataset synthetic_OC
+python main.py --action evaluate --models deep_gpcm attn_gpcm --dataset synthetic_OC
 ```
 
 ### Individual Components
 ```bash
 # Training with cross-validation (default: 5-fold)
-python train.py --model baseline --dataset synthetic_OC --epochs 30 --n_folds 5
+python train.py --model deep_gpcm --dataset synthetic_OC --epochs 30 --n_folds 5
 
-# Training with ordinal losses
+# Training with CORAL models (individual training)
 python train.py --model coral --loss qwk --dataset synthetic_OC --epochs 30
-python train.py --model coral --loss combined --ce_weight 0.7 --qwk_weight 0.3
+python train.py --model coral_gpcm --loss combined --ce_weight 0.7 --qwk_weight 0.3
 
 # Batch evaluation (main models only - recommended)
 python evaluate.py --all --dataset synthetic_OC
 
 # Individual model evaluation
-python evaluate.py --model_path save_models/best_baseline_synthetic_OC.pth --dataset synthetic_OC
+python evaluate.py --model_path save_models/best_deep_gpcm_synthetic_OC.pth --dataset synthetic_OC
 
 # Show summary of existing results only
 python evaluate.py --summary_only --dataset synthetic_OC
@@ -109,10 +114,10 @@ The system supports specialized loss functions for ordinal regression:
 python train.py --model coral --loss qwk --dataset synthetic_OC
 
 # Use combined loss for balanced optimization
-python train.py --model coral --loss combined --ce_weight 0.7 --qwk_weight 0.3
+python train.py --model coral_gpcm --loss combined --ce_weight 0.7 --qwk_weight 0.3
 
-# Complete pipeline with ordinal loss
-python main.py --models baseline coral --loss qwk --epochs 40
+# Train CORAL models separately (not in main pipeline)
+python train.py --model coral --loss qwk --epochs 40
 ```
 
 ### Tips for Ordinal Losses
@@ -125,10 +130,10 @@ python main.py --models baseline coral --loss qwk --epochs 40
 ## Architecture
 
 ### Models
-- **Baseline GPCM**: DKVMN + IRT parameter extraction + GPCM
-- **AKVMN**: Enhanced attention-based DKVMN with learnable parameters
-- **CORAL**: COnsistent RAnk Logits for ordinal regression with rank consistency
-- **Hybrid CORAL**: Blends CORAL ordinal structure with GPCM formulation
+- **Deep-GPCM**: Core DKVMN + IRT parameter extraction + GPCM (main pipeline, CE loss)
+- **Attn-GPCM**: Enhanced attention-based DKVMN with learnable parameters (main pipeline, CE loss)
+- **CORAL-GPCM**: Blends CORAL ordinal structure with GPCM formulation (main pipeline, combined loss 0.5 CE + 0.5 CORAL)
+- **CORAL**: Pure COnsistent RAnk Logits for ordinal regression (individual training only)
 
 ### Core Components
 ```
@@ -197,13 +202,15 @@ python analysis/irt_analysis.py --dataset synthetic_OC --save_params
 ## Configuration
 
 ### Main Arguments
-- `--models`: Model types (`baseline`, `akvmn`, `coral`, `hybrid_coral`)
+- `--models`: Model types (`deep_gpcm`, `attn_gpcm`, `coral_gpcm`) - main pipeline models with automatic loss optimization
 - `--dataset`: Dataset name (default: `synthetic_OC`)
 - `--epochs`: Training epochs (default: 30)
 - `--cv_folds`: Cross-validation folds (default: 5)
-- `--batch_size`: Batch size (default: 32)
+- `--batch_size`: Batch size (default: 64)
 - `--device`: Device selection (`cuda`/`cpu`)
 - `--action`: Pipeline action (`pipeline`, `train`, `evaluate`)
+
+*Note: Pure `coral` model available via individual training with train.py*
 
 ### Loss Function Arguments
 - `--loss`: Loss type (`ce`, `qwk`, `emd`, `ordinal_ce`, `combined`)

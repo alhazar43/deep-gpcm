@@ -31,7 +31,7 @@ def run_command(cmd, description):
         return False
 
 
-def run_complete_pipeline(models=['baseline', 'akvmn'], dataset='synthetic_OC', 
+def run_complete_pipeline(models=['deep_gpcm', 'attn_gpcm', 'coral_gpcm'], dataset='synthetic_OC', 
                          epochs=30, cv_folds=5, **kwargs):
     """Run the complete Deep-GPCM pipeline."""
     
@@ -62,7 +62,7 @@ def run_complete_pipeline(models=['baseline', 'akvmn'], dataset='synthetic_OC',
     
     results = {'training': {}, 'evaluation': {}}
     
-    # 1. Training phase with CV
+    # 1. Training phase with CV (model-specific loss configurations)
     print(f"\n{'='*20} TRAINING PHASE {'='*20}")
     for model in models:
         cmd = [
@@ -73,16 +73,25 @@ def run_complete_pipeline(models=['baseline', 'akvmn'], dataset='synthetic_OC',
             "--n_folds", str(cv_folds)
         ]
         
-        # Add common arguments
+        # Model-specific loss configuration
+        if model == 'coral_gpcm':
+            # CORAL-GPCM uses combined loss with balanced weights
+            cmd.extend(["--loss", "combined"])
+            cmd.extend(["--ce_weight", "0.5"])
+            cmd.extend(["--coral_weight", "0.5"])
+            print(f"  ⚙️  {model}: Using combined loss (CE: 0.5, CORAL: 0.5)")
+        else:
+            # deep_gpcm and attn_gpcm use standard cross-entropy
+            cmd.extend(["--loss", "ce"])
+            print(f"  ⚙️  {model}: Using cross-entropy loss")
+        
+        # Add common arguments (but skip loss-related if not specified by user)
         for key, value in kwargs.items():
             if key in ["batch_size", "lr", "seed"] and value is not None:
                 cmd.extend([f"--{key}", str(value)])
             elif key == "device" and value is not None:
                 cmd.extend([f"--{key}", value])
-            elif key == "loss" and value is not None:
-                cmd.extend([f"--{key}", value])
-            elif key in ["ce_weight", "qwk_weight", "emd_weight", "coral_weight", "ordinal_alpha"] and value is not None:
-                cmd.extend([f"--{key}", str(value)])
+            # Skip loss arguments - handled by model-specific configuration above
         
         success = run_command(cmd, f"Training {model.upper()}")
         results['training'][model] = success
@@ -195,15 +204,15 @@ def main():
     
     # Model and dataset selection
     parser.add_argument('--models', nargs='+', 
-                       choices=['baseline', 'akvmn', 'coral', 'hybrid_coral', 'corn', 'adaptive_corn', 'multitask_corn'], 
-                       default=['baseline', 'akvmn'], 
-                       help='Models to train/evaluate (supports CORAL and CORN models)')
+                       choices=['deep_gpcm', 'attn_gpcm', 'coral_gpcm'], 
+                       default=['deep_gpcm', 'attn_gpcm', 'coral_gpcm'], 
+                       help='Main pipeline models with optimized loss configurations')
     parser.add_argument('--dataset', default='synthetic_OC', help='Dataset name')
     
     # Training parameters
     parser.add_argument('--epochs', type=int, default=30, help='Number of epochs')
     parser.add_argument('--cv_folds', type=int, default=5, help='CV folds (0 = no CV)')
-    parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
+    parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
     parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--device', default=None, help='Device (cuda/cpu)')

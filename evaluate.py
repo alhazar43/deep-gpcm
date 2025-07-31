@@ -140,7 +140,7 @@ def load_trained_model(model_path, device):
     print(f"📊 Dataset config: {n_questions} questions, {n_cats} categories")
     
     # Create model based on type
-    if model_type == 'baseline':
+    if model_type == 'deep_gpcm':
         model = DeepGPCM(
             n_questions=n_questions,
             n_cats=n_cats,
@@ -149,7 +149,7 @@ def load_trained_model(model_path, device):
             value_dim=200,
             final_fc_dim=50
         )
-    elif model_type == 'akvmn':
+    elif model_type == 'attn_gpcm':
         # Use enhanced version with learnable parameters
         model = EnhancedAttentionGPCM(
             n_questions=n_questions,
@@ -164,49 +164,9 @@ def load_trained_model(model_path, device):
             embedding_strategy="linear_decay",
             ability_scale=2.0  # Default for old models
         )
-    elif model_type == 'coral':
-        from core.coral_gpcm import CORALDeepGPCM
-        model = CORALDeepGPCM(
-            n_questions=n_questions,
-            n_cats=n_cats,
-            memory_size=50,
-            key_dim=50,
-            value_dim=200,
-            final_fc_dim=50
-        )
-    elif model_type == 'hybrid_coral':
+    elif model_type == 'coral_gpcm':
         from core.coral_gpcm import HybridCORALGPCM
         model = HybridCORALGPCM(
-            n_questions=n_questions,
-            n_cats=n_cats,
-            memory_size=50,
-            key_dim=50,
-            value_dim=200,
-            final_fc_dim=50
-        )
-    elif model_type == 'corn':
-        from core.corn_gpcm import CORNDeepGPCM
-        model = CORNDeepGPCM(
-            n_questions=n_questions,
-            n_cats=n_cats,
-            memory_size=50,
-            key_dim=50,
-            value_dim=200,
-            final_fc_dim=50
-        )
-    elif model_type == 'adaptive_corn':
-        from core.corn_gpcm import AdaptiveCORNGPCM
-        model = AdaptiveCORNGPCM(
-            n_questions=n_questions,
-            n_cats=n_cats,
-            memory_size=50,
-            key_dim=50,
-            value_dim=200,
-            final_fc_dim=50
-        )
-    elif model_type == 'multitask_corn':
-        from core.corn_gpcm import MultiTaskCORNGPCM
-        model = MultiTaskCORNGPCM(
             n_questions=n_questions,
             n_cats=n_cats,
             memory_size=50,
