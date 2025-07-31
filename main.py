@@ -195,8 +195,8 @@ def main():
     
     # Model and dataset selection
     parser.add_argument('--models', nargs='+', 
-                       choices=['baseline', 'akvmn', 'coral', 'hybrid_coral'], 
-                       default=['baseline', 'akvmn'], 
+                       choices=['deep_gpcm', 'attn_gpcm', 'coral', 'coral_gpcm'], 
+                       default=['deep_gpcm', 'attn_gpcm'], 
                        help='Models to train/evaluate (supports CORAL models)')
     parser.add_argument('--dataset', default='synthetic_OC', help='Dataset name')
     

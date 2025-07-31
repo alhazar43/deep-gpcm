@@ -339,8 +339,8 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
 
 def main():
     parser = argparse.ArgumentParser(description='Unified Deep-GPCM Training')
-    parser.add_argument('--model', choices=['baseline', 'akvmn', 'coral', 'hybrid_coral'], required=True,
-                        help='Model to train (baseline, akvmn, coral, hybrid_coral)')
+    parser.add_argument('--model', choices=['deep_gpcm', 'attn_gpcm', 'coral', 'coral_gpcm'], required=True,
+                        help='Model to train (deep_gpcm, attn_gpcm, coral, coral_gpcm)')
     parser.add_argument('--dataset', default='synthetic_OC', help='Dataset name')
     parser.add_argument('--epochs', type=int, default=30, help='Number of epochs')
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size')

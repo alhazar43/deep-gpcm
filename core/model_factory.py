@@ -9,7 +9,7 @@ def create_model(model_type, n_questions, n_cats, **kwargs):
     """Create model based on type.
     
     Args:
-        model_type: 'baseline', 'akvmn', 'coral', 'hybrid_coral'
+        model_type: 'deep_gpcm', 'attn_gpcm', 'coral', 'coral_gpcm'
         n_questions: Number of questions
         n_cats: Number of response categories
         **kwargs: Additional model-specific parameters
@@ -29,10 +29,10 @@ def create_model(model_type, n_questions, n_cats, **kwargs):
         'dropout_rate': kwargs.get('dropout_rate', 0.0)
     }
     
-    if model_type == 'baseline':
+    if model_type == 'deep_gpcm':
         model = DeepGPCM(**common_params)
     
-    elif model_type == 'akvmn':
+    elif model_type == 'attn_gpcm':
         # Use enhanced version with learnable parameters
         model = EnhancedAttentionGPCM(
             n_questions=n_questions,
@@ -60,7 +60,7 @@ def create_model(model_type, n_questions, n_cats, **kwargs):
             coral_dropout=kwargs.get('coral_dropout', 0.1)
         )
     
-    elif model_type == 'hybrid_coral':
+    elif model_type == 'coral_gpcm':
         # Hybrid CORAL-GPCM model
         model = HybridCORALGPCM(
             **common_params,
@@ -72,6 +72,6 @@ def create_model(model_type, n_questions, n_cats, **kwargs):
     
     else:
         raise ValueError(f"Unknown model type: {model_type}. "
-                        f"Available: baseline, akvmn, coral, hybrid_coral")
+                        f"Available: deep_gpcm, attn_gpcm, coral, coral_gpcm")
     
     return model
