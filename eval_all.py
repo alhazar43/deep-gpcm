@@ -21,7 +21,7 @@ from sklearn.metrics import confusion_matrix
 # Import existing functionality
 from evaluate import (
     load_trained_model, load_simple_data, create_data_loaders, 
-    pad_sequence_batch, print_evaluation_summary
+    pad_sequence_batch
 )
 from utils.metrics import compute_metrics, save_results, ensure_results_dirs, OrdinalMetrics
 
@@ -283,7 +283,11 @@ def evaluate_all_models(model_paths, dataset='synthetic_OC', batch_size=32, devi
             
             # Print summary
             model_name = config['model_type']
-            print_evaluation_summary(eval_results, model_name)
+            print(f"\n🏆 {model_name.upper()} EVALUATION RESULTS:")
+            print(f"  Categorical Accuracy: {eval_results.get('categorical_accuracy', 0):.4f}")
+            print(f"  Ordinal Accuracy: {eval_results.get('ordinal_accuracy', 0):.4f}")
+            print(f"  Quadratic Weighted Kappa: {eval_results.get('quadratic_weighted_kappa', 0):.4f}")
+            print(f"  Mean Absolute Error: {eval_results.get('mean_absolute_error', 0):.4f}")
             
             # Prepare output data
             output_data = {

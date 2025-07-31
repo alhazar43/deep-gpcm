@@ -1,6 +1,6 @@
 # Deep-GPCM: Knowledge Tracing System
 
-Production-ready Deep Generalized Partial Credit Model for polytomous response prediction.
+Production-ready Deep Generalized Partial Credit Model for polytomous response prediction with CORAL ordinal regression support.
 
 ## Quick Start
 
@@ -8,9 +8,11 @@ Production-ready Deep Generalized Partial Credit Model for polytomous response p
 # Complete pipeline (training, evaluation, plotting, IRT analysis)
 python main.py --dataset synthetic_OC --epochs 30
 
-# Individual models
-python main.py --models baseline --dataset synthetic_OC --epochs 30
-python main.py --models akvmn --dataset synthetic_OC --epochs 30
+# Train with ordinal losses for better performance
+python main.py --models baseline coral --loss qwk --dataset synthetic_OC
+
+# Compare all models with combined loss
+python main.py --models baseline akvmn coral hybrid_coral --loss combined --qwk_weight 0.5
 ```
 
 ## Environment Setup
@@ -30,10 +32,12 @@ mkdir -p save_models results/{train,test,plots} logs irt_plots irt_animations
 
 | Model | Categorical Accuracy | Quadratic Weighted Kappa | Ordinal Accuracy | MAE |
 |-------|---------------------|-------------------------|------------------|------|
+| **Baseline** | 58.3% | 0.716 | 87.2% | 0.573 |
 | **AKVMN** | 55.9% | 0.694 | 86.8% | 0.600 |
-| **Baseline** | 58.3% | **0.716** ⭐ | **87.2%** ⭐ | **0.573** ⭐ |
+| **CORAL** | TBD | TBD | TBD | TBD |
+| **Hybrid CORAL** | TBD | TBD | TBD | TBD |
 
-*Results with corrected padding handling - more accurate baseline metrics*
+*Results with corrected padding handling. CORAL models expected to improve QWK by 5-10%.*
 
 ## Usage
 
@@ -53,6 +57,10 @@ python main.py --action evaluate --models baseline akvmn --dataset synthetic_OC
 ```bash
 # Training with cross-validation (default: 5-fold)
 python train.py --model baseline --dataset synthetic_OC --epochs 30 --n_folds 5
+
+# Training with ordinal losses
+python train.py --model coral --loss qwk --dataset synthetic_OC --epochs 30
+python train.py --model coral --loss combined --ce_weight 0.7 --qwk_weight 0.3
 
 # Batch evaluation (main models only - recommended)
 python evaluate.py --all --dataset synthetic_OC
@@ -82,20 +90,67 @@ python data_gen.py --format OC --categories 4 --students 800 --questions 400 --s
 python data_gen.py --format OC --categories 4 --students 1000 --questions 200 --min_seq 50 --max_seq 200
 ```
 
+## Ordinal Loss Functions
+
+The system supports specialized loss functions for ordinal regression:
+
+### Available Losses
+
+1. **Cross-Entropy (`ce`)**: Standard baseline loss
+2. **QWK Loss (`qwk`)**: Directly optimizes Quadratic Weighted Kappa
+3. **EMD Loss (`emd`)**: Earth Mover's Distance for ordinal data
+4. **Ordinal CE (`ordinal_ce`)**: Distance-weighted cross-entropy
+5. **Combined (`combined`)**: Weighted combination of multiple losses
+
+### Usage Examples
+
+```bash
+# Train with QWK loss for direct metric optimization
+python train.py --model coral --loss qwk --dataset synthetic_OC
+
+# Use combined loss for balanced optimization
+python train.py --model coral --loss combined --ce_weight 0.7 --qwk_weight 0.3
+
+# Complete pipeline with ordinal loss
+python main.py --models baseline coral --loss qwk --epochs 40
+```
+
+### Tips for Ordinal Losses
+
+- **QWK Loss**: May need lower learning rate (`--lr 0.0005`)
+- **Combined Loss**: Start with CE dominant (70% CE, 30% QWK)
+- **EMD Loss**: Works well for naturally ordered categories
+- **CORAL models**: Best paired with ordinal losses
+
 ## Architecture
 
 ### Models
 - **Baseline GPCM**: DKVMN + IRT parameter extraction + GPCM
 - **AKVMN**: Enhanced attention-based DKVMN with learnable parameters
+- **CORAL**: COnsistent RAnk Logits for ordinal regression with rank consistency
+- **Hybrid CORAL**: Blends CORAL ordinal structure with GPCM formulation
 
 ### Core Components
 ```
 core/
-├── model.py            # DeepGPCM and AttentionGPCM
+├── model.py              # DeepGPCM and AttentionGPCM
 ├── attention_enhanced.py # Enhanced AKVMN with learnable parameters  
-├── memory_networks.py  # DKVMN architecture
-├── embeddings.py       # Response embedding strategies
-└── layers.py          # Neural layers and IRT extraction
+├── memory_networks.py    # DKVMN architecture
+├── embeddings.py         # Response embedding strategies
+├── layers.py            # Neural layers and IRT extraction
+├── coral_layer.py       # CORAL ordinal regression layer
+├── coral_gpcm.py        # CORAL-GPCM integration models
+└── model_factory.py     # Unified model creation
+```
+
+### Ordinal Loss Functions
+```
+training/
+└── ordinal_losses.py    # Specialized losses for ordinal regression
+    ├── DifferentiableQWKLoss    # Direct QWK optimization
+    ├── OrdinalEMDLoss          # Earth Mover's Distance
+    ├── OrdinalCrossEntropyLoss # Distance-weighted CE
+    └── CombinedOrdinalLoss     # Weighted combination
 ```
 
 ### Pipeline
@@ -132,6 +187,8 @@ python analysis/irt_analysis.py --dataset synthetic_OC --save_params
 
 - **Unified Pipeline**: Single command for complete analysis workflow
 - **Enhanced AKVMN**: Learnable ability scale and embedding weights
+- **CORAL Integration**: Ordinal regression with rank consistency guarantees
+- **Specialized Ordinal Losses**: QWK, EMD, ordinal CE, and combined losses
 - **IRT Integration**: Full temporal IRT parameter analysis
 - **Comprehensive Metrics**: Categorical accuracy, QWK, ordinal accuracy, MAE
 - **Professional Visualizations**: Publication-ready plots with consistent styling
@@ -140,13 +197,21 @@ python analysis/irt_analysis.py --dataset synthetic_OC --save_params
 ## Configuration
 
 ### Main Arguments
-- `--models`: Model types (`baseline`, `akvmn`)
+- `--models`: Model types (`baseline`, `akvmn`, `coral`, `hybrid_coral`)
 - `--dataset`: Dataset name (default: `synthetic_OC`)
 - `--epochs`: Training epochs (default: 30)
 - `--cv_folds`: Cross-validation folds (default: 5)
 - `--batch_size`: Batch size (default: 32)
 - `--device`: Device selection (`cuda`/`cpu`)
 - `--action`: Pipeline action (`pipeline`, `train`, `evaluate`)
+
+### Loss Function Arguments
+- `--loss`: Loss type (`ce`, `qwk`, `emd`, `ordinal_ce`, `combined`)
+- `--ce_weight`: Weight for CE in combined loss (default: 1.0)
+- `--qwk_weight`: Weight for QWK in combined loss (default: 0.5)
+- `--emd_weight`: Weight for EMD in combined loss (default: 0.0)
+- `--coral_weight`: Weight for CORAL loss (default: 0.0)
+- `--ordinal_alpha`: Alpha for ordinal CE (default: 1.0)
 
 ### Data Formats
 - **Ordered Categories (OC)**: Discrete responses {0, 1, 2, ..., K-1}

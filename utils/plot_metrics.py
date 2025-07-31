@@ -159,6 +159,14 @@ class AdaptivePlotter:
                 if 'evaluation_results' in result:
                     row.update(result['evaluation_results'])
                 
+                # Also extract top-level metrics (for per-category accuracy, etc.)
+                excluded_top_level = {'config', 'source_file', 'timestamp', 'predictions', 
+                                    'probabilities', 'actual_labels', 'confusion_matrix',
+                                    'ordinal_distances', 'category_transitions', 'training_history'}
+                for key, value in result.items():
+                    if key not in excluded_top_level and isinstance(value, (int, float, str)):
+                        row[key] = value
+                
                 # Add model info from config
                 if 'config' in result:
                     model_type = result['config'].get('model_type', 
@@ -310,7 +318,7 @@ class AdaptivePlotter:
                         # Highlighted mean line - bold and prominent (only this in legend)
                         ax.plot(epoch_stats['epoch'], epoch_stats['mean'], 
                                color=model_color_map[model], linewidth=3, 
-                               label=f'{model} (mean)', linestyle='-', 
+                               label=f'{model}', linestyle='-', 
                                marker='o', markersize=3, markevery=3)
                         
                         # Add final mean value annotation only for best model - position below curve
@@ -382,7 +390,7 @@ class AdaptivePlotter:
         for idx in range(n_metrics, len(axes)):
             axes[idx].set_visible(False)
         
-        plt.suptitle(f'Training Metrics Over Epochs ({len(results)} experiments)', 
+        plt.suptitle('Training Metrics Over Epochs', 
                     fontsize=14, fontweight='bold')
         plt.tight_layout()
         
@@ -573,7 +581,7 @@ class AdaptivePlotter:
                                    label=model) for model in models]
             axes[0].legend(handles=legend_elements, loc='upper left', fontsize=9)
         
-        plt.suptitle(f'{result_type.title()} Results Comparison ({len(results)} experiments)', 
+        plt.suptitle(f'{result_type.title()} Results Comparison', 
                     fontsize=14, fontweight='bold')
         plt.tight_layout()
         
@@ -592,157 +600,188 @@ class AdaptivePlotter:
     def plot_metric_comparison(self, train_results: List[Dict[str, Any]], 
                              test_results: List[Dict[str, Any]],
                              save_path: Optional[str] = None) -> str:
-        """Create side-by-side comparison of training and test metrics."""
-        # Extract final training metrics
-        train_metrics, train_df = self.extract_metrics_from_results(train_results, "training")
-        test_metrics, test_df = self.extract_metrics_from_results(test_results, "evaluation")
+        """Create side-by-side comparison of training and test metrics with highlighting."""
+        # All available metrics
+        ALL_METRICS = [
+            'categorical_accuracy',
+            'ordinal_accuracy',
+            'quadratic_weighted_kappa',
+            'mean_absolute_error',
+            'kendall_tau',
+            'spearman_correlation',
+            'cohen_kappa',
+            'cross_entropy'
+        ]
         
-        # Find common metrics
-        common_metrics = list(set(train_metrics) & set(test_metrics))
-        common_metrics = self.filter_metrics_for_plotting(common_metrics, "auto")
+        # Metrics where lower is better
+        LOWER_IS_BETTER = ['mean_absolute_error', 'cross_entropy']
         
-        if not common_metrics:
-            print("No common metrics found between training and test results.")
+        # Extract data from results
+        train_data = {}
+        test_data = {}
+        
+        # Process training results (from CV summaries)
+        for result in train_results:
+            if 'config' in result and 'cv_summary' in result:
+                model = result['config'].get('model', 'unknown')
+                train_data[model] = result['cv_summary']
+        
+        # Process test results
+        for result in test_results:
+            if 'config' in result:
+                model = result['config'].get('model_type', result['config'].get('model', 'unknown'))
+                test_data[model] = result
+        
+        if not train_data or not test_data:
+            print("Insufficient data for training vs test comparison.")
             return ""
         
-        # Get final training values (last epoch)
-        if 'epoch' in train_df.columns:
-            if 'fold' in train_df.columns:
-                # Group by model and fold for CV results
-                final_train_df = train_df.loc[train_df.groupby(['model_type', 'fold'])['epoch'].idxmax()]
+        # Common models
+        models = sorted(list(set(train_data.keys()) & set(test_data.keys())))
+        if not models:
+            print("No common models found between training and test results.")
+            return ""
+        
+        # Consistent model colors
+        model_colors = {
+            'baseline': '#ff7f0e',  # Orange
+            'akvmn': '#1f77b4',     # Blue
+            'coral': '#2ca02c',     # Green
+            'hybrid_coral': '#d62728'  # Red
+        }
+        
+        # Helper function to highlight best value
+        def highlight_best_value(ax, bars, values, metric):
+            """Highlight the best performing model."""
+            if metric in LOWER_IS_BETTER:
+                best_idx = np.argmin(values)
             else:
-                # Group by model only for non-CV results
-                final_train_df = train_df.loc[train_df.groupby(['model_type'])['epoch'].idxmax()]
-        else:
-            final_train_df = train_df
+                best_idx = np.argmax(values)
+            
+            
+            # Add star above best bar
+            best_bar = bars[best_idx]
+            height = best_bar.get_height()
+            ax.annotate('★', 
+                        xy=(best_bar.get_x() + best_bar.get_width()/2, height),
+                        xytext=(0, 5),
+                        textcoords='offset points',
+                        ha='center', va='bottom',
+                        fontsize=14,
+                        color='gold',
+                        weight='bold')
+            
+            # Add border
+            best_bar.set_edgecolor('black')
+            best_bar.set_linewidth(2)
         
-        # Create comparison plot
-        n_metrics = len(common_metrics)
-        rows, cols = self.calculate_subplot_layout(n_metrics)
+        # Create figure with proper layout for all metrics
+        n_metrics = len(ALL_METRICS)
+        cols = 4
+        rows = (n_metrics + cols - 1) // cols
+        fig, axes = plt.subplots(rows, cols, figsize=(16, rows * 3.5))
+        axes = axes.flatten()
         
-        fig_width = cols * self.figsize_base[0]
-        fig_height = rows * self.figsize_base[1]
-        fig, axes = plt.subplots(rows, cols, figsize=(fig_width, fig_height))
-        
-        if n_metrics == 1:
-            axes = [axes]
-        elif rows == 1 or cols == 1:
-            axes = axes.flatten()
-        else:
-            axes = axes.flatten()
-        
-        models = set()
-        if 'model_type' in final_train_df.columns:
-            models.update(final_train_df['model_type'].unique())
-        if 'model_type' in test_df.columns:
-            models.update(test_df['model_type'].unique())
-        models = sorted(list(models))
-        
-        # Plot comparison for each metric
-        for idx, metric in enumerate(common_metrics):
+        for idx, metric in enumerate(ALL_METRICS):
             ax = axes[idx]
             
-            n_models = len(models)
-            bar_width = 0.8 / n_models  # Dynamic width based on number of models
-            gap_width = 0.3  # Small gap between train and test groups (similar to test_metrics.png)
+            # Skip if metric not available
+            has_metric = False
+            for model in models:
+                if (model in train_data and metric in train_data[model]) or                    (model in test_data and metric in test_data[model]):
+                    has_metric = True
+                    break
             
-            # Calculate x positions: train models side-by-side, gap, test models side-by-side
-            train_positions = np.arange(n_models) * bar_width
-            test_positions = np.arange(n_models) * bar_width + n_models * bar_width + gap_width
+            if not has_metric:
+                ax.set_visible(False)
+                continue
+            
+            # Set up positions for grouped bars
+            n_models = len(models)
+            x = np.arange(2)  # Two groups: Train and Test
+            width = 0.25 if n_models <= 3 else 0.2
             
             train_values = []
             test_values = []
             
-            for model in models:
-                # Training values
-                train_model_data = final_train_df[final_train_df['model_type'] == model] if 'model_type' in final_train_df.columns else final_train_df
-                train_val = train_model_data[metric].mean() if not train_model_data.empty and metric in train_model_data.columns else 0
-                train_values.append(train_val)
-                
-                # Test values
-                test_model_data = test_df[test_df['model_type'] == model] if 'model_type' in test_df.columns else test_df
-                test_val = test_model_data[metric].mean() if not test_model_data.empty and metric in test_model_data.columns else 0
-                test_values.append(test_val)
-            
-            # Determine if higher is better for this metric
-            higher_is_better = not any(keyword in metric.lower() for keyword in 
-                                     ['error', 'loss', 'entropy']) 
-            
-            # Find best performing model for test values (most important)
-            if test_values and any(v > 0 for v in test_values):
-                if higher_is_better:
-                    best_idx = np.argmax(test_values)
-                else:
-                    best_idx = np.argmin(test_values)
-            else:
-                best_idx = -1  # No highlighting
-            
-            # Create bars colored by model
+            # Plot each model
             for i, model in enumerate(models):
-                color = self.get_model_color(model)
-                
-                # Training bars
-                train_bar = ax.bar(train_positions[i], train_values[i], bar_width, 
-                                  color=color, alpha=0.8, label=model,
-                                  edgecolor='green' if i == best_idx else 'black', 
-                                  linewidth=3 if i == best_idx else 1)
-                
-                # Test bars (no label to avoid duplicate legend entries)
-                test_bar = ax.bar(test_positions[i], test_values[i], bar_width,
-                                 color=color, alpha=0.8,
-                                 edgecolor='green' if i == best_idx else 'black', 
-                                 linewidth=3 if i == best_idx else 1)
-                
-                # Add star for best test performer
-                if i == best_idx:
-                    ax.annotate('★', xy=(test_positions[i] + bar_width/2, test_values[i]),
-                              xytext=(0, 5), textcoords='offset points',
-                              ha='center', fontsize=14, color='gold', 
-                              fontweight='bold')
-            
-            # Add value labels only for best performer
-            for i, (train_val, test_val) in enumerate(zip(train_values, test_values)):
-                if i == best_idx:
-                    # Training value for best model
-                    if train_val > 0:
-                        ax.text(train_positions[i], train_val + 0.01 * (ax.get_ylim()[1] - ax.get_ylim()[0]), 
-                               f'{train_val:.4f}', ha='center', va='bottom', fontsize=9)
+                # Get values
+                if model in train_data and metric in train_data[model]:
+                    train_val = train_data[model][metric]['mean']
+                else:
+                    train_val = 0
                     
-                    # Test value for best model
-                    if test_val > 0:
-                        ax.text(test_positions[i], test_val + 0.01 * (ax.get_ylim()[1] - ax.get_ylim()[0]), 
-                               f'{test_val:.4f}', ha='center', va='bottom', fontsize=9,
-                               fontweight='bold')
+                test_val = test_data[model].get(metric, 0)
+                
+                train_values.append(train_val)
+                test_values.append(test_val)
+                
+                # Calculate positions
+                positions = x + (i - n_models/2 + 0.5) * width
+                
+                # Plot bars
+                values = [train_val, test_val]
+                color = model_colors.get(model, f'C{i}')
+                bars = ax.bar(positions, values, width, 
+                              label=model.capitalize(), 
+                              color=color,
+                              alpha=0.8)
+                
+                # Add value labels on bars
+                for bar, val in zip(bars, values):
+                    height = bar.get_height()
+                    ax.text(bar.get_x() + bar.get_width()/2., height + 0.005,
+                            f'{val:.3f}', ha='center', va='bottom', fontsize=8)
             
-            # Set x-axis labels
-            ax.set_ylabel(metric.replace('_', ' ').title())
-            ax.set_title(metric.replace('_', ' ').title())
+            # Highlight best performers on both training AND test data
+            # Find train bars (x position around 0) and test bars (x position around 1)
+            train_bars = []
+            test_bars = []
+            for patch in ax.patches:
+                if patch.get_x() < 0.5:  # Train bars have x position < 0.5
+                    train_bars.append(patch)
+                else:  # Test bars have x position > 0.5
+                    test_bars.append(patch)
             
-            # Only show "Training" and "Test" labels
-            train_center = np.mean(train_positions)
-            test_center = np.mean(test_positions)
-            ax.set_xticks([train_center, test_center])
-            ax.set_xticklabels(['Training', 'Test'], fontsize=11, fontweight='bold')
+            # Highlight best training performer
+            if len(train_bars) == len(train_values) and any(v > 0 for v in train_values):
+                highlight_best_value(ax, train_bars, train_values, metric)
             
-            # Create custom legend without highlighting
-            from matplotlib.patches import Patch
-            legend_elements = [Patch(facecolor=self.get_model_color(model), 
-                                   edgecolor='black', linewidth=1, 
-                                   label=model) for model in models]
-            # Move legend to bottom left to avoid blocking numbers
-            ax.legend(handles=legend_elements, loc='lower left', fontsize=9)
-            ax.grid(True, alpha=0.3, axis='y')
+            # Highlight best test performer  
+            if len(test_bars) == len(test_values) and any(v > 0 for v in test_values):
+                highlight_best_value(ax, test_bars, test_values, metric)
             
-            # Add extra padding to y-axis to prevent legend overlap
-            y_min, y_max = ax.get_ylim()
-            y_range = y_max - y_min
-            ax.set_ylim(y_min, y_max + y_range * 0.15)  # Add 15% extra space at top
+            # Customize subplot
+            title = metric.replace('_', ' ').title()
+            if metric in LOWER_IS_BETTER:
+                title += ' ↓'
+            else:
+                title += ' ↑'
+            ax.set_title(title, fontsize=11, fontweight='bold')
+            ax.set_xticks(x)
+            ax.set_xticklabels(['Train', 'Test'], fontsize=10)
+            ax.set_ylabel('Score', fontsize=9)
+            
+            # Set y-axis limits based on metric
+            if metric in ['mean_absolute_error', 'cross_entropy']:
+                max_val = max(train_values + test_values) if (train_values + test_values) else 1
+                ax.set_ylim(0, max_val * 1.2)
+            else:
+                ax.set_ylim(0, 1.05)
+            
+            ax.grid(axis='y', alpha=0.3)
+            
+            # Add legend only to first subplot
+            if idx == 0:
+                ax.legend(loc='upper left', framealpha=0.9, fontsize=9)
         
         # Hide empty subplots
-        for idx in range(n_metrics, len(axes)):
+        for idx in range(len(ALL_METRICS), len(axes)):
             axes[idx].set_visible(False)
         
-        plt.suptitle('Training vs Test Performance Comparison', fontsize=14, fontweight='bold')
+        # Overall title
+        plt.suptitle('Training vs Test Performance Comparison (★ = Best)', fontsize=16, fontweight='bold')
         plt.tight_layout()
         
         # Save plot
@@ -756,7 +795,7 @@ class AdaptivePlotter:
         
         print(f"Training vs test comparison plot saved: {save_path}")
         return str(save_path)
-    
+
     def plot_categorical_breakdown(self, results: List[Dict[str, Any]], 
                                  result_type: str = "test",
                                  save_path: Optional[str] = None) -> str:
@@ -1837,7 +1876,17 @@ def plot_all_results(results_dir: str = "results"):
     
     # Plot test metrics if available
     if test_results:
-        plot_path = plotter.plot_evaluation_metrics(test_results, "test")
+        # Plot with specific metrics for better visualization
+        metrics_to_plot = [
+            'categorical_accuracy',
+            'ordinal_accuracy', 
+            'quadratic_weighted_kappa',
+            'mean_absolute_error',
+            'kendall_tau',
+            'spearman_correlation',
+            'cohen_kappa'
+        ]
+        plot_path = plotter.plot_evaluation_metrics(test_results, "test", metrics_to_plot)
         if plot_path:
             generated_plots.append(plot_path)
     

@@ -26,6 +26,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.model import DeepGPCM, AttentionGPCM
 from core.attention_enhanced import EnhancedAttentionGPCM
+from core.coral_gpcm import HybridCORALGPCM
 from train import load_simple_data, create_data_loaders
 
 
@@ -37,9 +38,13 @@ class UnifiedIRTAnalyzer:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Initialize consistent model coloring system
-        self.model_colors = {}
-        self.color_sequence = 0
+        # Initialize consistent model coloring system (matching utils/plot_metrics.py)
+        self.model_colors = {
+            'baseline': '#ff7f0e',      # Orange
+            'akvmn': '#1f77b4',         # Blue
+            'coral': '#2ca02c',         # Green
+            'hybrid_coral': '#d62728'   # Red
+        }
         
         # Load data
         data_dir = Path('data') / dataset
@@ -66,33 +71,13 @@ class UnifiedIRTAnalyzer:
     
     def get_model_color(self, model_name: str) -> str:
         """Get consistent color for a model, matching the main plotting system."""
-        if model_name not in self.model_colors:
-            # Use predefined colors for known models (matching plot_metrics.py)
-            known_colors = {
-                'akvmn': '#1f77b4',      # Blue
-                'baseline': '#ff7f0e',   # Orange
-                'attention': '#1f77b4',  # Blue (alias for akvmn)
-                'enhanced': '#2ca02c',   # Green
-                'bayesian': '#d62728',   # Red
-            }
-            
-            if model_name in known_colors:
-                self.model_colors[model_name] = known_colors[model_name]
-            else:
-                # Use tab10 colors for unknown models
-                colors = plt.cm.tab10.colors if hasattr(plt.cm.tab10, 'colors') else plt.cm.tab10(range(10))
-                base_idx = self.color_sequence % 10
-                if self.color_sequence >= 10:
-                    # Darken or lighten for additional models
-                    factor = 0.7 if (self.color_sequence // 10) % 2 == 0 else 1.3
-                    color = tuple(min(1.0, c * factor) for c in colors[base_idx][:3])
-                else:
-                    color = colors[base_idx][:3]  # RGB only
-                
-                self.model_colors[model_name] = color
-                self.color_sequence += 1
-        
-        return self.model_colors[model_name]
+        if model_name in self.model_colors:
+            return self.model_colors[model_name]
+        else:
+            # Use tab10 colors for unknown models
+            colors = plt.cm.tab10.colors if hasattr(plt.cm.tab10, 'colors') else plt.cm.tab10(range(10))
+            base_idx = len(self.model_colors) % 10
+            return colors[base_idx]
     
     def find_models(self):
         """Automatically find all trained models for the dataset."""
@@ -124,12 +109,25 @@ class UnifiedIRTAnalyzer:
                                   for key in checkpoint['model_state_dict'].keys())
         has_memory_fusion = any('memory_fusion' in key or 'refinement_gates' in key 
                                for key in checkpoint['model_state_dict'].keys())
+        has_coral_projection = any('coral_projection' in key for key in checkpoint['model_state_dict'].keys())
+        has_coral_layer = any('coral_layer' in key for key in checkpoint['model_state_dict'].keys())
         
         # Determine model type from config or state dict
         if 'config' in checkpoint:
             model_type = checkpoint['config'].get('model_type', 'baseline')
         else:
-            model_type = 'attention' if 'attention_refinement' in str(checkpoint['model_state_dict'].keys()) else 'baseline'
+            if has_coral_projection:
+                model_type = 'hybrid_coral'
+            elif has_coral_layer:
+                model_type = 'coral'  # Skip CORAL models as they don't have IRT params
+            elif 'attention_refinement' in str(checkpoint['model_state_dict'].keys()):
+                model_type = 'attention'
+            else:
+                model_type = 'baseline'
+        
+        # Skip CORAL models as they don't have IRT parameters
+        if model_type == 'coral':
+            raise ValueError(f"CORAL model does not have IRT parameters - skipping")
         
         # Create model
         if has_learnable_params or ('akvmn' in model_path):
@@ -147,6 +145,15 @@ class UnifiedIRTAnalyzer:
                 ability_scale=2.0
             )
             model_type = 'enhanced_attention'
+        elif model_type == 'hybrid_coral':
+            model = HybridCORALGPCM(
+                n_questions=self.n_questions,
+                n_cats=self.n_cats,
+                memory_size=50,
+                key_dim=50,
+                value_dim=200,
+                final_fc_dim=50
+            )
         elif model_type == 'attention' or 'attention' in str(checkpoint['model_state_dict'].keys()):
             model = AttentionGPCM(n_questions=self.n_questions, n_cats=self.n_cats)
         else:
@@ -413,34 +420,41 @@ class UnifiedIRTAnalyzer:
         if n_models == 1:
             axes = axes.reshape(1, -1)
         
-        # Determine best model first
-        best_model = None
-        best_avg_corr = -1
+        # Determine best model for each parameter type separately
+        best_models = {}
         
         if len(models_with_corr) > 1:
-            for model_name, results in models_with_corr:
-                corr = results['correlations']
-                # Calculate average absolute correlation
-                correlations = []
-                if 'theta_correlation' in corr:
-                    correlations.append(abs(corr['theta_correlation']))
-                if 'alpha_correlation' in corr:
-                    correlations.append(abs(corr['alpha_correlation']))
-                if 'beta_correlations' in corr:
-                    correlations.extend([abs(c) for c in corr['beta_correlations']])
+            # Find best model for each parameter type
+            parameter_types = ['theta', 'alpha'] + [f'beta_{i}' for i in range(3)]  # Assuming max 3 thresholds
+            
+            for param_type in parameter_types:
+                best_corr = -1
+                best_model_for_param = None
                 
-                if correlations:
-                    avg_corr = np.mean(correlations)
-                    if avg_corr > best_avg_corr:
-                        best_avg_corr = avg_corr
-                        best_model = model_name
+                for model_name, results in models_with_corr:
+                    corr = results['correlations']
+                    param_corr = None
+                    
+                    if param_type == 'theta' and 'theta_correlation' in corr:
+                        param_corr = corr['theta_correlation']
+                    elif param_type == 'alpha' and 'alpha_correlation' in corr:
+                        param_corr = corr['alpha_correlation']
+                    elif param_type.startswith('beta_') and 'beta_correlations' in corr:
+                        beta_idx = int(param_type.split('_')[1])
+                        if beta_idx < len(corr['beta_correlations']):
+                            param_corr = corr['beta_correlations'][beta_idx]
+                    
+                    if param_corr is not None and param_corr > best_corr:
+                        best_corr = param_corr
+                        best_model_for_param = model_name
+                
+                best_models[param_type] = best_model_for_param
 
         for idx, (model_name, results) in enumerate(models_with_corr):
                 
             params = results['aggregated_params']
             corr = results['correlations']
             model_color = self.get_model_color(model_name)
-            is_best = (model_name == best_model)
             
             # Student ability plot
             if 'theta_correlation' in corr:
@@ -453,7 +467,8 @@ class UnifiedIRTAnalyzer:
                 
                 # Add star and green color for best model
                 title_text = f'{model_name.upper()}\nStudent Ability (r={corr["theta_correlation"]:.3f})'
-                if is_best:
+                is_best_theta = best_models.get('theta') == model_name
+                if is_best_theta:
                     title_text += ' ★'
                     ax.set_title(title_text, color='green', fontweight='bold')
                 else:
@@ -471,7 +486,9 @@ class UnifiedIRTAnalyzer:
                 ax.set_ylabel('Learned α')
                 
                 title_text = f'Discrimination (r={corr["alpha_correlation"]:.3f})'
-                if is_best:
+                is_best_alpha = best_models.get('alpha') == model_name
+                if is_best_alpha:
+                    title_text += ' ★'
                     ax.set_title(title_text, color='green', fontweight='bold')
                 else:
                     ax.set_title(title_text)
@@ -489,7 +506,9 @@ class UnifiedIRTAnalyzer:
                     ax.set_ylabel(f'Learned β_{k}')
                     
                     title_text = f'Threshold {k} (r={corr["beta_correlations"][k]:.3f})'
-                    if is_best:
+                    is_best_beta = best_models.get(f'beta_{k}') == model_name
+                    if is_best_beta:
+                        title_text += ' ★'
                         ax.set_title(title_text, color='green', fontweight='bold')
                     else:
                         ax.set_title(title_text)
@@ -497,7 +516,7 @@ class UnifiedIRTAnalyzer:
                     ax.grid(True, alpha=0.3)
         
         plt.suptitle('IRT Parameter Recovery Analysis\n' +
-                    'All parameters normalized with standard IRT priors\n★ = Best average correlation',
+                    'All parameters normalized with standard IRT priors\n★ = Best correlation per parameter type',
                     fontsize=14, fontweight='bold')
         plt.tight_layout()
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
@@ -757,16 +776,17 @@ class UnifiedIRTAnalyzer:
         """Create combined visualization showing temporal α, β, and resulting GPCM probabilities."""
         n_models = len(temporal_data_dict)
         
-        # Create subplots: 3 rows per model (alpha, beta_0, probabilities)
-        fig, axes = plt.subplots(n_models * 3, 1, figsize=(14, 6 * n_models))
+        # Create subplots: 3 columns per model (alpha, beta_0, probabilities) arranged horizontally
+        fig, axes = plt.subplots(n_models, 3, figsize=(18, 5 * n_models))
         
-        if n_models * 3 == 1:
-            axes = [axes]
-        elif n_models == 1:
-            # Single model, 3 subplots
-            pass
+        if n_models == 1:
+            # Single model, 3 subplots in horizontal row
+            axes = axes.reshape(1, -1)
         
-        plot_idx = 0
+        # Ensure axes is always 2D for consistent indexing
+        if axes.ndim == 1:
+            axes = axes.reshape(1, -1)
+        
         for model_idx, (model_name, temporal_data) in enumerate(temporal_data_dict.items()):
             model_color = self.get_model_color(model_name)
             
@@ -800,7 +820,7 @@ class UnifiedIRTAnalyzer:
                     prob_matrix[display_idx, t] = gpcm_probs[t, predicted_category]
             
             # Plot 1: Temporal Alpha (Discrimination)
-            ax_alpha = axes[plot_idx]
+            ax_alpha = axes[model_idx, 0]
             im_alpha = ax_alpha.imshow(alpha_matrix, cmap='viridis', aspect='auto', 
                                      interpolation='nearest')
             ax_alpha.set_ylabel('Students')
@@ -812,10 +832,9 @@ class UnifiedIRTAnalyzer:
             y_ticks = np.arange(0, n_students, 4)
             ax_alpha.set_yticks(y_ticks)
             ax_alpha.set_yticklabels([student_labels[i] for i in y_ticks])
-            plot_idx += 1
             
             # Plot 2: Temporal Beta (First Threshold)  
-            ax_beta = axes[plot_idx]
+            ax_beta = axes[model_idx, 1]
             im_beta = ax_beta.imshow(beta_matrix, cmap='plasma', aspect='auto',
                                    interpolation='nearest')
             ax_beta.set_ylabel('Students')
@@ -826,10 +845,9 @@ class UnifiedIRTAnalyzer:
             # Set y-ticks
             ax_beta.set_yticks(y_ticks)
             ax_beta.set_yticklabels([student_labels[i] for i in y_ticks])
-            plot_idx += 1
             
             # Plot 3: Resulting GPCM Probabilities
-            ax_prob = axes[plot_idx]
+            ax_prob = axes[model_idx, 2]
             im_prob = ax_prob.imshow(prob_matrix, cmap='RdYlGn', aspect='auto',
                                    interpolation='nearest', vmin=0, vmax=1)
             ax_prob.set_xlabel('Question/Time Steps')
@@ -847,7 +865,6 @@ class UnifiedIRTAnalyzer:
             
             ax_prob.set_yticks(y_ticks)
             ax_prob.set_yticklabels([student_labels[i] for i in y_ticks])
-            plot_idx += 1
         
         plt.suptitle('Temporal IRT Parameters → GPCM Probabilities\n(α and β evolve over time, determining probability calculations)', 
                     fontsize=14, fontweight='bold')

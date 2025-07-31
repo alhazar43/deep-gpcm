@@ -1,7 +1,0 @@
-2025-07-22 13:52:11,252 - INFO - Training Deep-GPCM on synthetic_OC
-2025-07-22 13:52:11,252 - INFO - Device: cpu, Categories: None, Loss: ordinal, Embedding: linear_decay
-2025-07-22 13:52:11,252 - INFO - Loading training data...
-2025-07-22 13:52:11,256 - INFO - Train data: 160 sequences, 4 categories
-2025-07-22 13:52:11,256 - INFO - Loading test data...
-2025-07-22 13:52:11,257 - INFO - Test data: 40 sequences
-2025-07-22 13:52:11,258 - INFO - Detected 29 unique questions

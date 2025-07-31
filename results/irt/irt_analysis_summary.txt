@@ -3,7 +3,7 @@ UNIFIED IRT ANALYSIS REPORT
 ================================================================================
 
 Dataset: synthetic_OC
-Models analyzed: 2
+Models analyzed: 3
 
 Analysis settings:
 - Student ability method: last
@@ -16,6 +16,30 @@ Parameter normalization:
 - Thresholds (β): Normal prior (mean=0, std=1)
 
 --------------------------------------------------------------------------------
+
+MODEL: HYBRID_CORAL
+  Type: hybrid_coral
+
+  Student Ability (θ) Recovery:
+    Correlation: -0.0519
+    Students analyzed: 160
+
+  Item Parameter Recovery:
+    Discrimination (α): 0.6456
+    Items analyzed: 399/400
+    Threshold correlations:
+      β_0: 0.5972
+      β_1: 0.6159
+      β_2: 0.5607
+    Average β correlation: 0.5913
+
+  Student ability statistics:
+    Range: [-1.819, 1.918]
+    Mean: 0.054, Std: 0.771
+
+  Discrimination statistics:
+    Range: [1.938, 3.731]
+    Mean: 2.790, Std: 0.312
 
 MODEL: BASELINE
   Type: baseline

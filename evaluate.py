@@ -164,6 +164,56 @@ def load_trained_model(model_path, device):
             embedding_strategy="linear_decay",
             ability_scale=2.0  # Default for old models
         )
+    elif model_type == 'coral':
+        from core.coral_gpcm import CORALDeepGPCM
+        model = CORALDeepGPCM(
+            n_questions=n_questions,
+            n_cats=n_cats,
+            memory_size=50,
+            key_dim=50,
+            value_dim=200,
+            final_fc_dim=50
+        )
+    elif model_type == 'hybrid_coral':
+        from core.coral_gpcm import HybridCORALGPCM
+        model = HybridCORALGPCM(
+            n_questions=n_questions,
+            n_cats=n_cats,
+            memory_size=50,
+            key_dim=50,
+            value_dim=200,
+            final_fc_dim=50
+        )
+    elif model_type == 'corn':
+        from core.corn_gpcm import CORNDeepGPCM
+        model = CORNDeepGPCM(
+            n_questions=n_questions,
+            n_cats=n_cats,
+            memory_size=50,
+            key_dim=50,
+            value_dim=200,
+            final_fc_dim=50
+        )
+    elif model_type == 'adaptive_corn':
+        from core.corn_gpcm import AdaptiveCORNGPCM
+        model = AdaptiveCORNGPCM(
+            n_questions=n_questions,
+            n_cats=n_cats,
+            memory_size=50,
+            key_dim=50,
+            value_dim=200,
+            final_fc_dim=50
+        )
+    elif model_type == 'multitask_corn':
+        from core.corn_gpcm import MultiTaskCORNGPCM
+        model = MultiTaskCORNGPCM(
+            n_questions=n_questions,
+            n_cats=n_cats,
+            memory_size=50,
+            key_dim=50,
+            value_dim=200,
+            final_fc_dim=50
+        )
     else:
         raise ValueError(f"Unknown model type: {model_type}")
     
@@ -386,8 +436,13 @@ def find_trained_models(models_dir: str = "save_models") -> dict:
         # Expected format: best_modeltype_dataset.pth
         parts = model_name.split('_')
         if len(parts) >= 3 and parts[0] == 'best':
-            model_type = parts[1]
-            dataset = '_'.join(parts[2:])
+            # Handle hybrid_coral as a single model type
+            if len(parts) >= 4 and parts[1] == 'hybrid' and parts[2] == 'coral':
+                model_type = 'hybrid_coral'
+                dataset = '_'.join(parts[3:])
+            else:
+                model_type = parts[1]
+                dataset = '_'.join(parts[2:])
             
             if dataset not in model_files:
                 model_files[dataset] = {}

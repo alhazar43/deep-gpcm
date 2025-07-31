@@ -122,7 +122,33 @@ def create_model(model_type, n_questions, n_cats, device):
     return model.to(device)
 
 
-def train_single_fold(model, train_loader, test_loader, device, epochs, model_name, fold=None):
+def create_loss_function(loss_type, n_cats, **kwargs):
+    """Create loss function based on type."""
+    if loss_type == 'ce':
+        return nn.CrossEntropyLoss()
+    elif loss_type == 'qwk':
+        from training.ordinal_losses import DifferentiableQWKLoss
+        return DifferentiableQWKLoss(n_cats)
+    elif loss_type == 'emd':
+        from training.ordinal_losses import OrdinalEMDLoss
+        return OrdinalEMDLoss(n_cats)
+    elif loss_type == 'ordinal_ce':
+        from training.ordinal_losses import OrdinalCrossEntropyLoss
+        return OrdinalCrossEntropyLoss(n_cats, alpha=kwargs.get('ordinal_alpha', 1.0))
+    elif loss_type == 'combined':
+        from training.ordinal_losses import CombinedOrdinalLoss
+        return CombinedOrdinalLoss(
+            n_cats,
+            ce_weight=kwargs.get('ce_weight', 1.0),
+            qwk_weight=kwargs.get('qwk_weight', 0.5),
+            emd_weight=kwargs.get('emd_weight', 0.0),
+            coral_weight=kwargs.get('coral_weight', 0.0)
+        )
+    else:
+        raise ValueError(f"Unknown loss type: {loss_type}")
+
+
+def train_single_fold(model, train_loader, test_loader, device, epochs, model_name, fold=None, loss_type='ce', loss_kwargs=None):
     """Train a single model (one fold or no CV)."""
     print(f"\\n🚀 TRAINING: {model_name}" + (f" (Fold {fold})" if fold is not None else ""))
     print("-" * 60)
@@ -138,7 +164,10 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
     
     model.apply(init_weights)
     
-    criterion = nn.CrossEntropyLoss()
+    # Create loss function
+    loss_kwargs = loss_kwargs or {}
+    criterion = create_loss_function(loss_type, model.n_cats, **loss_kwargs)
+    
     optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.8, patience=3)
     
@@ -182,7 +211,20 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
             valid_responses = responses_flat[mask_flat]
             
             # Compute loss only on valid tokens
-            loss = criterion(valid_probs, valid_responses)
+            if loss_type == 'ce':
+                # CrossEntropyLoss expects log probabilities
+                valid_log_probs = torch.log(valid_probs + 1e-8)
+                loss = criterion(valid_log_probs, valid_responses)
+            elif loss_type in ['qwk', 'emd', 'ordinal_ce']:
+                # These losses work with probabilities directly
+                # Reshape back to include sequence dimension for proper masking
+                loss = criterion(gpcm_probs, responses, mask)
+            elif loss_type == 'combined':
+                # Combined loss handles both probabilities and logits
+                loss_dict = criterion(gpcm_probs, responses, mask)
+                loss = loss_dict['total_loss']
+            else:
+                loss = criterion(valid_probs, valid_responses)
             
             # Check for NaN
             if torch.isnan(loss):
@@ -297,8 +339,8 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
 
 def main():
     parser = argparse.ArgumentParser(description='Unified Deep-GPCM Training')
-    parser.add_argument('--model', choices=['baseline', 'akvmn'], required=True,
-                        help='Model to train')
+    parser.add_argument('--model', choices=['baseline', 'akvmn', 'coral', 'hybrid_coral', 'corn', 'adaptive_corn', 'multitask_corn'], required=True,
+                        help='Model to train (baseline, akvmn, coral, hybrid_coral, corn, adaptive_corn, multitask_corn)')
     parser.add_argument('--dataset', default='synthetic_OC', help='Dataset name')
     parser.add_argument('--epochs', type=int, default=30, help='Number of epochs')
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
@@ -307,6 +349,21 @@ def main():
     parser.add_argument('--no_cv', action='store_true', help='Disable cross-validation')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--device', default=None, help='Device (cuda/cpu)')
+    
+    # Loss function arguments
+    parser.add_argument('--loss', type=str, default='ce',
+                        choices=['ce', 'qwk', 'emd', 'ordinal_ce', 'combined'],
+                        help='Loss function type (default: ce)')
+    parser.add_argument('--ce_weight', type=float, default=1.0,
+                        help='Weight for CE loss in combined loss')
+    parser.add_argument('--qwk_weight', type=float, default=0.5,
+                        help='Weight for QWK loss in combined loss')
+    parser.add_argument('--emd_weight', type=float, default=0.0,
+                        help='Weight for EMD loss in combined loss')
+    parser.add_argument('--coral_weight', type=float, default=0.0,
+                        help='Weight for CORAL loss in combined loss')
+    parser.add_argument('--ordinal_alpha', type=float, default=1.0,
+                        help='Alpha parameter for ordinal CE loss')
     
     args = parser.parse_args()
     
@@ -328,6 +385,14 @@ def main():
     print(f"Device: {device}")
     print(f"Epochs: {args.epochs}")
     print(f"Cross-validation: {'Disabled' if args.no_cv else f'{args.n_folds}-fold'}")
+    print(f"Loss function: {args.loss}")
+    if args.loss == 'combined':
+        print(f"  - CE weight: {args.ce_weight}")
+        print(f"  - QWK weight: {args.qwk_weight}")
+        print(f"  - EMD weight: {args.emd_weight}")
+        print(f"  - CORAL weight: {args.coral_weight}")
+    elif args.loss == 'ordinal_ce':
+        print(f"  - Ordinal alpha: {args.ordinal_alpha}")
     print()
     
     # Create directories
@@ -355,8 +420,19 @@ def main():
         
         # Create and train model
         model = create_model(args.model, n_questions, n_cats, device)
+        
+        # Prepare loss kwargs
+        loss_kwargs = {
+            'ce_weight': args.ce_weight,
+            'qwk_weight': args.qwk_weight,
+            'emd_weight': args.emd_weight,
+            'coral_weight': args.coral_weight,
+            'ordinal_alpha': args.ordinal_alpha
+        }
+        
         best_model_state, best_metrics, training_history = train_single_fold(
-            model, train_loader, test_loader, device, args.epochs, args.model
+            model, train_loader, test_loader, device, args.epochs, args.model,
+            loss_type=args.loss, loss_kwargs=loss_kwargs
         )
         
         # Save model and logs
@@ -408,8 +484,19 @@ def main():
             
             # Create and train model
             model = create_model(args.model, n_questions, n_cats, device)
+            
+            # Prepare loss kwargs (same as above)
+            loss_kwargs = {
+                'ce_weight': args.ce_weight,
+                'qwk_weight': args.qwk_weight,
+                'emd_weight': args.emd_weight,
+                'coral_weight': args.coral_weight,
+                'ordinal_alpha': args.ordinal_alpha
+            }
+            
             best_model_state, best_metrics, training_history = train_single_fold(
-                model, train_loader, test_loader, device, args.epochs, args.model, fold
+                model, train_loader, test_loader, device, args.epochs, args.model, fold,
+                loss_type=args.loss, loss_kwargs=loss_kwargs
             )
             
             # Save fold results
@@ -447,7 +534,16 @@ def main():
         # Compute and display CV summary
         print(f"\\n{'='*20} CV SUMMARY {'='*20}")
         
-        metrics_names = ['categorical_accuracy', 'quadratic_weighted_kappa', 'ordinal_accuracy', 'mean_absolute_error']
+        metrics_names = [
+            'categorical_accuracy',
+            'ordinal_accuracy', 
+            'quadratic_weighted_kappa',
+            'mean_absolute_error',
+            'kendall_tau',
+            'spearman_correlation',
+            'cohen_kappa',
+            'cross_entropy'
+        ]
         cv_summary = {}
         
         for metric in metrics_names:
