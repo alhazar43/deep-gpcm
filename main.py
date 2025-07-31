@@ -195,9 +195,9 @@ def main():
     
     # Model and dataset selection
     parser.add_argument('--models', nargs='+', 
-                       choices=['baseline', 'akvmn', 'coral', 'hybrid_coral', 'corn', 'adaptive_corn', 'multitask_corn'], 
+                       choices=['baseline', 'akvmn', 'coral', 'hybrid_coral'], 
                        default=['baseline', 'akvmn'], 
-                       help='Models to train/evaluate (supports CORAL and CORN models)')
+                       help='Models to train/evaluate (supports CORAL models)')
     parser.add_argument('--dataset', default='synthetic_OC', help='Dataset name')
     
     # Training parameters

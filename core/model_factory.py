@@ -3,14 +3,13 @@
 from .model import DeepGPCM, AttentionGPCM
 from .attention_enhanced import EnhancedAttentionGPCM
 from .coral_gpcm import CORALDeepGPCM, HybridCORALGPCM
-from .corn_gpcm import CORNDeepGPCM, AdaptiveCORNGPCM, MultiTaskCORNGPCM
 
 
 def create_model(model_type, n_questions, n_cats, **kwargs):
     """Create model based on type.
     
     Args:
-        model_type: 'baseline', 'akvmn', 'coral', 'hybrid_coral', 'corn', 'adaptive_corn', 'multitask_corn'
+        model_type: 'baseline', 'akvmn', 'coral', 'hybrid_coral'
         n_questions: Number of questions
         n_cats: Number of response categories
         **kwargs: Additional model-specific parameters
@@ -71,31 +70,8 @@ def create_model(model_type, n_questions, n_cats, **kwargs):
             blend_weight=kwargs.get('blend_weight', 0.5)
         )
     
-    elif model_type == 'corn':
-        # CORN-enhanced Deep GPCM (better categorical-ordinal balance)
-        model = CORNDeepGPCM(
-            **common_params,
-            ability_scale=kwargs.get('ability_scale', 1.0),
-            corn_dropout=kwargs.get('corn_dropout', 0.3)
-        )
-    
-    elif model_type == 'adaptive_corn':
-        # Adaptive CORN with uncertainty-based weighting
-        model = AdaptiveCORNGPCM(
-            **common_params,
-            ability_scale=kwargs.get('ability_scale', 1.0),
-            corn_dropout=kwargs.get('corn_dropout', 0.3)
-        )
-    
-    elif model_type == 'multitask_corn':
-        # Multi-task CORN with separate categorical and ordinal heads
-        model = MultiTaskCORNGPCM(
-            **common_params,
-            shared_dim=kwargs.get('shared_dim', 256)
-        )
-    
     else:
         raise ValueError(f"Unknown model type: {model_type}. "
-                        f"Available: baseline, akvmn, coral, hybrid_coral, corn, adaptive_corn, multitask_corn")
+                        f"Available: baseline, akvmn, coral, hybrid_coral")
     
     return model
