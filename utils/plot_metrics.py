@@ -66,6 +66,17 @@ class AdaptivePlotter:
     
     def get_model_color(self, model_name: str) -> str:
         """Get consistent color for a model, creating new assignment if needed."""
+        # Use consistent colors for our three main models
+        consistent_colors = {
+            'deep_gpcm': '#ff7f0e',     # Orange
+            'attn_gpcm': '#1f77b4',     # Blue
+            'coral_gpcm': '#d62728'     # Red
+        }
+        
+        if model_name in consistent_colors:
+            return consistent_colors[model_name]
+        
+        # For unknown models, use dynamic assignment
         if model_name not in self.model_colors:
             # Use a diverse color palette that works well for up to 10 models
             colors = plt.cm.tab10.colors if hasattr(plt.cm.tab10, 'colors') else plt.cm.tab10(range(10))
@@ -573,17 +584,19 @@ class AdaptivePlotter:
         for idx in range(n_metrics, len(axes)):
             axes[idx].set_visible(False)
         
-        # Add legend to the first subplot
+        # Add legend as figure-level legend to avoid blocking subplots
         if len(axes) > 0 and 'models' in locals() and len(models) > 0:
             from matplotlib.patches import Patch
             legend_elements = [Patch(facecolor=self.get_model_color(model), 
                                    edgecolor='black', linewidth=1, 
                                    label=model) for model in models]
-            axes[0].legend(handles=legend_elements, loc='upper left', fontsize=9)
+            # Place legend outside the plot area
+            fig.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 0.95), 
+                      ncol=len(models), fontsize=10, frameon=True, fancybox=True, shadow=True)
         
         plt.suptitle(f'{result_type.title()} Results Comparison', 
-                    fontsize=14, fontweight='bold')
-        plt.tight_layout()
+                    fontsize=14, fontweight='bold', y=0.98)
+        plt.tight_layout(rect=[0, 0, 1, 0.92])  # Leave space for legend and title
         
         # Save plot
         if save_path is None:
@@ -623,12 +636,14 @@ class AdaptivePlotter:
         # Process training results (from CV summaries)
         for result in train_results:
             if 'config' in result and 'cv_summary' in result:
+                # Normalize model name to match test results
                 model = result['config'].get('model', 'unknown')
                 train_data[model] = result['cv_summary']
         
         # Process test results
         for result in test_results:
             if 'config' in result:
+                # Normalize model name to match training results
                 model = result['config'].get('model_type', result['config'].get('model', 'unknown'))
                 test_data[model] = result
         
@@ -642,12 +657,7 @@ class AdaptivePlotter:
             print("No common models found between training and test results.")
             return ""
         
-        # Consistent model colors
-        model_colors = {
-            'deep_gpcm': '#ff7f0e',     # Orange
-            'attn_gpcm': '#1f77b4',     # Blue
-            'coral_gpcm': '#d62728'     # Red
-        }
+        # Use consistent model colors from get_model_color method
         
         # Helper function to highlight best value
         def highlight_best_value(ax, bars, values, metric):
@@ -711,7 +721,14 @@ class AdaptivePlotter:
                 else:
                     train_val = 0
                     
-                test_val = test_data[model].get(metric, 0)
+                # Look for test metric in evaluation_results first, then top level
+                if model in test_data:
+                    if 'evaluation_results' in test_data[model] and metric in test_data[model]['evaluation_results']:
+                        test_val = test_data[model]['evaluation_results'][metric]
+                    else:
+                        test_val = test_data[model].get(metric, 0)
+                else:
+                    test_val = 0
                 
                 train_values.append(train_val)
                 test_values.append(test_val)
@@ -721,7 +738,7 @@ class AdaptivePlotter:
                 
                 # Plot bars
                 values = [train_val, test_val]
-                color = model_colors.get(model, f'C{i}')
+                color = self.get_model_color(model)
                 bars = ax.bar(positions, values, width, 
                               label=model.capitalize(), 
                               color=color,

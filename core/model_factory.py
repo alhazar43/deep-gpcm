@@ -3,6 +3,7 @@
 from .model import DeepGPCM, AttentionGPCM
 from .attention_enhanced import EnhancedAttentionGPCM
 from .coral_gpcm import CORALDeepGPCM, HybridCORALGPCM
+from .threshold_coupling import ThresholdCouplingConfig
 
 
 def create_model(model_type, n_questions, n_cats, **kwargs):
@@ -51,23 +52,44 @@ def create_model(model_type, n_questions, n_cats, **kwargs):
     
     elif model_type == 'coral':
         # CORAL-enhanced Deep GPCM
+        # Create threshold coupling config if specified
+        threshold_config = None
+        if kwargs.get('enable_threshold_coupling', False):
+            threshold_config = ThresholdCouplingConfig(
+                enabled=True,
+                coupling_type=kwargs.get('coupling_type', 'linear'),
+                gpcm_weight=kwargs.get('gpcm_weight', 0.7),
+                coral_weight=kwargs.get('coral_weight', 0.3)
+            )
+        
         model = CORALDeepGPCM(
             **common_params,
             ability_scale=kwargs.get('ability_scale', 1.0),
             use_discrimination=kwargs.get('use_discrimination', True),
             coral_hidden_dim=kwargs.get('coral_hidden_dim', None),
             use_coral_thresholds=kwargs.get('use_coral_thresholds', True),
-            coral_dropout=kwargs.get('coral_dropout', 0.1)
+            coral_dropout=kwargs.get('coral_dropout', 0.1),
+            threshold_coupling_config=threshold_config
         )
     
     elif model_type == 'coral_gpcm':
-        # Hybrid CORAL-GPCM model
-        model = HybridCORALGPCM(
+        # For coral_gpcm, use CORALDeepGPCM with threshold coupling by default
+        # Create threshold coupling config (enabled by default for coral_gpcm)
+        threshold_config = ThresholdCouplingConfig(
+            enabled=kwargs.get('enable_threshold_coupling', True),  # Default enabled
+            coupling_type=kwargs.get('coupling_type', 'linear'),
+            gpcm_weight=kwargs.get('gpcm_weight', 0.7),
+            coral_weight=kwargs.get('coral_weight', 0.3)
+        )
+        
+        model = CORALDeepGPCM(
             **common_params,
             ability_scale=kwargs.get('ability_scale', 1.0),
             use_discrimination=kwargs.get('use_discrimination', True),
-            use_coral_structure=kwargs.get('use_coral_structure', True),
-            blend_weight=kwargs.get('blend_weight', 0.5)
+            coral_hidden_dim=kwargs.get('coral_hidden_dim', None),
+            use_coral_thresholds=kwargs.get('use_coral_thresholds', True),
+            coral_dropout=kwargs.get('coral_dropout', 0.1),
+            threshold_coupling_config=threshold_config
         )
     
     else:

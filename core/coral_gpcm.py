@@ -7,6 +7,7 @@ from typing import Tuple, Optional, Dict, Any
 
 from .model import DeepGPCM
 from .coral_layer import CORALLayer
+from .threshold_coupling import ThresholdCouplerFactory, ThresholdCouplingConfig
 
 
 class CORALDeepGPCM(DeepGPCM):
@@ -31,7 +32,9 @@ class CORALDeepGPCM(DeepGPCM):
                  # CORAL-specific parameters
                  coral_hidden_dim: Optional[int] = None,
                  use_coral_thresholds: bool = True,
-                 coral_dropout: float = 0.1):
+                 coral_dropout: float = 0.1,
+                 # Threshold coupling parameters
+                 threshold_coupling_config: Optional[ThresholdCouplingConfig] = None):
         """Initialize CORAL-enhanced Deep GPCM.
         
         Args:
@@ -39,6 +42,7 @@ class CORALDeepGPCM(DeepGPCM):
             coral_hidden_dim: Hidden dimension for CORAL shared layer (default: final_fc_dim)
             use_coral_thresholds: Whether to use learnable ordinal thresholds
             coral_dropout: Dropout rate for CORAL layer
+            threshold_coupling_config: Configuration for threshold coupling (optional)
         """
         # Initialize base model
         super().__init__(
@@ -74,6 +78,21 @@ class CORALDeepGPCM(DeepGPCM):
         # Keep original GPCM layer for IRT parameter compatibility
         # This allows us to still extract and return IRT parameters
         self.use_hybrid_mode = True
+        
+        # Initialize threshold coupling if configured
+        self.threshold_coupling_config = threshold_coupling_config
+        self.threshold_coupler = None
+        if threshold_coupling_config is not None:
+            coupler = ThresholdCouplerFactory.create_coupler(
+                threshold_coupling_config, 
+                n_cats - 1  # n_thresholds = n_cats - 1
+            )
+            if coupler is not None:
+                # Register as a module for proper gradient flow
+                self.threshold_coupler = coupler
+                if hasattr(coupler, 'parameters'):
+                    # Ensure parameters are registered for gradient computation
+                    self.add_module('threshold_coupler', coupler)
         
     def forward(self, questions: torch.Tensor, responses: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Forward pass through CORAL-enhanced DKVMN-GPCM model.
@@ -158,17 +177,20 @@ class CORALDeepGPCM(DeepGPCM):
         # Store CORAL info for loss computation
         self.last_coral_info = coral_info
         
-        # If using hybrid mode, we can optionally blend CORAL thresholds with IRT betas
-        if self.use_hybrid_mode and self.coral_layer.use_thresholds:
-            # Use CORAL thresholds as refined beta parameters
-            coral_thresholds = coral_info['thresholds']
+        # Apply threshold coupling if configured
+        if self.threshold_coupler is not None and self.coral_layer.use_thresholds:
+            # Get CORAL thresholds from last forward pass
+            coral_thresholds = coral_info.get('thresholds')
             if coral_thresholds is not None:
-                # Broadcast thresholds to match sequence length
-                refined_thresholds = coral_thresholds.unsqueeze(0).unsqueeze(0).expand(
-                    batch_size, seq_len, -1
+                # Apply clean threshold coupling (maintains gradient flow)
+                coupled_thresholds = self.threshold_coupler.couple(
+                    gpcm_thresholds=item_thresholds,
+                    coral_thresholds=coral_thresholds,
+                    student_ability=student_abilities,
+                    item_discrimination=discrimination_params
                 )
-                # Optionally blend with IRT thresholds
-                item_thresholds = 0.5 * item_thresholds + 0.5 * refined_thresholds
+                # Ensure gradient connection is maintained by explicit assignment
+                item_thresholds = coupled_thresholds
         
         # Return in same format as base model for compatibility
         return student_abilities, item_thresholds, discrimination_params, coral_probs
@@ -180,6 +202,30 @@ class CORALDeepGPCM(DeepGPCM):
             Dictionary with CORAL logits, cumulative probabilities, etc.
         """
         return getattr(self, 'last_coral_info', None)
+    
+    def get_coupling_info(self) -> Optional[Dict[str, Any]]:
+        """Get threshold coupling information for diagnostics.
+        
+        Returns:
+            Dictionary with coupling weights and configuration, or None if not enabled.
+        """
+        if self.threshold_coupler is None:
+            return None
+        
+        info = {
+            'coupling_enabled': True,
+            'coupling_type': self.threshold_coupling_config.coupling_type,
+            'config': {
+                'gpcm_weight': self.threshold_coupling_config.gpcm_weight,
+                'coral_weight': self.threshold_coupling_config.coral_weight
+            }
+        }
+        
+        # Add current learnable weights if available
+        if hasattr(self.threshold_coupler, 'get_coupling_info'):
+            info['current_weights'] = self.threshold_coupler.get_coupling_info()
+        
+        return info
 
 
 class HybridCORALGPCM(DeepGPCM):

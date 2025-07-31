@@ -3,7 +3,7 @@ UNIFIED IRT ANALYSIS REPORT
 ================================================================================
 
 Dataset: synthetic_OC
-Models analyzed: 2
+Models analyzed: 3
 
 Analysis settings:
 - Student ability method: last
@@ -18,7 +18,7 @@ Parameter normalization:
 --------------------------------------------------------------------------------
 
 MODEL: ATTN_GPCM
-  Type: enhanced_attention
+  Type: attn_gpcm
 
   Student Ability (θ) Recovery:
     Correlation: -0.0642
@@ -40,6 +40,30 @@ MODEL: ATTN_GPCM
   Discrimination statistics:
     Range: [0.340, 1.357]
     Mean: 0.789, Std: 0.195
+
+MODEL: CORAL_GPCM
+  Type: coral_gpcm
+
+  Student Ability (θ) Recovery:
+    Correlation: -0.0522
+    Students analyzed: 160
+
+  Item Parameter Recovery:
+    Discrimination (α): 0.6011
+    Items analyzed: 399/400
+    Threshold correlations:
+      β_0: 0.6105
+      β_1: 0.6452
+      β_2: 0.5557
+    Average β correlation: 0.6038
+
+  Student ability statistics:
+    Range: [-2.006, 1.968]
+    Mean: 0.005, Std: 0.822
+
+  Discrimination statistics:
+    Range: [2.210, 3.912]
+    Mean: 3.014, Std: 0.300
 
 MODEL: DEEP_GPCM
   Type: deep_gpcm

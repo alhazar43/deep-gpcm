@@ -116,20 +116,20 @@ class UnifiedIRTAnalyzer:
             model_type = checkpoint['config'].get('model_type', 'baseline')
         else:
             if has_coral_projection:
-                model_type = 'hybrid_coral'
+                model_type = 'coral_gpcm'  # Updated to match new naming
             elif has_coral_layer:
-                model_type = 'coral'  # Skip CORAL models as they don't have IRT params
+                model_type = 'coral'  # Skip pure CORAL models as they don't have IRT params
             elif 'attention_refinement' in str(checkpoint['model_state_dict'].keys()):
                 model_type = 'attention'
             else:
-                model_type = 'baseline'
+                model_type = 'deep_gpcm'  # Updated to match new naming
         
-        # Skip CORAL models as they don't have IRT parameters
+        # Skip pure CORAL models as they don't have IRT parameters
         if model_type == 'coral':
-            raise ValueError(f"CORAL model does not have IRT parameters - skipping")
+            raise ValueError(f"Pure CORAL model does not have IRT parameters - skipping")
         
         # Create model
-        if has_learnable_params or ('akvmn' in model_path):
+        if has_learnable_params or ('attn_gpcm' in model_path):
             # Use EnhancedAttentionGPCM for models with learnable parameters
             model = EnhancedAttentionGPCM(
                 n_questions=self.n_questions, 
@@ -143,8 +143,10 @@ class UnifiedIRTAnalyzer:
                 embedding_strategy="linear_decay",
                 ability_scale=2.0
             )
-            model_type = 'enhanced_attention'
-        elif model_type == 'hybrid_coral':
+            model_type = 'attn_gpcm'
+        elif model_type == 'coral_gpcm' or has_coral_projection:
+            # Import the correct CORAL model
+            from core.coral_gpcm import HybridCORALGPCM
             model = HybridCORALGPCM(
                 n_questions=self.n_questions,
                 n_cats=self.n_cats,

@@ -396,13 +396,21 @@ def find_trained_models(models_dir: str = "save_models") -> dict:
         # Expected format: best_modeltype_dataset.pth
         parts = model_name.split('_')
         if len(parts) >= 3 and parts[0] == 'best':
-            # Handle hybrid_coral as a single model type
-            if len(parts) >= 4 and parts[1] == 'hybrid' and parts[2] == 'coral':
-                model_type = 'hybrid_coral'
-                dataset = '_'.join(parts[3:])
-            else:
-                model_type = parts[1]
-                dataset = '_'.join(parts[2:])
+            # Handle the three main model types
+            if len(parts) >= 3:
+                if parts[1] == 'deep' and parts[2] == 'gpcm':
+                    model_type = 'deep'
+                    dataset = '_'.join(parts[3:])
+                elif parts[1] == 'attn' and parts[2] == 'gpcm':
+                    model_type = 'attn'
+                    dataset = '_'.join(parts[3:])
+                elif parts[1] == 'coral' and parts[2] == 'gpcm':
+                    model_type = 'coral'
+                    dataset = '_'.join(parts[3:])
+                else:
+                    # Fallback for other patterns
+                    model_type = parts[1]
+                    dataset = '_'.join(parts[2:])
             
             if dataset not in model_files:
                 model_files[dataset] = {}

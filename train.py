@@ -114,11 +114,11 @@ def create_data_loaders(train_data, test_data, batch_size=32):
     return train_loader, test_loader
 
 
-def create_model(model_type, n_questions, n_cats, device):
+def create_model(model_type, n_questions, n_cats, device, **model_kwargs):
     """Create model based on type."""
     from core import create_model as factory_create_model
     
-    model = factory_create_model(model_type, n_questions, n_cats)
+    model = factory_create_model(model_type, n_questions, n_cats, **model_kwargs)
     return model.to(device)
 
 
@@ -367,6 +367,16 @@ def main():
     parser.add_argument('--ordinal_alpha', type=float, default=1.0,
                         help='Alpha parameter for ordinal CE loss')
     
+    # Threshold coupling arguments
+    parser.add_argument('--enable_threshold_coupling', action='store_true',
+                        help='Enable threshold coupling for CORAL models')
+    parser.add_argument('--coupling_type', type=str, default='linear',
+                        choices=['linear'], help='Type of threshold coupling')
+    parser.add_argument('--threshold_gpcm_weight', type=float, default=0.7,
+                        help='Weight for GPCM thresholds in coupling')
+    parser.add_argument('--threshold_coral_weight', type=float, default=0.3,
+                        help='Weight for CORAL thresholds in coupling')
+    
     args = parser.parse_args()
     
     # Validate model arguments
@@ -437,7 +447,17 @@ def main():
             train_loader, test_loader = create_data_loaders(train_data, test_data, args.batch_size)
             
             # Create and train model
-            model = create_model(model_name, n_questions, n_cats, device)
+            # Prepare model kwargs for threshold coupling
+            model_kwargs = {}
+            if model_name in ['coral', 'coral_gpcm']:
+                model_kwargs.update({
+                    'enable_threshold_coupling': args.enable_threshold_coupling or (model_name == 'coral_gpcm'),
+                    'coupling_type': args.coupling_type,
+                    'gpcm_weight': args.threshold_gpcm_weight,
+                    'coral_weight': args.threshold_coral_weight
+                })
+            
+            model = create_model(model_name, n_questions, n_cats, device, **model_kwargs)
             
             # Prepare loss kwargs
             loss_kwargs = {
@@ -501,7 +521,17 @@ def main():
                 train_loader, test_loader = create_data_loaders(fold_train_data, fold_test_data, args.batch_size)
                 
                 # Create and train model
-                model = create_model(model_name, n_questions, n_cats, device)
+                # Prepare model kwargs for threshold coupling
+                model_kwargs = {}
+                if model_name in ['coral', 'coral_gpcm']:
+                    model_kwargs.update({
+                        'enable_threshold_coupling': args.enable_threshold_coupling or (model_name == 'coral_gpcm'),
+                        'coupling_type': args.coupling_type,
+                        'gpcm_weight': args.threshold_gpcm_weight,
+                        'coral_weight': args.threshold_coral_weight
+                    })
+                
+                model = create_model(model_name, n_questions, n_cats, device, **model_kwargs)
             
                 # Prepare loss kwargs (same as above)
                 loss_kwargs = {
@@ -549,61 +579,62 @@ def main():
                 f"results/train/train_results_{model_name}_{args.dataset}_fold_{fold}.json"
             )
         
-        # Compute and display CV summary
-        print(f"\\n{'='*20} CV SUMMARY {'='*20}")
-        
-        metrics_names = [
-            'categorical_accuracy',
-            'ordinal_accuracy', 
-            'quadratic_weighted_kappa',
-            'mean_absolute_error',
-            'kendall_tau',
-            'spearman_correlation',
-            'cohen_kappa',
-            'cross_entropy'
-        ]
-        cv_summary = {}
-        
-        for metric in metrics_names:
-            values = [fold['metrics'][metric] for fold in fold_results]
-            cv_summary[metric] = {
-                'mean': np.mean(values),
-                'std': np.std(values),
-                'values': values
+        if args.n_folds > 0:
+            # Compute and display CV summary
+            print(f"\\n{'='*20} CV SUMMARY {'='*20}")
+            
+            metrics_names = [
+                'categorical_accuracy',
+                'ordinal_accuracy', 
+                'quadratic_weighted_kappa',
+                'mean_absolute_error',
+                'kendall_tau',
+                'spearman_correlation',
+                'cohen_kappa',
+                'cross_entropy'
+            ]
+            cv_summary = {}
+            
+            for metric in metrics_names:
+                values = [fold['metrics'][metric] for fold in fold_results]
+                cv_summary[metric] = {
+                    'mean': np.mean(values),
+                    'std': np.std(values),
+                    'values': values
+                }
+            
+            print(f"{'Metric':<25} {'Mean':<8} {'Std':<8} {'Folds'}")
+            print("-" * 60)
+            for metric, stats in cv_summary.items():
+                fold_str = " ".join([f"{v:.3f}" for v in stats['values']])
+                print(f"{metric:<25} {stats['mean']:<8.3f} {stats['std']:<8.3f} [{fold_str}]")
+            
+            # Save CV summary using simplified system
+            cv_summary_results = {
+                'config': vars(args),
+                'cv_summary': cv_summary,
+                'fold_results': fold_results
             }
-        
-        print(f"{'Metric':<25} {'Mean':<8} {'Std':<8} {'Folds'}")
-        print("-" * 60)
-        for metric, stats in cv_summary.items():
-            fold_str = " ".join([f"{v:.3f}" for v in stats['values']])
-            print(f"{metric:<25} {stats['mean']:<8.3f} {stats['std']:<8.3f} [{fold_str}]")
-        
-        # Save CV summary using simplified system
-        cv_summary_results = {
-            'config': vars(args),
-            'cv_summary': cv_summary,
-            'fold_results': fold_results
-        }
-        cv_log_path = save_results(
-            cv_summary_results,
-            f"results/train/train_results_{model_name}_{args.dataset}_cv_summary.json"
-        )
-        
-        print(f"\\n📋 CV summary saved to: {cv_log_path}")
-        
-        # Find and save best fold model as main model
-        best_fold_idx = np.argmax([fold['metrics']['quadratic_weighted_kappa'] for fold in fold_results])
-        best_fold = fold_results[best_fold_idx]['fold']
-        
-        best_fold_model_path = f"save_models/best_{model_name}_{args.dataset}_fold_{best_fold}.pth"
-        main_model_path = f"save_models/best_{model_name}_{args.dataset}.pth"
-        
-        # Copy best fold model as main model
-        import shutil
-        shutil.copy2(best_fold_model_path, main_model_path)
-        
-        print(f"\\n🏆 Best fold: {best_fold} (QWK: {fold_results[best_fold_idx]['metrics']['quadratic_weighted_kappa']:.3f})")
-        print(f"💾 Best model copied to: {main_model_path}")
+            cv_log_path = save_results(
+                cv_summary_results,
+                f"results/train/train_results_{model_name}_{args.dataset}_cv_summary.json"
+            )
+            
+            print(f"\\n📋 CV summary saved to: {cv_log_path}")
+            
+            # Find and save best fold model as main model
+            best_fold_idx = np.argmax([fold['metrics']['quadratic_weighted_kappa'] for fold in fold_results])
+            best_fold = fold_results[best_fold_idx]['fold']
+            
+            best_fold_model_path = f"save_models/best_{model_name}_{args.dataset}_fold_{best_fold}.pth"
+            main_model_path = f"save_models/best_{model_name}_{args.dataset}.pth"
+            
+            # Copy best fold model as main model
+            import shutil
+            shutil.copy2(best_fold_model_path, main_model_path)
+            
+            print(f"\\n🏆 Best fold: {best_fold} (QWK: {fold_results[best_fold_idx]['metrics']['quadratic_weighted_kappa']:.3f})")
+            print(f"💾 Best model copied to: {main_model_path}")
     
     print("\\n✅ Training completed successfully!")
 
