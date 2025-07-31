@@ -339,11 +339,13 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
 
 def main():
     parser = argparse.ArgumentParser(description='Unified Deep-GPCM Training')
-    parser.add_argument('--model', choices=['deep_gpcm', 'attn_gpcm', 'coral', 'coral_gpcm'], required=True,
-                        help='Model to train (deep_gpcm, attn_gpcm, coral, coral_gpcm)')
+    parser.add_argument('--model', choices=['deep_gpcm', 'attn_gpcm', 'coral', 'coral_gpcm'], 
+                        help='Single model to train (for backward compatibility)')
+    parser.add_argument('--models', nargs='+', choices=['deep_gpcm', 'attn_gpcm', 'coral', 'coral_gpcm'],
+                        help='Multiple models to train sequentially')
     parser.add_argument('--dataset', default='synthetic_OC', help='Dataset name')
     parser.add_argument('--epochs', type=int, default=30, help='Number of epochs')
-    parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
+    parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
     parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
     parser.add_argument('--n_folds', type=int, default=5, help='Number of CV folds (0 = no CV)')
     parser.add_argument('--no_cv', action='store_true', help='Disable cross-validation')
@@ -367,6 +369,18 @@ def main():
     
     args = parser.parse_args()
     
+    # Validate model arguments
+    if args.model and args.models:
+        parser.error("Cannot specify both --model and --models. Use one or the other.")
+    if not args.model and not args.models:
+        parser.error("Must specify either --model or --models.")
+    
+    # Determine models to train
+    if args.model:
+        models_to_train = [args.model]
+    else:
+        models_to_train = args.models
+    
     # Set seed
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -380,7 +394,7 @@ def main():
     print("=" * 80)
     print(f"UNIFIED DEEP-GPCM TRAINING")
     print("=" * 80)
-    print(f"Model: {args.model}")
+    print(f"Models: {', '.join(models_to_train)}")
     print(f"Dataset: {args.dataset}")
     print(f"Device: {device}")
     print(f"Epochs: {args.epochs}")
@@ -411,81 +425,21 @@ def main():
         print(f"❌ Dataset {args.dataset} not found at {train_path}")
         return
     
-    # Cross-validation or single training
-    if args.no_cv or args.n_folds == 0:
-        print("\\n📈 Single training (no cross-validation)")
+    # Train each model
+    for model_name in models_to_train:
+        print(f"\n{'='*20} TRAINING {model_name.upper()} {'='*20}")
         
-        # Create data loaders
-        train_loader, test_loader = create_data_loaders(train_data, test_data, args.batch_size)
-        
-        # Create and train model
-        model = create_model(args.model, n_questions, n_cats, device)
-        
-        # Prepare loss kwargs
-        loss_kwargs = {
-            'ce_weight': args.ce_weight,
-            'qwk_weight': args.qwk_weight,
-            'emd_weight': args.emd_weight,
-            'coral_weight': args.coral_weight,
-            'ordinal_alpha': args.ordinal_alpha
-        }
-        
-        best_model_state, best_metrics, training_history = train_single_fold(
-            model, train_loader, test_loader, device, args.epochs, args.model,
-            loss_type=args.loss, loss_kwargs=loss_kwargs
-        )
-        
-        # Save model and logs
-        model_path = f"save_models/best_{args.model}_{args.dataset}.pth"
-        torch.save({
-            'model_state_dict': best_model_state,
-            'config': {
-                'model_type': args.model,
-                'n_questions': n_questions,
-                'n_cats': n_cats,
-                'dataset': args.dataset
-            },
-            'metrics': best_metrics
-        }, model_path)
-        
-        # Save training results using simplified system
-        training_results = {
-            'config': vars(args),
-            'metrics': best_metrics,
-            'training_history': training_history
-        }
-        log_path = save_results(
-            training_results, 
-            f"results/train/train_results_{args.model}_{args.dataset}.json"
-        )
-        
-        print(f"\\n💾 Model saved to: {model_path}")
-        print(f"📋 Logs saved to: {log_path}")
-        
-    else:
-        print(f"\\n📈 {args.n_folds}-fold cross-validation")
-        
-        # Combine all data for CV splitting
-        all_data = train_data + test_data
-        all_indices = np.arange(len(all_data))
-        
-        kfold = KFold(n_splits=args.n_folds, shuffle=True, random_state=args.seed)
-        fold_results = []
-        
-        for fold, (train_idx, test_idx) in enumerate(kfold.split(all_indices), 1):
-            print(f"\\n{'='*20} FOLD {fold}/{args.n_folds} {'='*20}")
-            
-            # Split data for this fold
-            fold_train_data = [all_data[i] for i in train_idx]
-            fold_test_data = [all_data[i] for i in test_idx]
+        # Cross-validation or single training
+        if args.no_cv or args.n_folds == 0:
+            print("📈 Single training (no cross-validation)")
             
             # Create data loaders
-            train_loader, test_loader = create_data_loaders(fold_train_data, fold_test_data, args.batch_size)
+            train_loader, test_loader = create_data_loaders(train_data, test_data, args.batch_size)
             
             # Create and train model
-            model = create_model(args.model, n_questions, n_cats, device)
+            model = create_model(model_name, n_questions, n_cats, device)
             
-            # Prepare loss kwargs (same as above)
+            # Prepare loss kwargs
             loss_kwargs = {
                 'ce_weight': args.ce_weight,
                 'qwk_weight': args.qwk_weight,
@@ -495,23 +449,87 @@ def main():
             }
             
             best_model_state, best_metrics, training_history = train_single_fold(
-                model, train_loader, test_loader, device, args.epochs, args.model, fold,
+                model, train_loader, test_loader, device, args.epochs, model_name,
                 loss_type=args.loss, loss_kwargs=loss_kwargs
             )
             
-            # Save fold results
-            fold_results.append({
-                'fold': fold,
-                'metrics': best_metrics,
-                'training_history': training_history
-            })
-            
-            # Save model for this fold
-            model_path = f"save_models/best_{args.model}_{args.dataset}_fold_{fold}.pth"
+            # Save model and logs
+            model_path = f"save_models/best_{model_name}_{args.dataset}.pth"
             torch.save({
                 'model_state_dict': best_model_state,
                 'config': {
-                    'model_type': args.model,
+                    'model_type': model_name,
+                    'n_questions': n_questions,
+                    'n_cats': n_cats,
+                    'dataset': args.dataset
+                },
+                'metrics': best_metrics
+            }, model_path)
+        
+            # Save training results using simplified system
+            training_results = {
+                'config': vars(args),
+                'metrics': best_metrics,
+                'training_history': training_history
+            }
+            log_path = save_results(
+                training_results, 
+                f"results/train/train_results_{model_name}_{args.dataset}.json"
+            )
+            
+            print(f"💾 Model saved to: {model_path}")
+            print(f"📋 Logs saved to: {log_path}")
+        
+        else:
+            print(f"📈 {args.n_folds}-fold cross-validation")
+        
+            # Combine all data for CV splitting
+            all_data = train_data + test_data
+            all_indices = np.arange(len(all_data))
+            
+            kfold = KFold(n_splits=args.n_folds, shuffle=True, random_state=args.seed)
+            fold_results = []
+            
+            for fold, (train_idx, test_idx) in enumerate(kfold.split(all_indices), 1):
+                print(f"\\n{'='*20} FOLD {fold}/{args.n_folds} {'='*20}")
+                
+                # Split data for this fold
+                fold_train_data = [all_data[i] for i in train_idx]
+                fold_test_data = [all_data[i] for i in test_idx]
+                
+                # Create data loaders
+                train_loader, test_loader = create_data_loaders(fold_train_data, fold_test_data, args.batch_size)
+                
+                # Create and train model
+                model = create_model(model_name, n_questions, n_cats, device)
+            
+                # Prepare loss kwargs (same as above)
+                loss_kwargs = {
+                    'ce_weight': args.ce_weight,
+                    'qwk_weight': args.qwk_weight,
+                    'emd_weight': args.emd_weight,
+                    'coral_weight': args.coral_weight,
+                    'ordinal_alpha': args.ordinal_alpha
+                }
+                
+                best_model_state, best_metrics, training_history = train_single_fold(
+                    model, train_loader, test_loader, device, args.epochs, model_name, fold,
+                    loss_type=args.loss, loss_kwargs=loss_kwargs
+                )
+            
+                # Save fold results
+                fold_results.append({
+                    'fold': fold,
+                    'metrics': best_metrics,
+                    'training_history': training_history
+                })
+                
+                # Save model for this fold
+                model_path = f"save_models/best_{model_name}_{args.dataset}_fold_{fold}.pth"
+                torch.save({
+                    'model_state_dict': best_model_state,
+                    'config': {
+                        'model_type': model_name,
                     'n_questions': n_questions,
                     'n_cats': n_cats,
                     'dataset': args.dataset,
@@ -528,7 +546,7 @@ def main():
             }
             log_path = save_results(
                 fold_training_results,
-                f"results/train/train_results_{args.model}_{args.dataset}_fold_{fold}.json"
+                f"results/train/train_results_{model_name}_{args.dataset}_fold_{fold}.json"
             )
         
         # Compute and display CV summary
@@ -568,7 +586,7 @@ def main():
         }
         cv_log_path = save_results(
             cv_summary_results,
-            f"results/train/train_results_{args.model}_{args.dataset}_cv_summary.json"
+            f"results/train/train_results_{model_name}_{args.dataset}_cv_summary.json"
         )
         
         print(f"\\n📋 CV summary saved to: {cv_log_path}")
@@ -577,8 +595,8 @@ def main():
         best_fold_idx = np.argmax([fold['metrics']['quadratic_weighted_kappa'] for fold in fold_results])
         best_fold = fold_results[best_fold_idx]['fold']
         
-        best_fold_model_path = f"save_models/best_{args.model}_{args.dataset}_fold_{best_fold}.pth"
-        main_model_path = f"save_models/best_{args.model}_{args.dataset}.pth"
+        best_fold_model_path = f"save_models/best_{model_name}_{args.dataset}_fold_{best_fold}.pth"
+        main_model_path = f"save_models/best_{model_name}_{args.dataset}.pth"
         
         # Copy best fold model as main model
         import shutil

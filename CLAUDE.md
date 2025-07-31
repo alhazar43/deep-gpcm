@@ -30,20 +30,21 @@ python data_gen.py --format OC --categories 4 --students 800 --questions 400 --m
 
 ### Training
 ```bash
-# Basic training with optimal configuration
-python train.py --dataset synthetic_OC --embedding_strategy linear_decay --epochs 30
+# Main pipeline with automatic loss optimization (RECOMMENDED - all models included by default)
+python main.py --dataset synthetic_OC --epochs 30
+
+# Individual model training with custom loss
+python train.py --model deep_gpcm --dataset synthetic_OC --epochs 30
+python train.py --model coral_gpcm --loss combined --ce_weight 0.5 --coral_weight 0.5 --dataset synthetic_OC --epochs 30
 
 # Cross-validation training (5-fold)
 python train_cv.py --dataset synthetic_OC --n_folds 5 --epochs 20
-
-# Optimal loss function benchmark
-python benchmark_optimal_losses.py --dataset synthetic_OC --epochs 15
 ```
 
 ### Evaluation and Analysis
 ```bash
-# Complete pipeline (train both models with CV, evaluate, and plot)
-python main.py --models baseline akvmn --dataset synthetic_OC --epochs 30 --cv_folds 5
+# Complete pipeline with automatic loss optimization (RECOMMENDED - all models by default)
+python main.py --dataset synthetic_OC --epochs 30 --cv_folds 5
 
 # Individual model evaluation
 python evaluate.py --model_path save_models/best_model_synthetic_OC.pth --dataset synthetic_OC

@@ -644,10 +644,9 @@ class AdaptivePlotter:
         
         # Consistent model colors
         model_colors = {
-            'deep_gpcm': '#ff7f0e',     # Orange (was baseline)
-            'attn_gpcm': '#1f77b4',     # Blue (was akvmn)
-            'coral': '#2ca02c',         # Green (unchanged)
-            'coral_gpcm': '#d62728'     # Red (was hybrid_coral)
+            'deep_gpcm': '#ff7f0e',     # Orange
+            'attn_gpcm': '#1f77b4',     # Blue
+            'coral_gpcm': '#d62728'     # Red
         }
         
         # Helper function to highlight best value
