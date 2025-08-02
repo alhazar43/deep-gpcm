@@ -15,10 +15,12 @@ import time
 import argparse
 import numpy as np
 from datetime import datetime
+from typing import Optional
 
-from core.model import DeepGPCM, AttentionGPCM
-from core.attention_enhanced import EnhancedAttentionGPCM
-from utils.metrics import compute_metrics, save_results
+from models import create_model as factory_create_model
+from utils.metrics import compute_metrics, compute_metrics_multimethod, save_results
+from utils.predictions import compute_unified_predictions, PredictionConfig, extract_probabilities_from_model_output
+from utils.path_utils import get_path_manager, find_best_model
 import torch.utils.data as data_utils
 import torch.nn as nn
 
@@ -127,59 +129,115 @@ def load_trained_model(model_path, device):
     except Exception as e:
         raise RuntimeError(f"Failed to load checkpoint: {e}")
     
-    # Extract config
-    if 'config' not in checkpoint:
+    # Extract config (handle both 'config' and 'model_config' keys)
+    if 'config' in checkpoint:
+        config = checkpoint['config']
+    elif 'model_config' in checkpoint:
+        config = checkpoint['model_config']
+    else:
         raise ValueError("Checkpoint missing config information")
     
-    config = checkpoint['config']
+    # Handle direct model_type in checkpoint
+    if 'model_type' not in config and 'model_name' in config:
+        config['model_type'] = config['model_name']
+    
+    # If still no model_type, try to infer from filename
+    if 'model_type' not in config:
+        filename = os.path.basename(model_path)
+        if 'coral_gpcm_proper' in filename:
+            config['model_type'] = 'coral_gpcm_proper'
+        elif 'deep_gpcm' in filename:
+            config['model_type'] = 'deep_gpcm'
+        elif 'attn_gpcm' in filename:
+            config['model_type'] = 'attn_gpcm'
+        else:
+            raise ValueError(f"Cannot determine model type from config or filename: {filename}")
+    
     model_type = config['model_type']
     n_questions = config['n_questions']
     n_cats = config['n_cats']
     
+    # Extract model architecture dimensions from config or infer from state dict
+    if 'memory_size' in config:
+        memory_size = config['memory_size']
+        key_dim = config['key_dim']
+        value_dim = config['value_dim']
+        final_fc_dim = config['final_fc_dim']
+    else:
+        # Infer dimensions from state dict for models that don't have them in config
+        state_dict = checkpoint['model_state_dict']
+        memory_size = state_dict['memory.key_memory_matrix'].shape[0]
+        key_dim = state_dict['q_embed.weight'].shape[1]
+        value_dim = state_dict['init_value_memory'].shape[1]
+        # Handle different naming conventions for summary layer
+        if 'summary_network.0.bias' in state_dict:
+            final_fc_dim = state_dict['summary_network.0.bias'].shape[0]
+        elif 'summary_fc.bias' in state_dict:
+            final_fc_dim = state_dict['summary_fc.bias'].shape[0]
+        else:
+            # Default value if not found
+            final_fc_dim = 50
+    
     print(f"🔍 Auto-detected model: {model_type}")
     print(f"📊 Dataset config: {n_questions} questions, {n_cats} categories")
+    print(f"🏗️ Architecture: memory_size={memory_size}, key_dim={key_dim}, value_dim={value_dim}")
     
-    # Create model based on type
-    if model_type == 'deep_gpcm':
-        model = DeepGPCM(
-            n_questions=n_questions,
-            n_cats=n_cats,
-            memory_size=50,
-            key_dim=50,
-            value_dim=200,
-            final_fc_dim=50
-        )
-    elif model_type == 'attn_gpcm':
-        # Use enhanced version with learnable parameters
-        model = EnhancedAttentionGPCM(
-            n_questions=n_questions,
-            n_cats=n_cats,
-            embed_dim=64,
-            memory_size=50,
-            key_dim=50,
-            value_dim=200,
-            final_fc_dim=50,
-            n_heads=4,
-            n_cycles=2,
-            embedding_strategy="linear_decay",
-            ability_scale=2.0  # Default for old models
-        )
-    elif model_type == 'coral_gpcm':
-        from core.coral_gpcm import HybridCORALGPCM
-        model = HybridCORALGPCM(
-            n_questions=n_questions,
-            n_cats=n_cats,
-            memory_size=50,
-            key_dim=50,
-            value_dim=200,
-            final_fc_dim=50
-        )
-    else:
-        raise ValueError(f"Unknown model type: {model_type}")
+    # Create model using factory with config parameters
+    model_kwargs = {
+        'memory_size': config.get('memory_size', memory_size),
+        'key_dim': config.get('key_dim', key_dim),
+        'value_dim': config.get('value_dim', value_dim),
+        'final_fc_dim': config.get('final_fc_dim', final_fc_dim),
+        'embedding_strategy': config.get('embedding_strategy', 'linear_decay')
+    }
     
-    # Load model state
+    # Add model-specific parameters
+    if model_type == 'attn_gpcm':
+        model_kwargs.update({
+            'embed_dim': 64,
+            'n_heads': 4,
+            'n_cycles': 2,
+            'ability_scale': 2.0
+        })
+    elif model_type == 'coral_gpcm_proper':
+        model_kwargs.update({
+            'ability_scale': 1.0,
+            'use_discrimination': True,
+            'coral_dropout': 0.1,
+            'use_adaptive_blending': config.get('use_adaptive_blending', True),
+            'blend_weight': config.get('blend_weight', 0.5)
+        })
+    
+    # Create model using factory
+    model = factory_create_model(model_type, n_questions, n_cats, **model_kwargs)
+    
+    # Load model state with compatibility handling
     try:
-        model.load_state_dict(checkpoint['model_state_dict'])
+        state_dict = checkpoint['model_state_dict']
+        
+        # Handle missing threshold coupling parameters for backward compatibility
+        if model_type in ['coral_gpcm_proper']:
+            model_state_keys = set(model.state_dict().keys())
+            saved_state_keys = set(state_dict.keys())
+            
+            # Add missing threshold coupling parameters with defaults
+            missing_keys = model_state_keys - saved_state_keys
+            for key in missing_keys:
+                if 'threshold_gpcm_weight' in key:
+                    state_dict[key] = model.state_dict()[key].clone()
+                    print(f"  Added missing parameter: {key} (default value)")
+                elif 'threshold_coral_weight' in key:
+                    state_dict[key] = model.state_dict()[key].clone()
+                    print(f"  Added missing parameter: {key} (default value)")
+            
+            # Remove unexpected parameters
+            unexpected_keys = saved_state_keys - model_state_keys
+            for key in list(unexpected_keys):
+                if key in state_dict:
+                    del state_dict[key]
+                    print(f"  Removed unexpected parameter: {key}")
+        
+        model.load_state_dict(state_dict, strict=False)
         model = model.to(device)
         model.eval()
     except Exception as e:
@@ -329,6 +387,171 @@ def evaluate_model(model, test_loader, device):
     return results
 
 
+def evaluate_model_multimethod(model, test_loader, device, config: Optional[PredictionConfig] = None):
+    """Comprehensive model evaluation with multi-method predictions."""
+    print(f"\\n🧪 EVALUATING MODEL (Multi-Method)")
+    print("-" * 50)
+    
+    model.eval()
+    all_predictions = []
+    all_targets = []
+    all_masks = []
+    inference_times = []
+    
+    # Advanced data collection for plotting
+    all_sequences = []
+    all_responses = []
+    attention_weights = []
+    
+    print(f"Processing {len(test_loader)} batches...")
+    
+    with torch.no_grad():
+        for batch_idx, (questions, responses, mask) in enumerate(test_loader):
+            questions = questions.to(device)
+            responses = responses.to(device)
+            mask = mask.to(device)
+            
+            # Time inference
+            start_time = time.time()
+            
+            # Forward pass
+            model_output = model(questions, responses)
+            gpcm_probs = extract_probabilities_from_model_output(model_output)
+            
+            inference_time = time.time() - start_time
+            inference_times.append(inference_time)
+            
+            # Collect sequence-level data for advanced analysis
+            batch_size, seq_len = questions.shape
+            for i in range(batch_size):
+                seq_mask = mask[i].cpu().numpy()
+                valid_len = int(seq_mask.sum())
+                
+                if valid_len > 0:
+                    # Store sequence data
+                    all_sequences.append(questions[i, :valid_len].cpu().numpy())
+                    all_responses.append(responses[i, :valid_len].cpu().numpy())
+            
+            # Collect predictions and targets (flatten but keep mask for filtering)
+            probs_flat = gpcm_probs.view(-1, gpcm_probs.size(-1))
+            responses_flat = responses.view(-1)
+            mask_flat = mask.view(-1)
+            
+            all_predictions.append(probs_flat.cpu())
+            all_targets.append(responses_flat.cpu())
+            all_masks.append(mask_flat.cpu())
+            
+            if (batch_idx + 1) % 10 == 0:
+                print(f"  Processed {batch_idx + 1}/{len(test_loader)} batches")
+    
+    # Combine all predictions, targets, and masks
+    all_predictions = torch.cat(all_predictions, dim=0)
+    all_targets = torch.cat(all_targets, dim=0)
+    all_masks = torch.cat(all_masks, dim=0)
+    
+    # Filter out padding tokens using mask
+    valid_indices = all_masks.bool()
+    all_predictions = all_predictions[valid_indices]
+    all_targets = all_targets[valid_indices]
+    
+    print(f"📊 Total samples: {len(all_targets)}")
+    print(f"⏱️  Average inference time: {np.mean(inference_times)*1000:.2f}ms per batch")
+    
+    # Calculate comprehensive metrics using multi-method system
+    print("\\n🔬 Computing multi-method predictions...")
+    n_cats = all_predictions.size(-1)
+    
+    # Compute unified predictions
+    if config is None:
+        config = PredictionConfig()
+        config.use_gpu = False  # Explicitly set after creation
+    
+    unified_preds = compute_unified_predictions(all_predictions, config=config)
+    
+    print(f"  Hard predictions: shape={unified_preds['hard'].shape}")
+    print(f"  Soft predictions: shape={unified_preds['soft'].shape}")
+    print(f"  Threshold predictions: shape={unified_preds['threshold'].shape}")
+    
+    # Compute comprehensive metrics
+    print("\\n🔬 Computing comprehensive metrics...")
+    eval_metrics = compute_metrics_multimethod(
+        all_targets, 
+        unified_preds,
+        all_predictions,
+        n_cats=n_cats
+    )
+    
+    results = eval_metrics.copy()
+    
+    # Add inference performance metrics
+    results['performance'] = {
+        'avg_inference_time_ms': np.mean(inference_times) * 1000,
+        'total_samples': len(all_targets),
+        'samples_per_second': len(all_targets) / sum(inference_times)
+    }
+    
+    # Add prediction statistics
+    results['prediction_stats'] = {
+        'hard': {
+            'mean': float(unified_preds['hard'].float().mean()),
+            'std': float(unified_preds['hard'].float().std()),
+            'unique_values': len(torch.unique(unified_preds['hard']))
+        },
+        'soft': {
+            'mean': float(unified_preds['soft'].mean()),
+            'std': float(unified_preds['soft'].std()),
+            'min': float(unified_preds['soft'].min()),
+            'max': float(unified_preds['soft'].max())
+        },
+        'threshold': {
+            'mean': float(unified_preds['threshold'].float().mean()),
+            'std': float(unified_preds['threshold'].float().std()),
+            'unique_values': len(torch.unique(unified_preds['threshold']))
+        }
+    }
+    
+    # Add confusion matrix for hard predictions
+    confusion_matrix = torch.zeros(n_cats, n_cats, dtype=torch.int)
+    for target, pred in zip(all_targets, unified_preds['hard']):
+        confusion_matrix[target, pred] += 1
+    results['confusion_matrix'] = confusion_matrix.numpy().tolist()
+    
+    # Add advanced visualization data
+    ordinal_distances_hard = torch.abs(all_targets - unified_preds['hard'])
+    ordinal_distances_soft = torch.abs(all_targets.float() - unified_preds['soft'])
+    ordinal_distances_threshold = torch.abs(all_targets - unified_preds['threshold'])
+    
+    results['ordinal_distances'] = {
+        'hard': ordinal_distances_hard.numpy().tolist(),
+        'soft': ordinal_distances_soft.numpy().tolist(),
+        'threshold': ordinal_distances_threshold.numpy().tolist()
+    }
+    
+    # Store probability predictions for ROC and calibration analysis
+    results['probability_predictions'] = all_predictions.numpy().tolist()
+    results['probabilities'] = all_predictions.numpy().tolist()
+    results['actual'] = all_targets.numpy().tolist()
+    
+    # Store all prediction types
+    results['predictions'] = {
+        'hard': unified_preds['hard'].numpy().tolist(),
+        'soft': unified_preds['soft'].numpy().tolist(),
+        'threshold': unified_preds['threshold'].numpy().tolist()
+    }
+    
+    # Transition matrix calculation
+    if all_responses:
+        transition_matrix = _calculate_transition_matrix(all_responses, n_cats)
+        results['transition_matrix'] = transition_matrix.tolist()
+    
+    # Sequence data for time series analysis
+    if all_sequences and all_responses:
+        results['sequences'] = all_sequences
+        results['responses'] = all_responses
+    
+    return results
+
+
 def _calculate_transition_matrix(sequences, n_cats=4):
     """Calculate transition matrix from response sequences."""
     import numpy as np
@@ -404,9 +627,9 @@ def find_trained_models(models_dir: str = "save_models") -> dict:
                 elif parts[1] == 'attn' and parts[2] == 'gpcm':
                     model_type = 'attn'
                     dataset = '_'.join(parts[3:])
-                elif parts[1] == 'coral' and parts[2] == 'gpcm':
-                    model_type = 'coral'
-                    dataset = '_'.join(parts[3:])
+                elif parts[1] == 'coral' and parts[2] == 'gpcm' and parts[3] == 'proper':
+                    model_type = 'coral_gpcm_proper'
+                    dataset = '_'.join(parts[4:])
                 else:
                     # Fallback for other patterns
                     model_type = parts[1]
@@ -558,8 +781,15 @@ def batch_evaluate_models(dataset_filter=None, model_filter=None, batch_size=32,
             try:
                 # Load and evaluate model
                 model, config, training_metrics = load_trained_model(model_path, device_obj)
-                train_path = f"data/{dataset}/{dataset.lower()}_train.txt"
-                test_path = f"data/{dataset}/{dataset.lower()}_test.txt"
+                # Support both old and new naming formats
+                if dataset.startswith('synthetic_') and '_' in dataset[10:]:
+                    # New format: synthetic_4000_200_2
+                    train_path = f"data/{dataset}/{dataset}_train.txt"
+                    test_path = f"data/{dataset}/{dataset}_test.txt"
+                else:
+                    # Legacy format: synthetic_OC -> synthetic_oc_train.txt
+                    train_path = f"data/{dataset}/{dataset.lower()}_train.txt"
+                    test_path = f"data/{dataset}/{dataset.lower()}_test.txt"
                 
                 train_data, test_data, n_questions, n_cats = load_simple_data(train_path, test_path)
                 test_questions = [seq[0] for seq in test_data]
@@ -573,10 +803,10 @@ def batch_evaluate_models(dataset_filter=None, model_filter=None, batch_size=32,
                 results['config'] = config
                 results['training_metrics'] = training_metrics
                 
-                # Save results
-                result_file = f"results/test/test_results_{model_type}_{dataset}.json"
-                from utils.metrics import save_results
-                save_results(results, result_file)
+                # Save results using new path structure
+                path_manager = get_path_manager()
+                result_file = path_manager.get_result_path('test', model_type, dataset)
+                save_results(results, str(result_file))
                 
                 print_evaluation_summary({dataset: {model_type: {
                     'categorical_accuracy': results.get('categorical_accuracy', 0),
@@ -623,6 +853,13 @@ def main():
     parser.add_argument('--include_cv_folds', action='store_true', help='Include CV fold models in batch evaluation')
     parser.add_argument('--summary_only', action='store_true', help='Only show summary of existing results')
     parser.add_argument('--regenerate_plots', action='store_true', help='Regenerate all plots after evaluation')
+    
+    # Multi-method evaluation options
+    parser.add_argument('--use_multimethod_eval', action='store_true', help='Use multi-method evaluation system')
+    parser.add_argument('--thresholds', nargs='+', type=float, help='Custom thresholds for threshold predictions')
+    parser.add_argument('--prediction_methods', nargs='+', choices=['hard', 'soft', 'threshold'], 
+                        default=['hard', 'soft', 'threshold'], help='Which prediction methods to compute')
+    parser.add_argument('--adaptive_thresholds', action='store_true', help='Use adaptive thresholds based on data')
     
     args = parser.parse_args()
     
@@ -675,9 +912,15 @@ def main():
         # Load trained model
         model, config, training_metrics = load_trained_model(args.model_path, device)
         
-        # Load test data
-        train_path = f"data/{args.dataset}/{args.dataset.lower()}_train.txt"
-        test_path = f"data/{args.dataset}/{args.dataset.lower()}_test.txt"
+        # Load test data - support both old and new naming formats
+        if args.dataset.startswith('synthetic_') and '_' in args.dataset[10:]:
+            # New format: synthetic_4000_200_2
+            train_path = f"data/{args.dataset}/{args.dataset}_train.txt"
+            test_path = f"data/{args.dataset}/{args.dataset}_test.txt"
+        else:
+            # Legacy format: synthetic_OC -> synthetic_oc_train.txt
+            train_path = f"data/{args.dataset}/{args.dataset.lower()}_train.txt"
+            test_path = f"data/{args.dataset}/{args.dataset.lower()}_test.txt"
         
         try:
             train_data, test_data, n_questions, n_cats = load_simple_data(train_path, test_path)
@@ -697,7 +940,25 @@ def main():
         _, test_loader = create_data_loaders(train_data, test_data, args.batch_size)
         
         # Evaluate model
-        results = evaluate_model(model, test_loader, device)
+        if args.use_multimethod_eval:
+            # Create prediction config
+            pred_config = PredictionConfig()
+            pred_config.use_gpu = False  # Keep predictions on CPU for metrics computation
+            if args.thresholds:
+                pred_config.thresholds = args.thresholds
+            if args.adaptive_thresholds:
+                pred_config.adaptive_thresholds = True
+            
+            results = evaluate_model_multimethod(model, test_loader, device, pred_config)
+            print("\n📊 Multi-Method Evaluation Results:")
+            print(f"  Methods used: {', '.join(args.prediction_methods)}")
+            if 'prediction_stats' in results:
+                for method in args.prediction_methods:
+                    if method in results['prediction_stats']:
+                        stats = results['prediction_stats'][method]
+                        print(f"  {method}: mean={stats['mean']:.3f}, std={stats['std']:.3f}")
+        else:
+            results = evaluate_model(model, test_loader, device)
         
         # Print summary
         model_name = config['model_type']  
@@ -723,11 +984,10 @@ def main():
         model_name = config['model_type']
         dataset_name = config.get('dataset', args.dataset)
         
-        filename = f"test_results_{model_name}_{dataset_name}.json"
+        path_manager = get_path_manager()
+        output_path = path_manager.get_result_path('test', model_name, dataset_name)
         
-        output_path = save_results(
-            output_data, f"results/test/{filename}"
-        )
+        save_results(output_data, str(output_path))
         
         print(f"\\n💾 Results saved to: {output_path}")
         print("\\n✅ Evaluation completed successfully!")

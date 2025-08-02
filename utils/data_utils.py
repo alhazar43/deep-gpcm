@@ -5,7 +5,91 @@ Unified data loading and processing functions.
 
 import torch
 import numpy as np
-from typing import List, Tuple, Iterator
+from typing import List, Tuple, Iterator, Dict, Optional
+import re
+
+
+def parse_dataset_name(dataset_name: str) -> Dict[str, Optional[int]]:
+    """
+    Parse dataset name to extract configuration parameters.
+    
+    Supports formats:
+    - New format: synthetic_<students>_<max_questions>_<categories>
+      e.g., synthetic_4000_200_2, synthetic_4000_200_3, synthetic_4000_200_5
+    - Legacy format: synthetic_OC, synthetic_PC
+    
+    Args:
+        dataset_name: Dataset name string
+        
+    Returns:
+        Dictionary with:
+        - n_students: Number of students (or None for legacy)
+        - max_questions: Maximum questions (or None for legacy)
+        - n_cats: Number of categories
+        - format: 'new' or 'legacy'
+    """
+    # Try new format first: synthetic_<students>_<max_questions>_<categories>
+    new_format_match = re.match(r'^synthetic_(\d+)_(\d+)_(\d+)$', dataset_name)
+    if new_format_match:
+        return {
+            'n_students': int(new_format_match.group(1)),
+            'max_questions': int(new_format_match.group(2)),
+            'n_cats': int(new_format_match.group(3)),
+            'format': 'new'
+        }
+    
+    # Check legacy format: synthetic_OC or synthetic_PC
+    if dataset_name == 'synthetic_OC':
+        return {
+            'n_students': None,
+            'max_questions': None,
+            'n_cats': 4,  # OC = Ordinal Categories = 4
+            'format': 'legacy'
+        }
+    elif dataset_name == 'synthetic_PC':
+        return {
+            'n_students': None,
+            'max_questions': None,
+            'n_cats': 3,  # PC = Partial Credit = 3
+            'format': 'legacy'
+        }
+    
+    # Not a recognized synthetic dataset format
+    return {
+        'n_students': None,
+        'max_questions': None,
+        'n_cats': None,
+        'format': 'unknown'
+    }
+
+
+def is_synthetic_dataset(dataset_name: str) -> bool:
+    """Check if dataset is synthetic based on name."""
+    return dataset_name.startswith('synthetic_')
+
+
+def get_dataset_params(dataset_name: str) -> Dict[str, Optional[int]]:
+    """
+    Get dataset parameters with backward compatibility.
+    
+    Args:
+        dataset_name: Dataset name
+        
+    Returns:
+        Dictionary with dataset parameters including n_cats
+    """
+    if is_synthetic_dataset(dataset_name):
+        params = parse_dataset_name(dataset_name)
+        if params['format'] != 'unknown':
+            return params
+    
+    # Default parameters for non-synthetic or unrecognized datasets
+    return {
+        'n_students': None,
+        'max_questions': None,
+        'n_cats': 4,  # Default to 4 categories
+        'format': 'default'
+    }
 
 
 class UnifiedDataLoader:

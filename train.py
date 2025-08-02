@@ -18,6 +18,7 @@ from datetime import datetime
 from sklearn.model_selection import KFold
 
 from utils.metrics import compute_metrics, save_results, ensure_results_dirs
+from utils.path_utils import get_path_manager, ensure_directories
 import torch.utils.data as data_utils
 import torch.nn as nn
 import torch.optim as optim
@@ -116,7 +117,7 @@ def create_data_loaders(train_data, test_data, batch_size=32):
 
 def create_model(model_type, n_questions, n_cats, device, **model_kwargs):
     """Create model based on type."""
-    from core import create_model as factory_create_model
+    from models import create_model as factory_create_model
     
     model = factory_create_model(model_type, n_questions, n_cats, **model_kwargs)
     return model.to(device)
@@ -124,28 +125,34 @@ def create_model(model_type, n_questions, n_cats, device, **model_kwargs):
 
 def create_loss_function(loss_type, n_cats, **kwargs):
     """Create loss function based on type."""
-    if loss_type == 'ce':
-        return nn.CrossEntropyLoss()
-    elif loss_type == 'qwk':
-        from training.ordinal_losses import DifferentiableQWKLoss
-        return DifferentiableQWKLoss(n_cats)
-    elif loss_type == 'emd':
-        from training.ordinal_losses import OrdinalEMDLoss
-        return OrdinalEMDLoss(n_cats)
-    elif loss_type == 'ordinal_ce':
-        from training.ordinal_losses import OrdinalCrossEntropyLoss
-        return OrdinalCrossEntropyLoss(n_cats, alpha=kwargs.get('ordinal_alpha', 1.0))
-    elif loss_type == 'combined':
-        from training.ordinal_losses import CombinedOrdinalLoss
-        return CombinedOrdinalLoss(
-            n_cats,
-            ce_weight=kwargs.get('ce_weight', 1.0),
-            qwk_weight=kwargs.get('qwk_weight', 0.5),
-            emd_weight=kwargs.get('emd_weight', 0.0),
-            coral_weight=kwargs.get('coral_weight', 0.0)
-        )
-    else:
-        raise ValueError(f"Unknown loss type: {loss_type}")
+    # Import the unified factory function
+    from training.losses import create_loss_function as create_loss
+    
+    # Use the unified factory function which supports all loss types including focal
+    return create_loss(loss_type, n_cats, **kwargs)
+
+
+def get_hyperparameter_grid(model_name):
+    """Get hyperparameter grid for cross-validation."""
+    # Define hyperparameter grids for each model
+    base_grid = {
+        'lr': [0.001, 0.005, 0.01],
+        'batch_size': [32, 64, 128],
+    }
+    
+    # Model-specific parameters
+    if model_name == 'deep_gpcm':
+        base_grid['final_fc_dim'] = [50, 100]
+        base_grid['memory_size'] = [20, 50]
+    elif model_name == 'attn_gpcm':
+        base_grid['final_fc_dim'] = [50, 100]
+        base_grid['memory_size'] = [20, 50]
+        base_grid['attention_dim'] = [64, 128]
+    elif model_name == 'coral_gpcm_proper':
+        base_grid['final_fc_dim'] = [50, 100]
+        base_grid['memory_size'] = [20, 50]
+    
+    return base_grid
 
 
 def train_single_fold(model, train_loader, test_loader, device, epochs, model_name, fold=None, loss_type='ce', loss_kwargs=None):
@@ -153,7 +160,7 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
     print(f"\\n🚀 TRAINING: {model_name}" + (f" (Fold {fold})" if fold is not None else ""))
     print("-" * 60)
     
-    # Fresh model initialization
+    # Fresh model initialization (like old working code)
     def init_weights(m):
         if isinstance(m, nn.Linear):
             torch.nn.init.kaiming_normal_(m.weight)
@@ -168,7 +175,10 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
     loss_kwargs = loss_kwargs or {}
     criterion = create_loss_function(loss_type, model.n_cats, **loss_kwargs)
     
-    optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
+    # Get learning rate from loss_kwargs or use default
+    learning_rate = loss_kwargs.get('lr', 0.001) if loss_kwargs else 0.001
+    
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.8, patience=3)
     
     training_history = []
@@ -201,6 +211,11 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
             # Forward pass
             student_abilities, item_thresholds, discrimination_params, gpcm_probs = model(questions, responses)
             
+            # Get CORAL-specific information if available (for CORAL loss)
+            coral_info = None
+            if hasattr(model, 'get_coral_info'):
+                coral_info = model.get_coral_info()
+            
             # Flatten for loss computation and apply mask
             probs_flat = gpcm_probs.view(-1, gpcm_probs.size(-1))
             responses_flat = responses.view(-1)
@@ -215,27 +230,42 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
                 # CrossEntropyLoss expects log probabilities
                 valid_log_probs = torch.log(valid_probs + 1e-8)
                 loss = criterion(valid_log_probs, valid_responses)
-            elif loss_type in ['qwk', 'emd', 'ordinal_ce']:
+            elif loss_type == 'focal':
+                # Focal loss expects logits and supports masking
+                valid_logits = torch.log(valid_probs + 1e-8)  # Convert to logits
+                loss = criterion(valid_logits, valid_responses)
+            elif loss_type in ['qwk', 'ordinal_ce']:
                 # These losses work with probabilities directly
                 # Reshape back to include sequence dimension for proper masking
                 loss = criterion(gpcm_probs, responses, mask)
-            elif loss_type == 'combined':
-                # Combined loss handles both probabilities and logits
-                loss_dict = criterion(gpcm_probs, responses, mask)
+            elif loss_type in ['combined', 'triple_coral']:
+                # Combined/Triple loss handles both probabilities and logits
+                # Pass CORAL info for CORAL-specific loss computation
+                loss_dict = criterion(gpcm_probs, responses, mask, coral_info=coral_info)
                 loss = loss_dict['total_loss']
             else:
                 loss = criterion(valid_probs, valid_responses)
             
-            # Check for NaN
-            if torch.isnan(loss):
-                print(f"🚨 WARNING: NaN loss in epoch {epoch+1}, batch {batch_idx}")
+            # Check for NaN loss or invalid probabilities
+            if torch.isnan(loss) or torch.isinf(loss):
+                print(f"🚨 WARNING: Invalid loss ({loss.item()}) in epoch {epoch+1}, batch {batch_idx}")
+                continue
+            
+            # Check for NaN in probabilities
+            if torch.isnan(valid_probs).any() or torch.isinf(valid_probs).any():
+                print(f"🚨 WARNING: Invalid probabilities in epoch {epoch+1}, batch {batch_idx}")
                 continue
             
             loss.backward()
             
-            # Monitor gradient norms
+            # Monitor gradient norms with reasonable clipping  
             grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             grad_norms.append(grad_norm.item())
+            
+            # Skip update if gradients are still too large
+            if grad_norm > 50.0:
+                print(f"🚨 WARNING: Large gradient norm ({grad_norm:.1f}) in epoch {epoch+1}, batch {batch_idx}")
+                continue
             
             optimizer.step()
             
@@ -243,6 +273,32 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
             predicted = valid_probs.argmax(dim=-1)
             correct += (predicted == valid_responses).sum().item()
             total += valid_responses.numel()
+        
+        # Handle case where no valid batches were processed
+        if total == 0:
+            print(f"🚨 ERROR: No valid batches in epoch {epoch+1} - all batches had NaN/Inf values")
+            print("⚠️  Model training failed - returning early with default metrics")
+            
+            # Get current learning rate
+            current_lr = optimizer.param_groups[0]['lr']
+            
+            # Create minimal training history entry to prevent IndexError
+            training_history.append({
+                'epoch': epoch + 1,
+                'train_loss': float('inf'),
+                'train_accuracy': 0.0,
+                'gradient_norm': float('inf'),
+                'learning_rate': current_lr,
+                'categorical_accuracy': 0.0,
+                'ordinal_accuracy': 0.0,
+                'quadratic_weighted_kappa': 0.0,
+                'mean_absolute_error': float('inf'),
+                'kendall_tau': 0.0,
+                'spearman_correlation': 0.0,
+                'cohen_kappa': 0.0,
+                'cross_entropy': float('inf')
+            })
+            break
         
         train_loss = total_loss / len(train_loader)
         train_acc = correct / total
@@ -324,9 +380,28 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
     
     print(f"\\n✅ Training completed! Best QWK: {best_qwk:.3f} at epoch {best_epoch}")
     
-    # Final metrics from best epoch
-    best_epoch_data = training_history[best_epoch-1]
-    best_metrics = best_epoch_data.copy()
+    # Final metrics from best epoch - handle failed training
+    if training_history and best_epoch > 0 and best_epoch <= len(training_history):
+        best_epoch_data = training_history[best_epoch-1]
+        best_metrics = best_epoch_data.copy()
+    else:
+        # Training failed completely - create default metrics
+        best_metrics = {
+            'epoch': 0,
+            'train_loss': float('inf'),
+            'train_accuracy': 0.0,
+            'gradient_norm': float('inf'),
+            'learning_rate': 0.001,
+            'categorical_accuracy': 0.0,
+            'ordinal_accuracy': 0.0,
+            'quadratic_weighted_kappa': 0.0,
+            'mean_absolute_error': float('inf'),
+            'kendall_tau': 0.0,
+            'spearman_correlation': 0.0,
+            'cohen_kappa': 0.0,
+            'cross_entropy': float('inf')
+        }
+    
     best_metrics.update({
         'best_epoch': best_epoch,
         'total_epochs': len(training_history),
@@ -337,35 +412,156 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
     return best_model_state, best_metrics, training_history
 
 
+def perform_cross_validation(model_name, all_data, n_questions, n_cats, device, args):
+    """Perform cross-validation with hyperparameter tuning."""
+    from itertools import product
+    
+    print(f"\n{'='*20} CROSS-VALIDATION WITH HYPERPARAMETER TUNING {'='*20}")
+    print(f"Model: {model_name}")
+    
+    # Get hyperparameter grid
+    param_grid = get_hyperparameter_grid(model_name)
+    param_names = list(param_grid.keys())
+    param_values = [param_grid[name] for name in param_names]
+    param_combinations = list(product(*param_values))
+    
+    print(f"Hyperparameter grid:")
+    for param, values in param_grid.items():
+        print(f"  - {param}: {values}")
+    print(f"Total combinations: {len(param_combinations)}")
+    
+    # Outer CV loop
+    outer_kfold = KFold(n_splits=args.n_folds, shuffle=True, random_state=args.seed)
+    outer_fold_results = []
+    
+    for outer_fold, (train_idx, test_idx) in enumerate(outer_kfold.split(all_data), 1):
+        print(f"\n{'='*15} OUTER FOLD {outer_fold}/{args.n_folds} {'='*15}")
+        
+        # Split data for outer fold
+        outer_train_data = [all_data[i] for i in train_idx]
+        outer_test_data = [all_data[i] for i in test_idx]
+        
+        # Inner CV for hyperparameter selection
+        inner_kfold = KFold(n_splits=3, shuffle=True, random_state=args.seed + outer_fold)
+        best_params = None
+        best_inner_score = -1.0
+        
+        print("\nHyperparameter search:")
+        for param_combo in param_combinations:
+            # Create parameter dictionary
+            params = dict(zip(param_names, param_combo))
+            
+            # Skip if batch_size incompatible with data size
+            if params['batch_size'] > len(outer_train_data) // 3:
+                continue
+            
+            inner_scores = []
+            
+            # Inner CV loop
+            for inner_fold, (inner_train_idx, inner_val_idx) in enumerate(inner_kfold.split(outer_train_data), 1):
+                inner_train = [outer_train_data[i] for i in inner_train_idx]
+                inner_val = [outer_train_data[i] for i in inner_val_idx]
+                
+                # Create data loaders with current batch size
+                train_loader, val_loader = create_data_loaders(inner_train, inner_val, params['batch_size'])
+                
+                # Create model with current hyperparameters
+                model_kwargs = {k: v for k, v in params.items() if k not in ['lr', 'batch_size']}
+                model = create_model(model_name, n_questions, n_cats, device, **model_kwargs)
+                
+                # Train with reduced epochs for hyperparameter search
+                search_epochs = min(10, args.epochs)  # Use fewer epochs for search
+                _, metrics, _ = train_single_fold(
+                    model, train_loader, val_loader, device, search_epochs, 
+                    model_name, fold=None, loss_type=args.loss,
+                    loss_kwargs={'lr': params['lr']}  # Pass learning rate
+                )
+                
+                inner_scores.append(metrics.get('quadratic_weighted_kappa', 0.0))
+            
+            # Average inner CV score
+            avg_inner_score = np.mean(inner_scores)
+            
+            if avg_inner_score > best_inner_score:
+                best_inner_score = avg_inner_score
+                best_params = params.copy()
+                print(f"  New best: {params} -> QWK: {avg_inner_score:.3f}")
+        
+        print(f"\nBest hyperparameters for outer fold {outer_fold}:")
+        for param, value in best_params.items():
+            print(f"  - {param}: {value}")
+        
+        # Train final model for this outer fold with best hyperparameters
+        outer_train_loader, outer_test_loader = create_data_loaders(
+            outer_train_data, outer_test_data, best_params['batch_size']
+        )
+        
+        model_kwargs = {k: v for k, v in best_params.items() if k not in ['lr', 'batch_size']}
+        model = create_model(model_name, n_questions, n_cats, device, **model_kwargs)
+        
+        # Full training with best parameters
+        best_model_state, best_metrics, training_history = train_single_fold(
+            model, outer_train_loader, outer_test_loader, device, args.epochs,
+            model_name, fold=outer_fold, loss_type=args.loss,
+            loss_kwargs={'lr': best_params['lr']}
+        )
+        
+        # Store results
+        outer_fold_results.append({
+            'fold': outer_fold,
+            'best_params': best_params,
+            'metrics': best_metrics,
+            'training_history': training_history,
+            'model_state': best_model_state
+        })
+    
+    return outer_fold_results
+
+
 def main():
     parser = argparse.ArgumentParser(description='Unified Deep-GPCM Training')
-    parser.add_argument('--model', choices=['deep_gpcm', 'attn_gpcm', 'coral', 'coral_gpcm'], 
+    parser.add_argument('--model', choices=['deep_gpcm', 'attn_gpcm', 'coral_gpcm_proper'], 
                         help='Single model to train (for backward compatibility)')
-    parser.add_argument('--models', nargs='+', choices=['deep_gpcm', 'attn_gpcm', 'coral', 'coral_gpcm'],
+    parser.add_argument('--models', nargs='+', choices=['deep_gpcm', 'attn_gpcm', 'coral_gpcm_proper'],
                         help='Multiple models to train sequentially')
     parser.add_argument('--dataset', default='synthetic_OC', help='Dataset name')
     parser.add_argument('--epochs', type=int, default=30, help='Number of epochs')
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
     parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
-    parser.add_argument('--n_folds', type=int, default=5, help='Number of CV folds (0 = no CV)')
-    parser.add_argument('--no_cv', action='store_true', help='Disable cross-validation')
+    parser.add_argument('--n_folds', type=int, default=5, help='Number of folds for k-fold training (0 = no folds)')
+    parser.add_argument('--no_cv', action='store_true', help='Disable k-fold training (deprecated, use --n_folds 0)')
+    parser.add_argument('--cv', action='store_true', help='Enable cross-validation with hyperparameter tuning')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--device', default=None, help='Device (cuda/cpu)')
     
     # Loss function arguments
     parser.add_argument('--loss', type=str, default='ce',
-                        choices=['ce', 'qwk', 'emd', 'ordinal_ce', 'combined'],
+                        choices=['ce', 'focal', 'qwk', 'ordinal_ce', 'combined', 'triple_coral'],
                         help='Loss function type (default: ce)')
-    parser.add_argument('--ce_weight', type=float, default=1.0,
+    parser.add_argument('--ce_weight', type=float, default=0.4,
                         help='Weight for CE loss in combined loss')
-    parser.add_argument('--qwk_weight', type=float, default=0.5,
+    parser.add_argument('--qwk_weight', type=float, default=0.2,
                         help='Weight for QWK loss in combined loss')
-    parser.add_argument('--emd_weight', type=float, default=0.0,
-                        help='Weight for EMD loss in combined loss')
-    parser.add_argument('--coral_weight', type=float, default=0.0,
+    parser.add_argument('--coral_weight', type=float, default=0.4,
                         help='Weight for CORAL loss in combined loss')
-    parser.add_argument('--ordinal_alpha', type=float, default=1.0,
-                        help='Alpha parameter for ordinal CE loss')
+    
+    # Focal loss specific arguments
+    parser.add_argument('--focal_gamma', type=float, default=2.0,
+                        help='Gamma parameter for focal loss (default: 2.0)')
+    parser.add_argument('--focal_alpha', type=float, default=None,
+                        help='Alpha parameter for focal loss (default: None)')
+    parser.add_argument('--focal_weight', type=float, default=0.0,
+                        help='Weight for focal loss in combined loss (default: 0.0)')
+    
+    # Triple CORAL loss arguments
+    parser.add_argument('--triple_coral', action='store_true',
+                        help='Use triple CORAL loss (CE + QWK + CORAL)')
+    parser.add_argument('--triple_ce_weight', type=float, default=0.33,
+                        help='CE weight in triple CORAL loss')
+    parser.add_argument('--triple_qwk_weight', type=float, default=0.33,
+                        help='QWK weight in triple CORAL loss')
+    parser.add_argument('--triple_coral_weight', type=float, default=0.34,
+                        help='CORAL weight in triple CORAL loss')
     
     # Threshold coupling arguments
     parser.add_argument('--enable_threshold_coupling', action='store_true',
@@ -408,24 +604,38 @@ def main():
     print(f"Dataset: {args.dataset}")
     print(f"Device: {device}")
     print(f"Epochs: {args.epochs}")
-    print(f"Cross-validation: {'Disabled' if args.no_cv else f'{args.n_folds}-fold'}")
+    if args.no_cv or args.n_folds == 0:
+        print(f"Training: Single run (no folds)")
+    elif args.cv:
+        print(f"Cross-validation: {args.n_folds}-fold with hyperparameter tuning")
+    else:
+        print(f"K-fold training: {args.n_folds}-fold (no hyperparameter tuning)")
     print(f"Loss function: {args.loss}")
     if args.loss == 'combined':
         print(f"  - CE weight: {args.ce_weight}")
+        print(f"  - Focal weight: {args.focal_weight}")
         print(f"  - QWK weight: {args.qwk_weight}")
-        print(f"  - EMD weight: {args.emd_weight}")
         print(f"  - CORAL weight: {args.coral_weight}")
-    elif args.loss == 'ordinal_ce':
-        print(f"  - Ordinal alpha: {args.ordinal_alpha}")
+    elif args.loss == 'triple_coral':
+        print(f"  - CE weight: {args.triple_ce_weight}")
+        print(f"  - QWK weight: {args.triple_qwk_weight}")
+        print(f"  - CORAL weight: {args.triple_coral_weight}")
     print()
     
     # Create directories
-    os.makedirs('save_models', exist_ok=True)
-    ensure_results_dirs()
+    path_manager = get_path_manager()
+    ensure_directories(args.dataset)  # Ensure dataset-specific dirs exist
+    ensure_results_dirs()  # Keep for backward compatibility
     
-    # Load data
-    train_path = f"data/{args.dataset}/{args.dataset.lower()}_train.txt"
-    test_path = f"data/{args.dataset}/{args.dataset.lower()}_test.txt"
+    # Load data - support both old and new naming formats
+    if args.dataset.startswith('synthetic_') and '_' in args.dataset[10:]:
+        # New format: synthetic_4000_200_2
+        train_path = f"data/{args.dataset}/{args.dataset}_train.txt"
+        test_path = f"data/{args.dataset}/{args.dataset}_test.txt"
+    else:
+        # Legacy format: synthetic_OC -> synthetic_oc_train.txt
+        train_path = f"data/{args.dataset}/{args.dataset.lower()}_train.txt"
+        test_path = f"data/{args.dataset}/{args.dataset.lower()}_test.txt"
     
     try:
         train_data, test_data, n_questions, n_cats = load_simple_data(train_path, test_path)
@@ -447,25 +657,65 @@ def main():
             train_loader, test_loader = create_data_loaders(train_data, test_data, args.batch_size)
             
             # Create and train model
-            # Prepare model kwargs for threshold coupling
+            # Prepare model kwargs
             model_kwargs = {}
-            if model_name in ['coral', 'coral_gpcm']:
-                model_kwargs.update({
-                    'enable_threshold_coupling': args.enable_threshold_coupling or (model_name == 'coral_gpcm'),
-                    'coupling_type': args.coupling_type,
-                    'gpcm_weight': args.threshold_gpcm_weight,
-                    'coral_weight': args.threshold_coral_weight
-                })
+                
             
             model = create_model(model_name, n_questions, n_cats, device, **model_kwargs)
+            
+            # Detect and display actual model features
+            print(f"\n🔍 MODEL CONFIGURATION:")
+            print(f"  - Model type: {type(model).__name__}")
+            print(f"  - Parameters: {sum(p.numel() for p in model.parameters()):,}")
+            
+            # Detect adaptive blending
+            if hasattr(model, 'enable_adaptive_blending'):
+                if model.enable_adaptive_blending:
+                    print(f"  ⚡ Adaptive blending: ENABLED")
+                    if hasattr(model, 'threshold_blender') and model.threshold_blender is not None:
+                        blender_type = type(model.threshold_blender).__name__
+                        print(f"     Blender: {blender_type}")
+                        # Handle different blender types with different parameter names
+                        if hasattr(model.threshold_blender, 'range_sensitivity'):
+                            print(f"     Range sensitivity: {model.threshold_blender.range_sensitivity.item():.3f}")
+                            print(f"     Distance sensitivity: {model.threshold_blender.distance_sensitivity.item():.3f}")
+                            print(f"     Baseline bias: {model.threshold_blender.baseline_bias.item():.3f}")
+                        elif hasattr(model.threshold_blender, 'base_sensitivity'):
+                            print(f"     Base sensitivity: {model.threshold_blender.base_sensitivity.item():.3f}")
+                            print(f"     Distance threshold: {model.threshold_blender.distance_threshold.item():.3f}")
+                        else:
+                            print("     Parameters: (blender-specific)")
+                else:
+                    print(f"  ⚡ Adaptive blending: DISABLED")
+            
+            # Detect threshold coupling
+            if hasattr(model, 'enable_threshold_coupling'):
+                if model.enable_threshold_coupling:
+                    print(f"  🔗 Threshold coupling: ENABLED")
+                else:
+                    print(f"  🔗 Threshold coupling: DISABLED")
+            
+            # Detect CORAL integration
+            if hasattr(model, 'coral_layer'):
+                print(f"  🎯 CORAL layer: PRESENT")
+            
+            print()
             
             # Prepare loss kwargs
             loss_kwargs = {
                 'ce_weight': args.ce_weight,
                 'qwk_weight': args.qwk_weight,
-                'emd_weight': args.emd_weight,
                 'coral_weight': args.coral_weight,
-                'ordinal_alpha': args.ordinal_alpha
+                # Triple CORAL loss arguments
+                'triple_ce_weight': args.triple_ce_weight,
+                'triple_qwk_weight': args.triple_qwk_weight,
+                'triple_coral_weight': args.triple_coral_weight,
+                # Focal loss arguments
+                'focal_gamma': args.focal_gamma,
+                'focal_alpha': args.focal_alpha,
+                'focal_weight': args.focal_weight,
+                'gamma': args.focal_gamma,  # For standalone focal loss
+                'alpha': args.focal_alpha   # For standalone focal loss
             }
             
             best_model_state, best_metrics, training_history = train_single_fold(
@@ -473,8 +723,8 @@ def main():
                 loss_type=args.loss, loss_kwargs=loss_kwargs
             )
             
-            # Save model and logs
-            model_path = f"save_models/best_{model_name}_{args.dataset}.pth"
+            # Save model using new path structure
+            model_path = path_manager.get_model_path(model_name, args.dataset, is_best=True)
             torch.save({
                 'model_state_dict': best_model_state,
                 'config': {
@@ -486,24 +736,120 @@ def main():
                 'metrics': best_metrics
             }, model_path)
         
-            # Save training results using simplified system
+            # Save training results using new path structure
             training_results = {
                 'config': vars(args),
                 'metrics': best_metrics,
                 'training_history': training_history
             }
-            log_path = save_results(
-                training_results, 
-                f"results/train/train_results_{model_name}_{args.dataset}.json"
-            )
+            log_path = path_manager.get_result_path('train', model_name, args.dataset)
+            save_results(training_results, str(log_path))
             
             print(f"💾 Model saved to: {model_path}")
             print(f"📋 Logs saved to: {log_path}")
         
-        else:
-            print(f"📈 {args.n_folds}-fold cross-validation")
+        elif args.cv:
+            # Cross-validation with hyperparameter tuning
+            print(f"📈 {args.n_folds}-fold cross-validation with hyperparameter tuning")
+            
+            # Combine all data for CV
+            all_data = train_data + test_data
+            
+            # Perform cross-validation
+            cv_results = perform_cross_validation(model_name, all_data, n_questions, n_cats, device, args)
+            
+            # Compute and display CV summary
+            print(f"\n{'='*20} CV SUMMARY {'='*20}")
+            
+            metrics_names = [
+                'categorical_accuracy',
+                'ordinal_accuracy', 
+                'quadratic_weighted_kappa',
+                'mean_absolute_error',
+                'kendall_tau',
+                'spearman_correlation',
+                'cohen_kappa',
+                'cross_entropy'
+            ]
+            cv_summary = {}
+            
+            for metric in metrics_names:
+                values = [fold['metrics'][metric] for fold in cv_results]
+                cv_summary[metric] = {
+                    'mean': np.mean(values),
+                    'std': np.std(values),
+                    'values': values
+                }
+            
+            # Also summarize best hyperparameters
+            hyperparam_summary = {}
+            for param in cv_results[0]['best_params'].keys():
+                param_values = [fold['best_params'][param] for fold in cv_results]
+                # Check if all values are the same
+                if len(set(param_values)) == 1:
+                    hyperparam_summary[param] = param_values[0]
+                else:
+                    hyperparam_summary[param] = {
+                        'values': param_values,
+                        'most_common': max(set(param_values), key=param_values.count)
+                    }
+            
+            print(f"{'Metric':<25} {'Mean':<8} {'Std':<8} {'Folds'}")
+            print("-" * 60)
+            for metric, stats in cv_summary.items():
+                fold_str = " ".join([f"{v:.3f}" for v in stats['values']])
+                print(f"{metric:<25} {stats['mean']:<8.3f} {stats['std']:<8.3f} [{fold_str}]")
+            
+            print(f"\nBest hyperparameters across folds:")
+            for param, value in hyperparam_summary.items():
+                if isinstance(value, dict):
+                    print(f"  {param}: varies by fold - most common: {value['most_common']}")
+                else:
+                    print(f"  {param}: {value}")
+            
+            # Save CV results
+            cv_summary_results = {
+                'config': vars(args),
+                'cv_summary': cv_summary,
+                'hyperparameter_summary': hyperparam_summary,
+                'fold_results': [{
+                    'fold': r['fold'],
+                    'best_params': r['best_params'],
+                    'metrics': r['metrics']
+                } for r in cv_results]
+            }
+            cv_log_path = path_manager.get_result_path('validation', model_name, args.dataset)
+            save_results(cv_summary_results, str(cv_log_path))
+            
+            print(f"\n📋 CV summary saved to: {cv_log_path}")
+            
+            # Find and save best fold model as main model
+            best_fold_idx = np.argmax([fold['metrics']['quadratic_weighted_kappa'] for fold in cv_results])
+            best_fold = cv_results[best_fold_idx]['fold']
+            best_model_state = cv_results[best_fold_idx]['model_state']
+            
+            # Save best model
+            main_model_path = path_manager.get_model_path(model_name, args.dataset, is_best=True)
+            torch.save({
+                'model_state_dict': best_model_state,
+                'config': {
+                    'model_type': model_name,
+                    'n_questions': n_questions,
+                    'n_cats': n_cats,
+                    'dataset': args.dataset,
+                    'best_hyperparameters': cv_results[best_fold_idx]['best_params']
+                },
+                'metrics': cv_results[best_fold_idx]['metrics']
+            }, main_model_path)
+            
+            print(f"\n🏆 Best fold: {best_fold} (QWK: {cv_results[best_fold_idx]['metrics']['quadratic_weighted_kappa']:.3f})")
+            print(f"💾 Best model saved to: {main_model_path}")
         
-            # Combine all data for CV splitting
+        else:
+            # Standard k-fold training (no hyperparameter tuning)
+            print(f"📈 {args.n_folds}-fold training (no hyperparameter tuning)")
+        
+            # Combine all data for k-fold splitting
             all_data = train_data + test_data
             all_indices = np.arange(len(all_data))
             
@@ -521,25 +867,66 @@ def main():
                 train_loader, test_loader = create_data_loaders(fold_train_data, fold_test_data, args.batch_size)
                 
                 # Create and train model
-                # Prepare model kwargs for threshold coupling
+                # Prepare model kwargs
                 model_kwargs = {}
-                if model_name in ['coral', 'coral_gpcm']:
-                    model_kwargs.update({
-                        'enable_threshold_coupling': args.enable_threshold_coupling or (model_name == 'coral_gpcm'),
-                        'coupling_type': args.coupling_type,
-                        'gpcm_weight': args.threshold_gpcm_weight,
-                        'coral_weight': args.threshold_coral_weight
-                    })
+                    
                 
                 model = create_model(model_name, n_questions, n_cats, device, **model_kwargs)
+                
+                # Detect and display actual model features (first fold only)
+                if fold == 1:
+                    print(f"\n🔍 MODEL CONFIGURATION:")
+                    print(f"  - Model type: {type(model).__name__}")
+                    print(f"  - Parameters: {sum(p.numel() for p in model.parameters()):,}")
+                    
+                    # Detect adaptive blending
+                    if hasattr(model, 'enable_adaptive_blending'):
+                        if model.enable_adaptive_blending:
+                            print(f"  ⚡ Adaptive blending: ENABLED")
+                            if hasattr(model, 'threshold_blender') and model.threshold_blender is not None:
+                                blender_type = type(model.threshold_blender).__name__
+                                print(f"     Blender: {blender_type}")
+                                # Handle different blender types with different parameter names
+                                if hasattr(model.threshold_blender, 'range_sensitivity'):
+                                    print(f"     Range sensitivity: {model.threshold_blender.range_sensitivity.item():.3f}")
+                                    print(f"     Distance sensitivity: {model.threshold_blender.distance_sensitivity.item():.3f}")
+                                    print(f"     Baseline bias: {model.threshold_blender.baseline_bias.item():.3f}")
+                                elif hasattr(model.threshold_blender, 'base_sensitivity'):
+                                    print(f"     Base sensitivity: {model.threshold_blender.base_sensitivity.item():.3f}")
+                                    print(f"     Distance threshold: {model.threshold_blender.distance_threshold.item():.3f}")
+                                else:
+                                    print("     Parameters: (blender-specific)")
+                        else:
+                            print(f"  ⚡ Adaptive blending: DISABLED")
+                    
+                    # Detect threshold coupling
+                    if hasattr(model, 'enable_threshold_coupling'):
+                        if model.enable_threshold_coupling:
+                            print(f"  🔗 Threshold coupling: ENABLED")
+                        else:
+                            print(f"  🔗 Threshold coupling: DISABLED")
+                    
+                    # Detect CORAL integration
+                    if hasattr(model, 'coral_layer'):
+                        print(f"  🎯 CORAL layer: PRESENT")
+                    
+                    print()
             
                 # Prepare loss kwargs (same as above)
                 loss_kwargs = {
                     'ce_weight': args.ce_weight,
                     'qwk_weight': args.qwk_weight,
-                    'emd_weight': args.emd_weight,
                     'coral_weight': args.coral_weight,
-                    'ordinal_alpha': args.ordinal_alpha
+                    # Triple CORAL loss arguments
+                    'triple_ce_weight': args.triple_ce_weight,
+                    'triple_qwk_weight': args.triple_qwk_weight,
+                    'triple_coral_weight': args.triple_coral_weight,
+                    # Focal loss arguments
+                    'focal_gamma': args.focal_gamma,
+                    'focal_alpha': args.focal_alpha,
+                    'focal_weight': args.focal_weight,
+                    'gamma': args.focal_gamma,  # For standalone focal loss
+                    'alpha': args.focal_alpha   # For standalone focal loss
                 }
                 
                 best_model_state, best_metrics, training_history = train_single_fold(
@@ -554,34 +941,32 @@ def main():
                     'training_history': training_history
                 })
                 
-                # Save model for this fold
-                model_path = f"save_models/best_{model_name}_{args.dataset}_fold_{fold}.pth"
+                # Save model for this fold using new path structure
+                model_path = path_manager.get_model_path(model_name, args.dataset, fold=fold, is_best=False)
                 torch.save({
                     'model_state_dict': best_model_state,
                     'config': {
                         'model_type': model_name,
-                    'n_questions': n_questions,
-                    'n_cats': n_cats,
-                    'dataset': args.dataset,
-                    'fold': fold
-                },
-                'metrics': best_metrics
-            }, model_path)
-            
-            # Save fold logs using simplified system
-            fold_training_results = {
-                'config': {**vars(args), 'fold': fold},
-                'metrics': best_metrics,
-                'training_history': training_history
-            }
-            log_path = save_results(
-                fold_training_results,
-                f"results/train/train_results_{model_name}_{args.dataset}_fold_{fold}.json"
-            )
+                        'n_questions': n_questions,
+                        'n_cats': n_cats,
+                        'dataset': args.dataset,
+                        'fold': fold
+                    },
+                    'metrics': best_metrics
+                }, model_path)
+                
+                # Save fold logs using new path structure
+                fold_training_results = {
+                    'config': {**vars(args), 'fold': fold},
+                    'metrics': best_metrics,
+                    'training_history': training_history
+                }
+                log_path = path_manager.get_result_path('train', model_name, args.dataset, fold=fold)
+                save_results(fold_training_results, str(log_path))
         
-        if args.n_folds > 0:
-            # Compute and display CV summary
-            print(f"\\n{'='*20} CV SUMMARY {'='*20}")
+        if not args.no_cv and args.n_folds > 0 and not args.cv:
+            # Compute and display k-fold summary
+            print(f"\\n{'='*20} K-FOLD SUMMARY {'='*20}")
             
             metrics_names = [
                 'categorical_accuracy',
@@ -609,16 +994,14 @@ def main():
                 fold_str = " ".join([f"{v:.3f}" for v in stats['values']])
                 print(f"{metric:<25} {stats['mean']:<8.3f} {stats['std']:<8.3f} [{fold_str}]")
             
-            # Save CV summary using simplified system
+            # Save CV summary using new path structure
             cv_summary_results = {
                 'config': vars(args),
                 'cv_summary': cv_summary,
                 'fold_results': fold_results
             }
-            cv_log_path = save_results(
-                cv_summary_results,
-                f"results/train/train_results_{model_name}_{args.dataset}_cv_summary.json"
-            )
+            cv_log_path = path_manager.get_result_path('validation', model_name, args.dataset)
+            save_results(cv_summary_results, str(cv_log_path))
             
             print(f"\\n📋 CV summary saved to: {cv_log_path}")
             
@@ -626,12 +1009,16 @@ def main():
             best_fold_idx = np.argmax([fold['metrics']['quadratic_weighted_kappa'] for fold in fold_results])
             best_fold = fold_results[best_fold_idx]['fold']
             
-            best_fold_model_path = f"save_models/best_{model_name}_{args.dataset}_fold_{best_fold}.pth"
-            main_model_path = f"save_models/best_{model_name}_{args.dataset}.pth"
+            best_fold_model_path = path_manager.get_model_path(model_name, args.dataset, fold=best_fold, is_best=False)
+            main_model_path = path_manager.get_model_path(model_name, args.dataset, is_best=True)
             
             # Copy best fold model as main model
             import shutil
-            shutil.copy2(best_fold_model_path, main_model_path)
+            if best_fold_model_path.exists():
+                shutil.copy2(best_fold_model_path, main_model_path)
+            else:
+                print(f"⚠️  Warning: Best fold model not found at {best_fold_model_path}")
+                print("   Using last saved model instead")
             
             print(f"\\n🏆 Best fold: {best_fold} (QWK: {fold_results[best_fold_idx]['metrics']['quadratic_weighted_kappa']:.3f})")
             print(f"💾 Best model copied to: {main_model_path}")

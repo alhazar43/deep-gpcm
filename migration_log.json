@@ -1,0 +1,235 @@
+{
+  "migration_date": "2025-08-01T23:04:38.716379",
+  "actions": [
+    {
+      "timestamp": "2025-08-01T23:04:38.712629",
+      "action": "MIGRATE",
+      "details": "best_attn_gpcm_synthetic_OC.pth -> saved_models/synthetic_OC/best_attn_gpcm.pth"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.712996",
+      "action": "MIGRATE",
+      "details": "best_deep_gpcm_synthetic_OC_fold_4.pth -> saved_models/synthetic_OC/deep_gpcm_fold_4.pth"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.713065",
+      "action": "MIGRATE",
+      "details": "best_attn_gpcm_synthetic_OC_fold_5.pth -> saved_models/synthetic_OC/attn_gpcm_fold_5.pth"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.713106",
+      "action": "MIGRATE",
+      "details": "best_coral_gpcm_proper_synthetic_OC_fold_4.pth -> saved_models/synthetic_OC/coral_gpcm_proper_fold_4.pth"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.713144",
+      "action": "MIGRATE",
+      "details": "best_coral_gpcm_proper_synthetic_OC.pth -> saved_models/synthetic_OC/best_coral_gpcm_proper.pth"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.713178",
+      "action": "MIGRATE",
+      "details": "best_attn_gpcm_synthetic_OC_fold_4.pth -> saved_models/synthetic_OC/attn_gpcm_fold_4.pth"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.713213",
+      "action": "MIGRATE",
+      "details": "best_deep_gpcm_synthetic_OC.pth -> saved_models/synthetic_OC/best_deep_gpcm.pth"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.713247",
+      "action": "MIGRATE",
+      "details": "best_deep_gpcm_synthetic_OC_fold_3.pth -> saved_models/synthetic_OC/deep_gpcm_fold_3.pth"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.713280",
+      "action": "MIGRATE",
+      "details": "best_coral_gpcm_proper_synthetic_OC_fold_3.pth -> saved_models/synthetic_OC/coral_gpcm_proper_fold_3.pth"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.713313",
+      "action": "MIGRATE",
+      "details": "best_deep_gpcm_synthetic_OC_fold_5.pth -> saved_models/synthetic_OC/deep_gpcm_fold_5.pth"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.713346",
+      "action": "MIGRATE",
+      "details": "best_deep_gpcm_synthetic_OC_fold_2.pth -> saved_models/synthetic_OC/deep_gpcm_fold_2.pth"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.713380",
+      "action": "MIGRATE",
+      "details": "best_coral_gpcm_proper_synthetic_OC_fold_5.pth -> saved_models/synthetic_OC/coral_gpcm_proper_fold_5.pth"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.713413",
+      "action": "MIGRATE",
+      "details": "best_coral_gpcm_proper_synthetic_OC_fold_2.pth -> saved_models/synthetic_OC/coral_gpcm_proper_fold_2.pth"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.713445",
+      "action": "MIGRATE",
+      "details": "best_deep_gpcm_synthetic_OC_fold_1.pth -> saved_models/synthetic_OC/deep_gpcm_fold_1.pth"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.713475",
+      "action": "MIGRATE",
+      "details": "best_attn_gpcm_synthetic_OC_fold_3.pth -> saved_models/synthetic_OC/attn_gpcm_fold_3.pth"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.713505",
+      "action": "MIGRATE",
+      "details": "best_coral_gpcm_proper_synthetic_OC_fold_1.pth -> saved_models/synthetic_OC/coral_gpcm_proper_fold_1.pth"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.713535",
+      "action": "MIGRATE",
+      "details": "best_attn_gpcm_synthetic_OC_fold_2.pth -> saved_models/synthetic_OC/attn_gpcm_fold_2.pth"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.713564",
+      "action": "MIGRATE",
+      "details": "best_attn_gpcm_synthetic_OC_fold_1.pth -> saved_models/synthetic_OC/attn_gpcm_fold_1.pth"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.713604",
+      "action": "MIGRATE",
+      "details": "train_results_attn_gpcm_synthetic_OC_fold_2.json -> results/train/synthetic_OC/train_attn_gpcm_fold_2.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.713762",
+      "action": "SKIP",
+      "details": "Cannot parse filename: focal_loss_training_synthetic_OC.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.713796",
+      "action": "MIGRATE",
+      "details": "train_results_deep_gpcm_synthetic_4000_200_3.json -> results/train/synthetic_4000_200_3/train_deep_gpcm.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.714237",
+      "action": "MIGRATE",
+      "details": "train_results_coral_gpcm_proper_synthetic_OC_fold_2.json -> results/train/synthetic_OC/train_coral_gpcm_proper_fold_2.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.714290",
+      "action": "MIGRATE",
+      "details": "train_results_deep_gpcm_synthetic_OC_fold_2.json -> results/train/synthetic_OC/train_deep_gpcm_fold_2.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.714331",
+      "action": "MIGRATE",
+      "details": "train_results_coral_gpcm_proper_synthetic_OC.json -> results/train/synthetic_OC/train_coral_gpcm_proper.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.714365",
+      "action": "MIGRATE",
+      "details": "train_results_coral_gpcm_proper_synthetic_OC_fold_4.json -> results/train/synthetic_OC/train_coral_gpcm_proper_fold_4.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.714413",
+      "action": "MIGRATE",
+      "details": "train_results_coral_gpcm_proper_synthetic_OC_fold_5.json -> results/train/synthetic_OC/train_coral_gpcm_proper_fold_5.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.714447",
+      "action": "MIGRATE",
+      "details": "train_results_coral_gpcm_proper_synthetic_OC_fold_1.json -> results/train/synthetic_OC/train_coral_gpcm_proper_fold_1.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.714484",
+      "action": "MIGRATE",
+      "details": "train_results_deep_gpcm_synthetic_4000_200_2.json -> results/train/synthetic_4000_200_2/train_deep_gpcm.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.714665",
+      "action": "MIGRATE",
+      "details": "train_results_attn_gpcm_synthetic_OC_fold_3.json -> results/train/synthetic_OC/train_attn_gpcm_fold_3.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.714707",
+      "action": "MIGRATE",
+      "details": "train_results_coral_gpcm_proper_synthetic_OC_cv_summary.json -> results/validation/synthetic_OC/cv_coral_gpcm_proper_summary.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.715751",
+      "action": "MIGRATE",
+      "details": "train_results_attn_gpcm_synthetic_OC_fold_1.json -> results/train/synthetic_OC/train_attn_gpcm_fold_1.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.715788",
+      "action": "SKIP",
+      "details": "Cannot parse filename: threshold_training_synthetic_OC.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.715817",
+      "action": "MIGRATE",
+      "details": "train_results_deep_gpcm_synthetic_OC_fold_4.json -> results/train/synthetic_OC/train_deep_gpcm_fold_4.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.715870",
+      "action": "MIGRATE",
+      "details": "train_results_deep_gpcm_synthetic_OC_fold_1.json -> results/train/synthetic_OC/train_deep_gpcm_fold_1.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.715908",
+      "action": "MIGRATE",
+      "details": "train_results_attn_gpcm_synthetic_OC_fold_5.json -> results/train/synthetic_OC/train_attn_gpcm_fold_5.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.715927",
+      "action": "SKIP",
+      "details": "Cannot parse filename: standard_hard_training_synthetic_OC.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.715949",
+      "action": "MIGRATE",
+      "details": "train_results_deep_gpcm_synthetic_OC_cv_summary.json -> results/validation/synthetic_OC/cv_deep_gpcm_summary.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.716039",
+      "action": "MIGRATE",
+      "details": "train_results_attn_gpcm_synthetic_OC_fold_4.json -> results/train/synthetic_OC/train_attn_gpcm_fold_4.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.716059",
+      "action": "SKIP",
+      "details": "Cannot parse filename: attn_gpcm_focal_loss_synthetic_OC.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.716081",
+      "action": "MIGRATE",
+      "details": "train_results_deep_gpcm_synthetic_OC_fold_5.json -> results/train/synthetic_OC/train_deep_gpcm_fold_5.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.716098",
+      "action": "SKIP",
+      "details": "Cannot parse filename: attn_gpcm_standard_synthetic_OC.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.716119",
+      "action": "MIGRATE",
+      "details": "train_results_deep_gpcm_synthetic_OC.json -> results/train/synthetic_OC/train_deep_gpcm.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.716155",
+      "action": "MIGRATE",
+      "details": "train_results_attn_gpcm_synthetic_OC_cv_summary.json -> results/validation/synthetic_OC/cv_attn_gpcm_summary.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.716207",
+      "action": "MIGRATE",
+      "details": "train_results_coral_gpcm_proper_synthetic_OC_fold_3.json -> results/train/synthetic_OC/train_coral_gpcm_proper_fold_3.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.716244",
+      "action": "MIGRATE",
+      "details": "train_results_deep_gpcm_synthetic_OC_fold_3.json -> results/train/synthetic_OC/train_deep_gpcm_fold_3.json"
+    },
+    {
+      "timestamp": "2025-08-01T23:04:38.716280",
+      "action": "MIGRATE",
+      "details": "train_results_attn_gpcm_synthetic_OC.json -> results/train/synthetic_OC/train_attn_gpcm.json"
+    }
+  ]
+}

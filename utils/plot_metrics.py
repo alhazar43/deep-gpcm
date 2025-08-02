@@ -24,14 +24,34 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 plt.style.use('default')
 sns.set_palette("husl")
 
+# Configure matplotlib for better font rendering
+import matplotlib.font_manager as fm
+plt.rcParams['font.family'] = 'sans-serif'
+plt.rcParams['font.sans-serif'] = ['Arial', 'DejaVu Sans', 'Liberation Sans', 'Bitstream Vera Sans', 'sans-serif']
+plt.rcParams['font.weight'] = 'normal'  # Set default to normal, then override for titles
+
+# Force matplotlib to use a font that supports bold
+available_fonts = [f.name for f in fm.fontManager.ttflist]
+if 'Arial' in available_fonts:
+    plt.rcParams['font.sans-serif'].insert(0, 'Arial')
+elif 'Liberation Sans' in available_fonts:
+    plt.rcParams['font.sans-serif'].insert(0, 'Liberation Sans')
+
 
 class AdaptivePlotter:
     """Adaptive plotting system that adjusts to available metrics."""
     
-    def __init__(self, results_dir: str = "results", figsize_base: Tuple[int, int] = (4, 3)):
+    def __init__(self, results_dir: str = "results", figsize_base: Tuple[int, int] = (4, 3), dataset: Optional[str] = None):
         """Initialize plotter with base figure size per subplot."""
         self.results_dir = Path(results_dir)
-        self.plots_dir = self.results_dir / "plots"
+        self.dataset = dataset
+        
+        # Create dataset-specific plots directory if dataset is provided
+        if dataset:
+            self.plots_dir = self.results_dir / "plots" / dataset
+        else:
+            self.plots_dir = self.results_dir / "plots"
+        
         self.plots_dir.mkdir(exist_ok=True, parents=True)
         self.figsize_base = figsize_base
         
@@ -49,7 +69,7 @@ class AdaptivePlotter:
             },
             'correlation': {
                 'metrics': ['kendall_tau', 'spearman_correlation', 'pearson_correlation', 'cohen_kappa'],
-                'colors': ['#6A994E', '#386641', '#BC4749', '#D62828'],
+                'colors': ['#6A994E', '#386641', '#BC4749', '#D62728'],
                 'higher_better': [True, True, True, True]
             },
             'probability': {
@@ -63,14 +83,42 @@ class AdaptivePlotter:
                 'higher_better': [True, True, True, True]
             }
         }
+        
+        # Build comprehensive higher_is_better lookup from metric categories
+        self.higher_is_better_map = {}
+        for category_data in self.metric_categories.values():
+            for metric, higher_better in zip(category_data['metrics'], category_data['higher_better']):
+                self.higher_is_better_map[metric] = higher_better
+    
+    def is_higher_better(self, metric: str) -> bool:
+        """Determine if higher values are better for a given metric using comprehensive lookup."""
+        # First check the comprehensive mapping
+        if metric in self.higher_is_better_map:
+            return self.higher_is_better_map[metric]
+        
+        # Fallback to keyword-based detection for unknown metrics
+        # Lower is better for metrics containing these keywords
+        lower_keywords = ['error', 'loss', 'entropy']
+        return not any(keyword in metric.lower() for keyword in lower_keywords)
     
     def get_model_color(self, model_name: str) -> str:
-        """Get consistent color for a model, creating new assignment if needed."""
-        # Use consistent colors for our three main models
+        """Get consistent color for a model using factory-defined colors."""
+        # First try to get color from model factory
+        try:
+            from models.factory import get_model_color as factory_get_color
+            return factory_get_color(model_name)
+        except:
+            pass
+        
+        # Fallback to local color mapping for backward compatibility
         consistent_colors = {
             'deep_gpcm': '#ff7f0e',     # Orange
             'attn_gpcm': '#1f77b4',     # Blue
-            'coral_gpcm': '#d62728'     # Red
+            'coral_gpcm': '#2ca02c',    # Green
+            'coral_gpcm_proper': '#e377c2',  # Pink (proper IRT-CORAL separation)
+            'ecoral_gpcm': '#d62728',   # Red (enhanced model)
+            'adaptive_coral_gpcm': '#9467bd',  # Purple (adaptive research model)
+            'full_adaptive_coral_gpcm': '#8c564b'  # Brown (full adaptive model)
         }
         
         if model_name in consistent_colors:
@@ -115,21 +163,42 @@ class AdaptivePlotter:
             return rows, cols
     
     def load_results_from_dir(self, result_type: str = "train") -> List[Dict[str, Any]]:
-        """Load all results from a directory."""
+        """Load all results from a directory with support for new nested structure."""
         target_dir = self.results_dir / result_type
         results = []
         
         if not target_dir.exists():
             return results
         
-        for file_path in target_dir.glob("*.json"):
-            try:
-                with open(file_path, 'r') as f:
-                    data = json.load(f)
-                    data['source_file'] = file_path.name
-                    results.append(data)
-            except Exception as e:
-                print(f"Warning: Could not load {file_path}: {e}")
+        # Check if we have the new nested structure (dataset subdirectories)
+        has_dataset_dirs = False
+        for item in target_dir.iterdir():
+            if item.is_dir():
+                has_dataset_dirs = True
+                break
+        
+        if has_dataset_dirs and self.dataset:
+            # New structure: results/[type]/[dataset]/*.json
+            dataset_dir = target_dir / self.dataset
+            if dataset_dir.exists():
+                for file_path in dataset_dir.glob("*.json"):
+                    try:
+                        with open(file_path, 'r') as f:
+                            data = json.load(f)
+                            data['source_file'] = file_path.name
+                            results.append(data)
+                    except Exception as e:
+                        print(f"Warning: Could not load {file_path}: {e}")
+        else:
+            # Legacy structure: results/[type]/*.json
+            for file_path in target_dir.glob("*.json"):
+                try:
+                    with open(file_path, 'r') as f:
+                        data = json.load(f)
+                        data['source_file'] = file_path.name
+                        results.append(data)
+                except Exception as e:
+                    print(f"Warning: Could not load {file_path}: {e}")
         
         return results
     
@@ -244,9 +313,9 @@ class AdaptivePlotter:
         n_metrics = len(metrics_to_plot)
         rows, cols = self.calculate_subplot_layout(n_metrics)
         
-        # Create figure
+        # Create figure with increased height for better spacing
         fig_width = cols * self.figsize_base[0]
-        fig_height = rows * self.figsize_base[1]
+        fig_height = rows * (self.figsize_base[1] + 1.2)  # Add 1.2 inches per row for better spacing
         fig, axes = plt.subplots(rows, cols, figsize=(fig_width, fig_height))
         
         if n_metrics == 1:
@@ -289,8 +358,7 @@ class AdaptivePlotter:
             
             # Determine best model
             if final_values:
-                higher_is_better = not any(keyword in metric.lower() for keyword in 
-                                         ['error', 'loss', 'entropy'])
+                higher_is_better = self.is_higher_better(metric)
                 if higher_is_better:
                     best_model = max(final_values, key=final_values.get)
                 else:
@@ -338,13 +406,16 @@ class AdaptivePlotter:
                             final_mean = epoch_stats['mean'].iloc[-1]
                             final_std = epoch_stats['std'].iloc[-1]
                             
+                            # Handle NaN/invalid std values
+                            if pd.isna(final_std) or np.isinf(final_std) or final_std <= 0:
+                                final_std = 0.0
+                            
                             # Position annotation below/above the curve endpoint based on metric type
-                            higher_is_better = not any(keyword in metric.lower() for keyword in 
-                                                     ['error', 'loss', 'entropy'])
+                            higher_is_better = self.is_higher_better(metric)
                             
                             # Position below curve for "higher is better" metrics, above for "lower is better"
                             if higher_is_better:
-                                ax.annotate(f'{final_mean:.4f}±{final_std:.4f} ★', 
+                                ax.annotate(f'{final_mean:.2f} ★', 
                                           xy=(final_epoch, final_mean),
                                           xytext=(0, -15), textcoords='offset points',
                                           fontsize=9, color=model_color_map[model],
@@ -352,7 +423,7 @@ class AdaptivePlotter:
                                           bbox=dict(boxstyle='round,pad=0.2', 
                                                   facecolor='white', alpha=0.8, edgecolor='green'))
                             else:
-                                ax.annotate(f'{final_mean:.4f}±{final_std:.4f} ★', 
+                                ax.annotate(f'{final_mean:.2f} ★', 
                                           xy=(final_epoch, final_mean),
                                           xytext=(0, 15), textcoords='offset points',
                                           fontsize=9, color=model_color_map[model],
@@ -370,12 +441,11 @@ class AdaptivePlotter:
                             final_value = model_data[metric].iloc[-1]
                             
                             # Position annotation below/above the curve endpoint based on metric type
-                            higher_is_better = not any(keyword in metric.lower() for keyword in 
-                                                     ['error', 'loss', 'entropy'])
+                            higher_is_better = self.is_higher_better(metric)
                             
                             # Position below curve for "higher is better" metrics, above for "lower is better"
                             if higher_is_better:
-                                ax.annotate(f'{final_value:.4f} ★', 
+                                ax.annotate(f'{final_value:.2f} ★', 
                                           xy=(final_epoch, final_value),
                                           xytext=(0, -15), textcoords='offset points',
                                           fontsize=9, color=model_color_map[model],
@@ -383,7 +453,7 @@ class AdaptivePlotter:
                                           bbox=dict(boxstyle='round,pad=0.2', 
                                                   facecolor='white', alpha=0.8, edgecolor='green'))
                             else:
-                                ax.annotate(f'{final_value:.4f} ★', 
+                                ax.annotate(f'{final_value:.2f} ★', 
                                           xy=(final_epoch, final_value),
                                           xytext=(0, 15), textcoords='offset points',
                                           fontsize=9, color=model_color_map[model],
@@ -393,21 +463,33 @@ class AdaptivePlotter:
             
             ax.set_xlabel('Epoch')
             ax.set_ylabel(metric.replace('_', ' ').title())
-            ax.set_title(metric.replace('_', ' ').title())
+            
+            # Add directional arrow based on metric ranking criteria
+            higher_is_better = self.is_higher_better(metric)
+            arrow = '↑' if higher_is_better else '↓'
+            title_with_arrow = f"{metric.replace('_', ' ').title()} {arrow}"
+            ax.set_title(title_with_arrow)
             ax.grid(True, alpha=0.3)
-            ax.legend(loc='best')
+            # Figure-level legend will be added below
         
         # Hide empty subplots
         for idx in range(n_metrics, len(axes)):
             axes[idx].set_visible(False)
         
-        plt.suptitle('Training Metrics Over Epochs', 
-                    fontsize=14, fontweight='bold')
-        plt.tight_layout()
+        # Create figure-level legend
+        unique_models = sorted(models)
+        legend_elements = [plt.Line2D([0], [0], color=self.get_model_color(model), 
+                                     linewidth=3, label=model) for model in unique_models]
+        fig.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 0.92), 
+                  ncol=len(unique_models), fontsize=10, frameon=True, fancybox=True, shadow=True)
+        
+        fig.suptitle('Training Metrics Over Epochs', 
+                    fontsize=18, weight='bold')
+        plt.tight_layout(rect=[0, 0, 1, 0.88], h_pad=1.0, w_pad=1.0)
         
         # Save plot
         if save_path is None:
-            save_path = self.plots_dir / "training_metrics.png"
+            save_path = self.plots_dir / "train.png"
         else:
             save_path = Path(save_path)
         
@@ -428,9 +510,13 @@ class AdaptivePlotter:
             print(f"No {result_type} data found.")
             return ""
         
-        # Select metrics to plot
+        # Select metrics to plot (exclude cohen_kappa for test results)
         if metrics_to_plot is None:
-            metrics_to_plot = self.filter_metrics_for_plotting(available_metrics, "auto")
+            filtered_metrics = self.filter_metrics_for_plotting(available_metrics, "auto")
+            # Remove cohen_kappa from test results display
+            if result_type == "test" and 'cohen_kappa' in filtered_metrics:
+                filtered_metrics.remove('cohen_kappa')
+            metrics_to_plot = filtered_metrics
         
         if not metrics_to_plot:
             print("No suitable metrics found for plotting.")
@@ -479,8 +565,7 @@ class AdaptivePlotter:
                 colors = [self.get_model_color(model) for model in means.index]
                 
                 # Determine if higher is better for this metric
-                higher_is_better = not any(keyword in metric.lower() for keyword in 
-                                         ['error', 'loss', 'entropy']) 
+                higher_is_better = self.is_higher_better(metric) 
                 
                 # Find best performing model
                 if higher_is_better:
@@ -497,8 +582,12 @@ class AdaptivePlotter:
                 bars[best_idx].set_linewidth(3)
                 bars[best_idx].set_alpha(1.0)
                 
-                ax.set_xticks(x_pos)
-                ax.set_xticklabels(means.index, rotation=45)
+                # Remove x-axis labels for test results since we have legend
+                if result_type != "test":
+                    ax.set_xticks(x_pos)
+                    ax.set_xticklabels(means.index, rotation=45)
+                else:
+                    ax.set_xticks([])
                 
                 # Store best value info for later annotation
                 if best_idx >= 0 and best_idx < len(means):
@@ -513,8 +602,7 @@ class AdaptivePlotter:
                 colors = [self.get_model_color(model) for model in model_values.index]
                 
                 # Determine if higher is better for this metric
-                higher_is_better = not any(keyword in metric.lower() for keyword in 
-                                         ['error', 'loss', 'entropy']) 
+                higher_is_better = self.is_higher_better(metric) 
                 
                 # Find best performing model
                 if higher_is_better:
@@ -530,8 +618,12 @@ class AdaptivePlotter:
                 bars[best_idx].set_linewidth(3)
                 bars[best_idx].set_alpha(1.0)
                 
-                ax.set_xticks(x_pos)
-                ax.set_xticklabels(model_values.index, rotation=45)
+                # Remove x-axis labels for test results since we have legend
+                if result_type != "test":
+                    ax.set_xticks(x_pos)
+                    ax.set_xticklabels(model_values.index, rotation=45)
+                else:
+                    ax.set_xticks([])
                 
                 # Store best value info for later annotation
                 if best_idx >= 0 and best_idx < len(model_values):
@@ -545,26 +637,48 @@ class AdaptivePlotter:
             if best_value_info is not None:
                 if len(best_value_info) == 3:  # CV case with std
                     idx, mean, std = best_value_info
+                    # Handle NaN/invalid std values
+                    if pd.isna(std) or np.isinf(std) or std <= 0:
+                        std = 0.0
+                    # Get best model color
+                    best_model = models[idx] if idx < len(models) else models[0]
+                    best_model_color = self.get_model_color(best_model)
                     # Position text above error bar
                     text_y = mean + std + (std * 0.5 if std > 0 else mean * 0.1)
+                    # For test results, don't show std
+                    if result_type == "test":
+                        annotation_text = f'{mean:.2f} ★'
+                    else:
+                        annotation_text = f'{mean:.2f}±{std:.2f} ★'
                     ax.text(idx, text_y, 
-                           f'{mean:.4f}±{std:.4f} ★', ha='center', va='bottom', 
-                           fontsize=10, fontweight='bold', color='black',
+                           annotation_text, ha='center', va='bottom', 
+                           fontsize=10, fontweight='bold', color=best_model_color,
                            bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
-                                   edgecolor='green', linewidth=1.5, alpha=0.9))
+                                   edgecolor=best_model_color, linewidth=1.5, alpha=0.9))
                 else:  # Single evaluation case
                     idx, value = best_value_info
+                    # Get best model color
+                    best_model = models[idx] if idx < len(models) else models[0]
+                    best_model_color = self.get_model_color(best_model)
                     # Position text above bar
                     text_y = value + abs(value) * 0.05
                     ax.text(idx, text_y, 
-                           f'{value:.4f} ★', ha='center', va='bottom', 
-                           fontsize=10, fontweight='bold', color='black',
+                           f'{value:.2f} ★', ha='center', va='bottom', 
+                           fontsize=10, fontweight='bold', color=best_model_color,
                            bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
-                                   edgecolor='green', linewidth=1.5, alpha=0.9))
+                                   edgecolor=best_model_color, linewidth=1.5, alpha=0.9))
             
-            # Add extra padding to y-axis to show values
+            # Add extra padding to y-axis to show values and prevent suptitle collision
             y_min, y_max = ax.get_ylim()
             y_range = y_max - y_min
+            
+            # For test results, add significant top padding to prevent annotation collision with suptitle
+            if result_type == "test":
+                # Add 25% extra space at top for annotations to not touch suptitle
+                extra_top_space = y_range * 0.25
+            else:
+                extra_top_space = y_range * 0.1
+            
             # Ensure enough space for text
             if best_value_info is not None:
                 if len(best_value_info) == 3:
@@ -576,9 +690,9 @@ class AdaptivePlotter:
                 
                 # Adjust y_max if text would be clipped
                 if text_top > y_max:
-                    y_max = text_top + y_range * 0.1
+                    extra_top_space = max(extra_top_space, text_top - y_max + y_range * 0.1)
             
-            ax.set_ylim(y_min - y_range * 0.05, y_max + y_range * 0.1)
+            ax.set_ylim(y_min - y_range * 0.05, y_max + extra_top_space)
         
         # Hide empty subplots
         for idx in range(n_metrics, len(axes)):
@@ -596,11 +710,12 @@ class AdaptivePlotter:
         
         plt.suptitle(f'{result_type.title()} Results Comparison', 
                     fontsize=14, fontweight='bold', y=0.98)
+        # Standard layout - whitespace handled within individual subplots via y-axis padding
         plt.tight_layout(rect=[0, 0, 1, 0.92])  # Leave space for legend and title
         
         # Save plot
         if save_path is None:
-            save_path = self.plots_dir / f"{result_type}_metrics.png"
+            save_path = self.plots_dir / f"{result_type}.png"
         else:
             save_path = Path(save_path)
         
@@ -612,6 +727,7 @@ class AdaptivePlotter:
     
     def plot_metric_comparison(self, train_results: List[Dict[str, Any]], 
                              test_results: List[Dict[str, Any]],
+                             validation_results: Optional[List[Dict[str, Any]]] = None,
                              save_path: Optional[str] = None) -> str:
         """Create side-by-side comparison of training and test metrics with highlighting."""
         # All available metrics
@@ -626,19 +742,27 @@ class AdaptivePlotter:
             'cross_entropy'
         ]
         
-        # Metrics where lower is better
-        LOWER_IS_BETTER = ['mean_absolute_error', 'cross_entropy']
+        # Note: Using self.is_higher_better() method for consistent ranking logic
         
         # Extract data from results
         train_data = {}
         test_data = {}
         
-        # Process training results (from CV summaries)
-        for result in train_results:
-            if 'config' in result and 'cv_summary' in result:
-                # Normalize model name to match test results
-                model = result['config'].get('model', 'unknown')
-                train_data[model] = result['cv_summary']
+        # Process training results - try validation results first (CV summaries)
+        if validation_results:
+            for result in validation_results:
+                if 'config' in result and 'cv_summary' in result:
+                    # Normalize model name to match test results
+                    model = result['config'].get('model', 'unknown')
+                    train_data[model] = result['cv_summary']
+        
+        # Fall back to train_results if no validation results
+        if not train_data:
+            for result in train_results:
+                if 'config' in result and 'cv_summary' in result:
+                    # Normalize model name to match test results
+                    model = result['config'].get('model', 'unknown')
+                    train_data[model] = result['cv_summary']
         
         # Process test results
         for result in test_results:
@@ -662,25 +786,15 @@ class AdaptivePlotter:
         # Helper function to highlight best value
         def highlight_best_value(ax, bars, values, metric):
             """Highlight the best performing model."""
-            if metric in LOWER_IS_BETTER:
+            if not self.is_higher_better(metric):
                 best_idx = np.argmin(values)
             else:
                 best_idx = np.argmax(values)
             
             
-            # Add star above best bar
+            # Star annotation is already included in the value annotation above
+            # Add border to highlight best bar
             best_bar = bars[best_idx]
-            height = best_bar.get_height()
-            ax.annotate('★', 
-                        xy=(best_bar.get_x() + best_bar.get_width()/2, height),
-                        xytext=(0, 5),
-                        textcoords='offset points',
-                        ha='center', va='bottom',
-                        fontsize=14,
-                        color='gold',
-                        weight='bold')
-            
-            # Add border
             best_bar.set_edgecolor('black')
             best_bar.set_linewidth(2)
         
@@ -730,6 +844,10 @@ class AdaptivePlotter:
                 else:
                     test_val = 0
                 
+                # Handle NaN/Inf values
+                train_val = train_val if np.isfinite(train_val) else 0
+                test_val = test_val if np.isfinite(test_val) else 0
+                
                 train_values.append(train_val)
                 test_values.append(test_val)
                 
@@ -744,11 +862,38 @@ class AdaptivePlotter:
                               color=color,
                               alpha=0.8)
                 
-                # Add value labels on bars
-                for bar, val in zip(bars, values):
-                    height = bar.get_height()
-                    ax.text(bar.get_x() + bar.get_width()/2., height + 0.005,
-                            f'{val:.3f}', ha='center', va='bottom', fontsize=8)
+            # Find and annotate best performers for both train and test (no duplicate values on bars)
+            if not self.is_higher_better(metric):
+                train_best_idx = np.argmin(train_values) if any(v > 0 for v in train_values) else None
+                test_best_idx = np.argmin(test_values) if any(v > 0 for v in test_values) else None
+            else:
+                train_best_idx = np.argmax(train_values) if any(v > 0 for v in train_values) else None
+                test_best_idx = np.argmax(test_values) if any(v > 0 for v in test_values) else None
+            
+            # Add boxed annotations for best performers with model-specific colors
+            if train_best_idx is not None:
+                train_best_val = train_values[train_best_idx]
+                train_best_model = models[train_best_idx]
+                train_model_color = self.get_model_color(train_best_model)
+                train_x_pos = (train_best_idx - n_models/2 + 0.5) * width
+                ax.text(train_x_pos, train_best_val + abs(train_best_val) * 0.1,
+                       f'{train_best_val:.2f} ★',
+                       ha='center', va='bottom', fontsize=9, fontweight='bold',
+                       color=train_model_color,
+                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
+                               edgecolor=train_model_color, linewidth=1.5, alpha=0.9))
+            
+            if test_best_idx is not None:
+                test_best_val = test_values[test_best_idx]
+                test_best_model = models[test_best_idx]
+                test_model_color = self.get_model_color(test_best_model)
+                test_x_pos = 1 + (test_best_idx - n_models/2 + 0.5) * width
+                ax.text(test_x_pos, test_best_val + abs(test_best_val) * 0.1,
+                       f'{test_best_val:.2f} ★',
+                       ha='center', va='bottom', fontsize=9, fontweight='bold',
+                       color=test_model_color,
+                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
+                               edgecolor=test_model_color, linewidth=1.5, alpha=0.9))
             
             # Highlight best performers on both training AND test data
             # Find train bars (x position around 0) and test bars (x position around 1)
@@ -770,7 +915,7 @@ class AdaptivePlotter:
             
             # Customize subplot
             title = metric.replace('_', ' ').title()
-            if metric in LOWER_IS_BETTER:
+            if not self.is_higher_better(metric):
                 title += ' ↓'
             else:
                 title += ' ↑'
@@ -779,30 +924,40 @@ class AdaptivePlotter:
             ax.set_xticklabels(['Train', 'Test'], fontsize=10)
             ax.set_ylabel('Score', fontsize=9)
             
-            # Set y-axis limits based on metric
+            # Set y-axis limits based on metric with NaN/Inf handling
             if metric in ['mean_absolute_error', 'cross_entropy']:
-                max_val = max(train_values + test_values) if (train_values + test_values) else 1
+                all_values = train_values + test_values
+                # Filter out NaN and Inf values
+                valid_values = [v for v in all_values if np.isfinite(v)]
+                max_val = max(valid_values) if valid_values else 1
                 ax.set_ylim(0, max_val * 1.2)
             else:
                 ax.set_ylim(0, 1.05)
             
             ax.grid(axis='y', alpha=0.3)
             
-            # Add legend only to first subplot
-            if idx == 0:
-                ax.legend(loc='upper left', framealpha=0.9, fontsize=9)
+            # Legend will be added at figure level instead of subplot level
         
         # Hide empty subplots
         for idx in range(len(ALL_METRICS), len(axes)):
             axes[idx].set_visible(False)
         
         # Overall title
-        plt.suptitle('Training vs Test Performance Comparison (★ = Best)', fontsize=16, fontweight='bold')
-        plt.tight_layout()
+        fig.suptitle('Training vs Test Performance Comparison (★ = Best)', fontsize=18, weight='bold')
+        
+        # Add figure-level legend under title
+        from matplotlib.patches import Patch
+        legend_elements = [Patch(facecolor=self.get_model_color(model), 
+                               edgecolor='black', linewidth=1, 
+                               label=model.replace('_', ' ').title()) for model in models]
+        fig.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 0.92), 
+                  ncol=len(models), fontsize=10, frameon=True, fancybox=True, shadow=True)
+        
+        plt.tight_layout(rect=[0, 0, 1, 0.88])  # Leave space for title and legend
         
         # Save plot
         if save_path is None:
-            save_path = self.plots_dir / "training_vs_test_comparison.png"
+            save_path = self.plots_dir / "train_v_test.png"
         else:
             save_path = Path(save_path)
         
@@ -864,7 +1019,7 @@ class AdaptivePlotter:
                         category_stds.append(std_val)
                     else:
                         # Single evaluation
-                        category_values.append(model_data[metric].first())
+                        category_values.append(model_data[metric].iloc[0])
                         category_stds.append(0)
                 else:
                     category_values.append(0)
@@ -886,10 +1041,10 @@ class AdaptivePlotter:
             for j, (pos, val, std) in enumerate(zip(positions, category_values, category_stds)):
                 if val > 0:
                     if std > 0:
-                        ax.text(pos, val + std + 0.01, f'{val:.3f}', 
+                        ax.text(pos, val + std + 0.01, f'{val:.2f}', 
                                ha='center', va='bottom', fontsize=8)
                     else:
-                        ax.text(pos, val + 0.01, f'{val:.3f}', 
+                        ax.text(pos, val + 0.01, f'{val:.2f}', 
                                ha='center', va='bottom', fontsize=8)
         
         # Customize plot
@@ -902,8 +1057,11 @@ class AdaptivePlotter:
         ax.set_xticks(x)
         ax.set_xticklabels(category_labels)
         
-        # Add legend
-        ax.legend(loc='best', fontsize=10)
+        # Create figure-level legend
+        legend_elements = [mpatches.Patch(facecolor=self.get_model_color(model), 
+                                         edgecolor='black', label=model) for model in models]
+        fig.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 0.92), 
+                  ncol=len(models), fontsize=10, frameon=True, fancybox=True, shadow=True)
         
         # Add grid
         ax.grid(True, alpha=0.3, axis='y')
@@ -911,11 +1069,11 @@ class AdaptivePlotter:
         # Set y-axis limits
         ax.set_ylim(0, 1.1)
         
-        plt.tight_layout()
+        plt.tight_layout(rect=[0, 0, 1, 0.88])
         
         # Save plot
         if save_path is None:
-            save_path = self.plots_dir / "categorical_breakdown.png"
+            save_path = self.plots_dir / "cat_breakdown.png"
         else:
             save_path = Path(save_path)
         
@@ -1041,7 +1199,7 @@ class AdaptivePlotter:
         
         # Save plot
         if save_path is None:
-            save_path = self.plots_dir / f"confusion_matrices_{result_type}.png"
+            save_path = self.plots_dir / f"confusion_{result_type}.png"
         else:
             save_path = Path(save_path)
         
@@ -1090,40 +1248,62 @@ class AdaptivePlotter:
             print("No ordinal distance data found in results.")
             return ""
         
-        # Create figure
-        fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+        # Create figure with extra height for legend and statistics
+        fig, ax = plt.subplots(1, 1, figsize=(12, 8))
         
-        # Plot overlapping histograms
+        # Calculate individual histograms for side-by-side bars like categorical breakdown
         max_distance = max(max(distances) for distances in distance_data.values())
-        bins = np.arange(0, max_distance + 2) - 0.5  # Center bins on integers
+        distance_values = list(range(int(max_distance) + 1))
         
+        # Calculate counts for each model and distance
+        model_counts = {}
+        for model_name, distances in distance_data.items():
+            counts = []
+            for dist_val in distance_values:
+                count = sum(1 for d in distances if int(d) == dist_val)
+                counts.append(count)
+            model_counts[model_name] = counts
+        
+        # Plot side-by-side bars like categorical breakdown
+        n_models = len(distance_data)
+        n_distances = len(distance_values)
+        width = 0.8 / n_models
+        x = np.arange(n_distances)
+        
+        for i, (model_name, counts) in enumerate(model_counts.items()):
+            color = self.get_model_color(model_name)
+            positions = x + (i - n_models/2 + 0.5) * width
+            ax.bar(positions, counts, width, label=model_name, color=color, alpha=0.8,
+                   edgecolor='black', linewidth=0.5)
+        
+        # Use table-style annotation below the plot to avoid any conflicts
+        # Calculate statistics for all models
+        stats_data = []
         for model_name, distances in distance_data.items():
             color = self.get_model_color(model_name)
-            
-            # Plot histogram
-            counts, _, patches = ax.hist(distances, bins=bins, alpha=0.7, 
-                                       color=color, label=model_name,
-                                       edgecolor='black', linewidth=0.8)
-            
-            # Add statistics text with better positioning
             mean_dist = np.mean(distances)
             std_dist = np.std(distances)
             perfect_pct = (np.array(distances) == 0).mean() * 100
-            
-            stats_text = f'{model_name}:\nMean: {mean_dist:.3f}\nStd: {std_dist:.3f}\nPerfect: {perfect_pct:.1f}%'
+            stats_data.append((model_name, mean_dist, std_dist, perfect_pct, color))
         
-        # Position statistics text boxes to avoid overlap
-        y_positions = np.linspace(0.95, 0.75, len(distance_data))
-        for i, (model_name, distances) in enumerate(distance_data.items()):
-            color = self.get_model_color(model_name)
-            mean_dist = np.mean(distances)
-            std_dist = np.std(distances)
-            perfect_pct = (np.array(distances) == 0).mean() * 100
+        # Create a table below the plot
+        table_y_start = -0.25
+        row_height = 0.08
+        col_width = 1.0 / len(stats_data)
+        
+        for i, (model_name, mean_dist, std_dist, perfect_pct, color) in enumerate(stats_data):
+            x_center = (i + 0.5) * col_width
             
-            stats_text = f'{model_name}:\nMean: {mean_dist:.3f}\nStd: {std_dist:.3f}\nPerfect: {perfect_pct:.1f}%'
-            ax.text(0.98, y_positions[i], stats_text, fontsize=9, 
-                   bbox=dict(boxstyle='round,pad=0.5', facecolor=color, alpha=0.3),
-                   verticalalignment='top', horizontalalignment='right',
+            # Model name (header)
+            ax.text(x_center, table_y_start, f'{model_name}', 
+                   ha='center', va='top', fontsize=10, fontweight='bold',
+                   color=color, transform=ax.transAxes)
+            
+            # Statistics
+            stats_text = f'Mean: {mean_dist:.2f}\nStd: {std_dist:.2f}\nPerfect: {perfect_pct:.1f}%'
+            ax.text(x_center, table_y_start - row_height, stats_text, 
+                   ha='center', va='top', fontsize=8,
+                   bbox=dict(boxstyle='round,pad=0.3', facecolor=color, alpha=0.2),
                    transform=ax.transAxes)
         
         # Customize plot
@@ -1132,17 +1312,19 @@ class AdaptivePlotter:
         ax.set_title('Distribution of Ordinal Prediction Distances', fontsize=14, fontweight='bold')
         
         # Set x-axis to show integer values
-        ax.set_xticks(range(int(max_distance) + 1))
+        ax.set_xticks(x)
+        ax.set_xticklabels([f'{i}' for i in distance_values])
         ax.grid(True, alpha=0.3, axis='y')
         
-        # Add legend positioned to avoid annotation conflict
-        ax.legend(loc='upper left', fontsize=10)
+        # Move legend under title with proper spacing (lower position to avoid blocking title)
+        ax.legend(loc='upper center', fontsize=10, bbox_to_anchor=(0.5, 0.98), ncol=len(distance_data), 
+                  frameon=True, fancybox=True, shadow=True)
         
-        plt.tight_layout()
+        plt.tight_layout(rect=[0, 0.2, 1, 0.88])  # Leave more space for title above legend and bottom statistics table
         
         # Save plot
         if save_path is None:
-            save_path = self.plots_dir / f"ordinal_distance_distribution_{result_type}.png"
+            save_path = self.plots_dir / f"ord_dist_{result_type}.png"
         else:
             save_path = Path(save_path)
         
@@ -1287,19 +1469,32 @@ class AdaptivePlotter:
             ax.set_ylabel(metric.replace('_', ' ').title())
             ax.set_title(metric.replace('_', ' ').title())
             ax.grid(True, alpha=0.3)
-            ax.legend(loc='best', fontsize=8)
+            # Figure-level legend will be added below
         
         # Hide empty subplots
         for idx in range(n_metrics, len(axes)):
             axes[idx].set_visible(False)
         
+        # Create figure-level legend
+        unique_models = sorted(models)
+        legend_elements = []
+        for model in unique_models:
+            legend_elements.extend([
+                plt.Line2D([0], [0], color=self.get_model_color(model), linewidth=2, 
+                          label=f'{model} (train)', linestyle='-'),
+                plt.Line2D([0], [0], color=self.get_model_color(model), linewidth=2, 
+                          label=f'{model} (valid)', linestyle='--')
+            ])
+        fig.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 0.92), 
+                  ncol=len(unique_models), fontsize=8, frameon=True, fancybox=True, shadow=True)
+        
         plt.suptitle('Learning Curves with 95% Confidence Intervals', 
                     fontsize=14, fontweight='bold')
-        plt.tight_layout()
+        plt.tight_layout(rect=[0, 0, 1, 0.88])
         
         # Save plot
         if save_path is None:
-            save_path = self.plots_dir / "learning_curves_confidence.png"
+            save_path = self.plots_dir / "learn_curves.png"
         else:
             save_path = Path(save_path)
         
@@ -1425,7 +1620,7 @@ class AdaptivePlotter:
         
         # Save plot
         if save_path is None:
-            save_path = self.plots_dir / f"category_transitions_{result_type}.png"
+            save_path = self.plots_dir / f"cat_trans_{result_type}.png"
         else:
             save_path = Path(save_path)
         
@@ -1541,7 +1736,7 @@ class AdaptivePlotter:
                 
                 # Plot ROC curve
                 ax.plot(fpr, tpr, color=model_color, linewidth=2, 
-                       label=f'{model_name} (AUC = {roc_auc:.3f})')
+                       label=f'{model_name} (AUC = {roc_auc:.2f})')
             
             # Plot diagonal reference line
             ax.plot([0, 1], [0, 1], 'k--', linewidth=1, alpha=0.5, label='Random')
@@ -1550,7 +1745,7 @@ class AdaptivePlotter:
             ax.set_xlabel('False Positive Rate', fontsize=10)
             ax.set_ylabel('True Positive Rate', fontsize=10)
             ax.set_title(f'ROC Curve - Category {cat_idx}', fontsize=11, fontweight='bold')
-            ax.legend(loc='lower right', fontsize=8)
+            # Figure-level legend will be added below
             ax.grid(True, alpha=0.3)
             ax.set_xlim([0, 1])
             ax.set_ylim([0, 1])
@@ -1559,13 +1754,24 @@ class AdaptivePlotter:
         for idx in range(n_categories, len(axes)):
             axes[idx].set_visible(False)
         
+        # Create figure-level legend
+        models = list(roc_data.keys())
+        legend_elements = []
+        for model in models:
+            legend_elements.append(plt.Line2D([0], [0], color=self.get_model_color(model), 
+                                            linewidth=2, label=model))
+        legend_elements.append(plt.Line2D([0], [0], color='black', linewidth=1, 
+                                        linestyle='--', label='Random'))
+        fig.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 0.92), 
+                  ncol=len(models)+1, fontsize=8, frameon=True, fancybox=True, shadow=True)
+        
         plt.suptitle(f'ROC Curves per Category (One-vs-Rest) - {result_type.title()} Results', 
                     fontsize=14, fontweight='bold')
-        plt.tight_layout()
+        plt.tight_layout(rect=[0, 0, 1, 0.88])
         
         # Save plot
         if save_path is None:
-            save_path = self.plots_dir / f"roc_curves_per_category_{result_type}.png"
+            save_path = self.plots_dir / f"roc_{result_type}.png"
         else:
             save_path = Path(save_path)
         
@@ -1668,7 +1874,17 @@ class AdaptivePlotter:
         ax.set_xlabel('Mean Predicted Probability', fontsize=12)
         ax.set_ylabel('Fraction of Positives', fontsize=12)
         ax.set_title('Reliability Diagram (Calibration Plot)', fontsize=14, fontweight='bold')
-        ax.legend(loc='lower right', fontsize=10)
+        # Create figure-level legend
+        models = list(calibration_data.keys())
+        legend_elements = []
+        for model in models:
+            legend_elements.append(plt.Line2D([0], [0], color=self.get_model_color(model), 
+                                            linewidth=2, marker='o', markersize=6, label=model))
+        legend_elements.append(plt.Line2D([0], [0], color='gray', linewidth=1, 
+                                        linestyle='--', label='Perfect Calibration'))
+        fig.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 0.92), 
+                  ncol=len(models)+1, fontsize=10, frameon=True, fancybox=True, shadow=True)
+        
         ax.grid(True, alpha=0.3)
         ax.set_xlim([0, 1])
         ax.set_ylim([0, 1])
@@ -1677,7 +1893,7 @@ class AdaptivePlotter:
         if calibration_errors:
             y_positions = np.linspace(0.95, 0.80, len(calibration_errors))
             for i, (model_name, cal_error, model_color) in enumerate(calibration_errors):
-                ax.text(0.02, y_positions[i], f'{model_name} Cal Error: {cal_error:.3f}',
+                ax.text(0.02, y_positions[i], f'{model_name} Cal Error: {cal_error:.2f}',
                        transform=ax.transAxes, fontsize=10,
                        bbox=dict(boxstyle='round,pad=0.3', facecolor=model_color, alpha=0.3),
                        verticalalignment='top')
@@ -1689,11 +1905,11 @@ class AdaptivePlotter:
                bbox=dict(boxstyle='round,pad=0.5', facecolor='lightgray', alpha=0.8),
                verticalalignment='bottom')
         
-        plt.tight_layout()
+        plt.tight_layout(rect=[0, 0, 1, 0.88])
         
         # Save plot
         if save_path is None:
-            save_path = self.plots_dir / f"calibration_curves_{result_type}.png"
+            save_path = self.plots_dir / f"calib_{result_type}.png"
         else:
             save_path = Path(save_path)
         
@@ -1784,7 +2000,7 @@ class AdaptivePlotter:
         
         # Save plot
         if save_path is None:
-            save_path = self.plots_dir / f"attention_weights_{result_type}.png"
+            save_path = self.plots_dir / f"attention_{result_type}.png"
         else:
             save_path = Path(save_path)
         
@@ -1792,6 +2008,114 @@ class AdaptivePlotter:
         plt.close()
         
         print(f"Attention weights plot saved: {save_path}")
+        return str(save_path)
+    
+    def plot_cv_score_comparison(self, valid_results: List[Dict[str, Any]],
+                                save_path: Optional[str] = None) -> str:
+        """Plot cross-validation score comparison from cv_summary files."""
+        # Filter only CV summary results
+        cv_summaries = []
+        for result in valid_results:
+            if 'cv_summary' in result and 'config' in result:
+                cv_summaries.append(result)
+        
+        if not cv_summaries:
+            print("No CV summary data found.")
+            return ""
+        
+        # Metrics to compare
+        metrics = [
+            'categorical_accuracy',
+            'ordinal_accuracy',
+            'quadratic_weighted_kappa',
+            'mean_absolute_error'
+        ]
+        
+        # Extract data
+        models = []
+        data = {metric: {'means': [], 'stds': []} for metric in metrics}
+        
+        for result in cv_summaries:
+            model_name = result['config'].get('model', 'unknown')
+            models.append(model_name)
+            
+            cv_summary = result['cv_summary']
+            for metric in metrics:
+                if metric in cv_summary:
+                    data[metric]['means'].append(cv_summary[metric]['mean'])
+                    data[metric]['stds'].append(cv_summary[metric]['std'])
+                else:
+                    data[metric]['means'].append(0)
+                    data[metric]['stds'].append(0)
+        
+        if not models:
+            print("No models found in CV summaries.")
+            return ""
+        
+        # Create figure
+        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+        axes = axes.flatten()
+        
+        for idx, metric in enumerate(metrics):
+            ax = axes[idx]
+            
+            means = np.array(data[metric]['means'])
+            stds = np.array(data[metric]['stds'])
+            
+            # Handle NaN/invalid std values
+            stds = np.where(np.isnan(stds) | np.isinf(stds) | (stds <= 0), 0, stds)
+            
+            x_pos = np.arange(len(models))
+            
+            # Create bars
+            bars = ax.bar(x_pos, means, yerr=stds, capsize=5,
+                          color=[self.get_model_color(m) for m in models],
+                          alpha=0.8, edgecolor='black', linewidth=1)
+            
+            # Highlight best performer
+            higher_is_better = self.is_higher_better(metric)
+            best_idx = np.argmax(means) if higher_is_better else np.argmin(means)
+            
+            # Add value annotations
+            for i, (mean, std) in enumerate(zip(means, stds)):
+                if std > 0:
+                    text = f'{mean:.2f}\n±{std:.2f}'
+                else:
+                    text = f'{mean:.2f}'
+                
+                y_pos = mean + std + 0.01 * (ax.get_ylim()[1] - ax.get_ylim()[0])
+                
+                if i == best_idx:
+                    ax.text(i, y_pos, text + ' ★', ha='center', va='bottom',
+                           fontsize=9, fontweight='bold',
+                           bbox=dict(boxstyle='round,pad=0.3', facecolor='yellow', 
+                                   alpha=0.5, edgecolor='green'))
+                else:
+                    ax.text(i, y_pos, text, ha='center', va='bottom', fontsize=8)
+            
+            # Customize subplot
+            ax.set_xlabel('Model')
+            ax.set_ylabel(metric.replace('_', ' ').title())
+            ax.set_title(f'{metric.replace("_", " ").title()} {"↑" if higher_is_better else "↓"}')
+            ax.set_xticks(x_pos)
+            ax.set_xticklabels([m.replace('_', ' ').title() for m in models], rotation=45, ha='right')
+            ax.grid(axis='y', alpha=0.3)
+        
+        # Overall title
+        fig.suptitle('Cross-Validation Score Comparison (Mean ± Std)', fontsize=16, weight='bold')
+        
+        plt.tight_layout()
+        
+        # Save plot
+        if save_path is None:
+            save_path = self.plots_dir / "cv_scores.png"
+        else:
+            save_path = Path(save_path)
+        
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"CV score comparison plot saved: {save_path}")
         return str(save_path)
     
     def plot_time_series_performance(self, results: List[Dict[str, Any]], 
@@ -1854,15 +2178,23 @@ class AdaptivePlotter:
         ax.set_ylabel('Accuracy', fontsize=12)
         ax.set_title('Performance Over Student Interaction Sequences', 
                     fontsize=14, fontweight='bold')
-        ax.legend(loc='best', fontsize=10)
+        
+        # Create figure-level legend
+        models = list(sequence_data.keys())
+        legend_elements = [plt.Line2D([0], [0], color=self.get_model_color(model), 
+                                    linewidth=2, marker='o', markersize=4, label=model) 
+                          for model in models]
+        fig.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 0.92), 
+                  ncol=len(models), fontsize=10, frameon=True, fancybox=True, shadow=True)
+        
         ax.grid(True, alpha=0.3)
         ax.set_ylim([0, 1])
         
-        plt.tight_layout()
+        plt.tight_layout(rect=[0, 0, 1, 0.88])
         
         # Save plot
         if save_path is None:
-            save_path = self.plots_dir / f"time_series_performance_{result_type}.png"
+            save_path = self.plots_dir / f"time_series_{result_type}.png"
         else:
             save_path = Path(save_path)
         
@@ -1873,14 +2205,17 @@ class AdaptivePlotter:
         return str(save_path)
 
 
-def plot_all_results(results_dir: str = "results"):
+def plot_all_results(results_dir: str = "results", dataset: Optional[str] = None):
     """Convenience function to plot all available results."""
-    plotter = AdaptivePlotter(results_dir)
+    plotter = AdaptivePlotter(results_dir, dataset=dataset)
     
     # Load all results
     train_results = plotter.load_results_from_dir("train")
     test_results = plotter.load_results_from_dir("test")
     valid_results = plotter.load_results_from_dir("valid")
+    
+    # Also load validation results for CV summaries
+    validation_results = plotter.load_results_from_dir("validation")
     
     generated_plots = []
     
@@ -1913,8 +2248,8 @@ def plot_all_results(results_dir: str = "results"):
             generated_plots.append(plot_path)
     
     # Plot comparison if both training and test results available
-    if train_results and test_results:
-        plot_path = plotter.plot_metric_comparison(train_results, test_results)
+    if (train_results or validation_results) and test_results:
+        plot_path = plotter.plot_metric_comparison(train_results, test_results, validation_results)
         if plot_path:
             generated_plots.append(plot_path)
     
@@ -1980,6 +2315,15 @@ def plot_all_results(results_dir: str = "results"):
         except Exception as e:
             print(f"Skipping calibration curves: {e}")
     
+    # Cross-validation score comparison
+    if validation_results:
+        try:
+            plot_path = plotter.plot_cv_score_comparison(validation_results)
+            if plot_path:
+                generated_plots.append(plot_path)
+        except Exception as e:
+            print(f"Skipping CV score comparison: {e}")
+    
     # Attention weights (if available)
     if test_results:
         try:
@@ -2006,5 +2350,15 @@ def plot_all_results(results_dir: str = "results"):
 
 
 if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Generate plots for Deep-GPCM results')
+    parser.add_argument('--dataset', type=str, default=None,
+                        help='Dataset name for organizing plots (e.g., synthetic_OC)')
+    parser.add_argument('--results_dir', type=str, default='results',
+                        help='Results directory path')
+    
+    args = parser.parse_args()
+    
     # Test plotting system
-    plot_all_results()
+    plot_all_results(results_dir=args.results_dir, dataset=args.dataset)

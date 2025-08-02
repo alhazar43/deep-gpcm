@@ -252,6 +252,58 @@ DEFAULT_METRICS = [
     'mean_confidence'
 ]
 
+# Metric-method mapping registry - ALL HARD PREDICTIONS
+METRIC_METHOD_MAP = {
+    # All metrics use hard predictions (argmax)
+    'categorical_accuracy': 'hard',
+    'confusion_matrix': 'hard',
+    'cohen_kappa': 'hard',
+    'precision': 'hard',
+    'recall': 'hard',
+    'f1_score': 'hard',
+    'macro_precision': 'hard',
+    'macro_recall': 'hard',
+    'macro_f1': 'hard',
+    'weighted_precision': 'hard',
+    'weighted_recall': 'hard',
+    'weighted_f1': 'hard',
+    'ordinal_accuracy': 'hard',
+    'adjacent_accuracy': 'hard',
+    'quadratic_weighted_kappa': 'hard',
+    'mean_absolute_error': 'hard',
+    'mean_squared_error': 'hard',
+    'root_mean_squared_error': 'hard',
+    'spearman_correlation': 'hard',
+    'kendall_tau': 'hard',
+    'pearson_correlation': 'hard',
+    
+    # Probability-based metrics still use raw probabilities
+    'cross_entropy': 'probabilities',
+    'mean_confidence': 'probabilities',
+    'confidence_std': 'probabilities',
+    'mean_entropy': 'probabilities',
+    'entropy_std': 'probabilities',
+    'expected_calibration_error': 'probabilities',
+    
+    # Per-category metrics
+    'cat_0_accuracy': 'hard',
+    'cat_1_accuracy': 'hard',
+    'cat_2_accuracy': 'hard',
+    'cat_3_accuracy': 'hard',
+    'cat_0_precision': 'hard',
+    'cat_1_precision': 'hard',
+    'cat_2_precision': 'hard',
+    'cat_3_precision': 'hard',
+    'cat_0_recall': 'hard',
+    'cat_1_recall': 'hard',
+    'cat_2_recall': 'hard',
+    'cat_3_recall': 'hard',
+    'cat_0_f1': 'hard',
+    'cat_1_f1': 'hard',
+    'cat_2_f1': 'hard',
+    'cat_3_f1': 'hard',
+}
+
 # Simple utility functions
 def ensure_results_dirs(results_dir: str = "results"):
     """Create results directory structure."""
@@ -298,6 +350,139 @@ def save_results(data: Dict[str, Any], filepath: str) -> str:
         json.dump(data, f, indent=2, default=str)
     
     return filepath
+
+def compute_metrics_multimethod(y_true: Union[torch.Tensor, np.ndarray],
+                              predictions: Dict[str, Union[torch.Tensor, np.ndarray]],
+                              y_prob: Optional[Union[torch.Tensor, np.ndarray]] = None,
+                              n_cats: int = 4,
+                              metrics_list: List[str] = None,
+                              method_overrides: Dict[str, str] = None) -> Dict[str, Any]:
+    """Compute metrics using appropriate prediction methods.
+    
+    Args:
+        y_true: Ground truth labels
+        predictions: Dictionary with 'hard', 'soft', 'threshold' predictions
+        y_prob: Original probability distributions
+        n_cats: Number of categories
+        metrics_list: List of metrics to compute
+        method_overrides: Override default method for specific metrics
+        
+    Returns:
+        Dictionary of computed metrics with method annotations
+    """
+    if metrics_list is None:
+        metrics_list = DEFAULT_METRICS
+    
+    # Convert to numpy
+    if isinstance(y_true, torch.Tensor):
+        y_true = y_true.cpu().numpy()
+    if y_prob is not None and isinstance(y_prob, torch.Tensor):
+        y_prob = y_prob.cpu().numpy()
+    
+    # Convert predictions to numpy
+    pred_np = {}
+    for method, pred in predictions.items():
+        if method in ['hard', 'soft', 'threshold'] and pred is not None:
+            if isinstance(pred, torch.Tensor):
+                pred_np[method] = pred.cpu().numpy()
+            else:
+                pred_np[method] = pred
+    
+    # Flatten arrays
+    y_true = y_true.flatten()
+    if y_prob is not None and y_prob.ndim > 2:
+        y_prob = y_prob.reshape(-1, y_prob.shape[-1])
+    
+    # Initialize metric calculator
+    ordinal_metrics = OrdinalMetrics(n_cats)
+    results = {}
+    
+    # Process each metric
+    for metric_name in metrics_list:
+        # Determine which prediction method to use
+        if method_overrides and metric_name in method_overrides:
+            method = method_overrides[metric_name]
+        else:
+            method = METRIC_METHOD_MAP.get(metric_name, 'hard')
+        
+        # Get appropriate predictions
+        if method == 'probabilities' and y_prob is not None:
+            # Use raw probabilities
+            metric_func = getattr(ordinal_metrics, metric_name, None)
+            if metric_func and metric_name in ['cross_entropy']:
+                results[metric_name] = log_loss(y_true, y_prob, labels=ordinal_metrics.categories)
+            elif metric_func:
+                # For probability metrics, pass y_true and probabilities
+                prob_metrics = ordinal_metrics.probability_metrics(y_true, y_prob)
+                if metric_name in prob_metrics:
+                    results[metric_name] = prob_metrics[metric_name]
+        else:
+            # Use predictions
+            if method in pred_np:
+                y_pred = pred_np[method]
+                
+                # Round soft predictions for discrete metrics
+                if method == 'soft' and metric_name in ['categorical_accuracy', 'ordinal_accuracy', 
+                                                       'adjacent_accuracy', 'cohen_kappa']:
+                    y_pred = np.round(y_pred).astype(int)
+                    y_pred = np.clip(y_pred, 0, n_cats - 1)
+                
+                # Get metric function
+                metric_func = getattr(ordinal_metrics, metric_name, None)
+                if metric_func:
+                    try:
+                        results[metric_name] = metric_func(y_true, y_pred)
+                    except Exception as e:
+                        results[metric_name] = float('nan')
+                        results[f'{metric_name}_error'] = str(e)
+        
+        # Add method annotation
+        results[f'{metric_name}_method'] = method
+    
+    # Add category breakdowns if requested
+    if any(m.startswith('cat_') for m in metrics_list):
+        for method in ['hard', 'threshold']:
+            if method in pred_np:
+                y_pred = pred_np[method]
+                cat_breakdown = ordinal_metrics.category_accuracy_breakdown(y_true, y_pred)
+                for k, v in cat_breakdown.items():
+                    if k in metrics_list or k.replace('_accuracy', '_precision') in metrics_list:
+                        results[k] = v
+                        results[f'{k}_method'] = method
+    
+    # Add comparison metrics between methods
+    if len(pred_np) >= 2:
+        comparison_results = {}
+        methods = list(pred_np.keys())
+        
+        for i in range(len(methods)):
+            for j in range(i + 1, len(methods)):
+                m1, m2 = methods[i], methods[j]
+                pred1 = pred_np[m1]
+                pred2 = pred_np[m2]
+                
+                # For soft predictions, round for comparison
+                if m1 == 'soft':
+                    pred1 = np.round(pred1).astype(int)
+                if m2 == 'soft':
+                    pred2 = np.round(pred2).astype(int)
+                
+                # Ensure both are numpy arrays
+                pred1 = np.asarray(pred1)
+                pred2 = np.asarray(pred2)
+                
+                # Agreement rate
+                agreement = (pred1 == pred2).mean()
+                comparison_results[f'{m1}_vs_{m2}_agreement'] = agreement
+                
+                # Average absolute difference
+                avg_diff = np.abs(pred1 - pred2).mean()
+                comparison_results[f'{m1}_vs_{m2}_avg_diff'] = avg_diff
+        
+        results['method_comparisons'] = comparison_results
+    
+    return results
+
 
 def compute_model_metrics(model, data_loader, device, n_cats: int = 4, 
                          metrics_list: List[str] = None) -> Dict[str, Any]:

@@ -14,6 +14,8 @@ from pathlib import Path
 os.environ['MKL_SERVICE_FORCE_INTEL'] = '1'
 
 from utils.metrics import ensure_results_dirs
+from utils.path_utils import get_path_manager, find_best_model, ensure_directories
+from utils.clean_res import ResultsCleaner
 
 
 def run_command(cmd, description):
@@ -31,8 +33,8 @@ def run_command(cmd, description):
         return False
 
 
-def run_complete_pipeline(models=['deep_gpcm', 'attn_gpcm', 'coral_gpcm'], dataset='synthetic_OC', 
-                         epochs=30, cv_folds=5, **kwargs):
+def run_complete_pipeline(models=['deep_gpcm', 'attn_gpcm', 'coral_gpcm_proper'], dataset='synthetic_OC', 
+                         epochs=30, n_folds=5, cv=False, **kwargs):
     """Run the complete Deep-GPCM pipeline."""
     
     print("=" * 80)
@@ -41,7 +43,13 @@ def run_complete_pipeline(models=['deep_gpcm', 'attn_gpcm', 'coral_gpcm'], datas
     print(f"Models: {', '.join(models)}")
     print(f"Dataset: {dataset}")
     print(f"Epochs: {epochs}")
-    print(f"CV Folds: {cv_folds}")
+    if n_folds > 0:
+        if cv:
+            print(f"Cross-Validation: {n_folds}-fold with hyperparameter tuning")
+        else:
+            print(f"K-Fold Training: {n_folds}-fold (no hyperparameter tuning)")
+    else:
+        print("Training: Single run (no folds)")
     
     # Print loss function info
     loss_type = kwargs.get('loss', 'ce')
@@ -49,15 +57,15 @@ def run_complete_pipeline(models=['deep_gpcm', 'attn_gpcm', 'coral_gpcm'], datas
         print(f"Loss function: {loss_type}")
         if loss_type == 'combined':
             print(f"  - CE weight: {kwargs.get('ce_weight', 1.0)}")
+            print(f"  - Focal weight: {kwargs.get('focal_weight', 0.0)}")
             print(f"  - QWK weight: {kwargs.get('qwk_weight', 0.5)}")
-            print(f"  - EMD weight: {kwargs.get('emd_weight', 0.0)}")
             print(f"  - CORAL weight: {kwargs.get('coral_weight', 0.0)}")
-        elif loss_type == 'ordinal_ce':
-            print(f"  - Ordinal alpha: {kwargs.get('ordinal_alpha', 1.0)}")
     
     print()
     
     # Ensure results directories exist
+    path_manager = get_path_manager()
+    ensure_directories(dataset)
     ensure_results_dirs()
     
     results = {'training': {}, 'evaluation': {}}
@@ -70,20 +78,34 @@ def run_complete_pipeline(models=['deep_gpcm', 'attn_gpcm', 'coral_gpcm'], datas
             "--model", model,
             "--dataset", dataset,
             "--epochs", str(epochs),
-            "--n_folds", str(cv_folds)
+            "--n_folds", str(n_folds)
         ]
         
         # Model-specific loss configuration
-        if model == 'coral_gpcm':
-            # CORAL-GPCM uses combined loss with balanced weights
+        if model == 'coral_gpcm_proper':
+            # CORAL-GPCM uses combined loss with focal, QWK, and CORAL components
             cmd.extend(["--loss", "combined"])
-            cmd.extend(["--ce_weight", "0.5"])
-            cmd.extend(["--coral_weight", "0.5"])
-            print(f"  ⚙️  {model}: Using combined loss (CE: 0.5, CORAL: 0.5)")
-        else:
-            # deep_gpcm and attn_gpcm use standard cross-entropy
+            cmd.extend(["--focal_weight", "0.4"])
+            cmd.extend(["--qwk_weight", "0.2"])
+            cmd.extend(["--coral_weight", "0.4"])
+            cmd.extend(["--ce_weight", "0.0"])  # Disable CE since we use focal
+            print(f"  ⚙️  {model}: Using combined loss (Focal: 0.4, QWK: 0.2, CORAL: 0.4)")
+        elif model == 'deep_gpcm':
+            # deep_gpcm uses focal loss
+            cmd.extend(["--loss", "focal"])
+            print(f"  ⚙️  {model}: Using focal loss")
+        elif model == 'attn_gpcm':
+            # attn_gpcm uses standard cross-entropy
             cmd.extend(["--loss", "ce"])
             print(f"  ⚙️  {model}: Using cross-entropy loss")
+        else:
+            # Default to cross-entropy
+            cmd.extend(["--loss", "ce"])
+            print(f"  ⚙️  {model}: Using cross-entropy loss")
+        
+        # Add cv flag if enabled
+        if cv:
+            cmd.append("--cv")
         
         # Add common arguments (but skip loss-related if not specified by user)
         for key, value in kwargs.items():
@@ -100,14 +122,15 @@ def run_complete_pipeline(models=['deep_gpcm', 'attn_gpcm', 'coral_gpcm'], datas
     print(f"\n{'='*20} EVALUATION PHASE {'='*20}")
     for model in models:
         if results['training'][model]:
-            model_path = f"save_models/best_{model}_{dataset}.pth"
+            # Try new structure first, fall back to legacy
+            model_path = find_best_model(model, dataset)
             
-            if os.path.exists(model_path):
+            if model_path and model_path.exists():
                 cmd = [
                     sys.executable, "evaluate.py",
-                    "--model_path", model_path,
+                    "--model_path", str(model_path),
                     "--dataset", dataset,
-                    "--regenerate_plots", "True"  # Ensure fresh plot data generation
+                    "--regenerate_plots"  # Ensure fresh plot data generation
                 ]
                 
                 # Add additional arguments
@@ -130,7 +153,7 @@ def run_complete_pipeline(models=['deep_gpcm', 'attn_gpcm', 'coral_gpcm'], datas
     print(f"\n{'='*20} PLOTTING PHASE {'='*20}")
     if any(results['evaluation'].values()):  # Check evaluation success, not just training
         cmd = [
-            sys.executable, "utils/plot_metrics.py"
+            sys.executable, "utils/plot_metrics.py", "--dataset", dataset
         ]
         success = run_command(cmd, "Generating comprehensive visualizations (9 plots)")
         results['plotting'] = success
@@ -197,21 +220,23 @@ def main():
     parser = argparse.ArgumentParser(description='Deep-GPCM Enhanced Pipeline - Training, Evaluation, Visualization & IRT Analysis')
     
     # By default, run everything with enhanced features
-    parser.add_argument('--action', choices=['pipeline', 'train', 'evaluate', 'plot', 'irt'], 
+    parser.add_argument('--action', choices=['pipeline', 'train', 'evaluate', 'plot', 'irt', 'clean'], 
                        default='pipeline', 
                        help='Action: pipeline=complete enhanced pipeline, train=training only, '
-                            'evaluate=enhanced evaluation+plots, plot=visualization only, irt=IRT analysis only')
+                            'evaluate=enhanced evaluation+plots, plot=visualization only, irt=IRT analysis only, '
+                            'clean=cleanup results and models')
     
     # Model and dataset selection
     parser.add_argument('--models', nargs='+', 
-                       choices=['deep_gpcm', 'attn_gpcm', 'coral_gpcm'], 
-                       default=['deep_gpcm', 'attn_gpcm', 'coral_gpcm'], 
+                       choices=['deep_gpcm', 'attn_gpcm', 'coral_gpcm_proper'], 
+                       default=['deep_gpcm', 'attn_gpcm', 'coral_gpcm_proper'], 
                        help='Main pipeline models with optimized loss configurations')
-    parser.add_argument('--dataset', default='synthetic_OC', help='Dataset name')
+    parser.add_argument('--dataset', default='synthetic_OC', help='Dataset name (e.g., synthetic_OC, synthetic_4000_200_2)')
     
     # Training parameters
     parser.add_argument('--epochs', type=int, default=30, help='Number of epochs')
-    parser.add_argument('--cv_folds', type=int, default=5, help='CV folds (0 = no CV)')
+    parser.add_argument('--n_folds', type=int, default=5, help='Number of folds for k-fold training (0 = no folds)')
+    parser.add_argument('--cv', action='store_true', help='Enable cross-validation with hyperparameter tuning')
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
     parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
@@ -219,32 +244,85 @@ def main():
     
     # Loss function arguments
     parser.add_argument('--loss', type=str, default='ce',
-                        choices=['ce', 'qwk', 'emd', 'ordinal_ce', 'combined'],
+                        choices=['ce', 'qwk', 'ordinal_ce', 'combined'],
                         help='Loss function type (default: ce)')
     parser.add_argument('--ce_weight', type=float, default=1.0,
                         help='Weight for CE loss in combined loss')
     parser.add_argument('--qwk_weight', type=float, default=0.5,
                         help='Weight for QWK loss in combined loss')
-    parser.add_argument('--emd_weight', type=float, default=0.0,
-                        help='Weight for EMD loss in combined loss')
     parser.add_argument('--coral_weight', type=float, default=0.0,
                         help='Weight for CORAL loss in combined loss')
-    parser.add_argument('--ordinal_alpha', type=float, default=1.0,
-                        help='Alpha parameter for ordinal CE loss')
+    parser.add_argument('--focal_weight', type=float, default=0.0,
+                        help='Weight for focal loss in combined loss')
     
     
     # Individual control
     parser.add_argument('--model_path', help='Specific model path for evaluation')
     
+    # Cleanup options
+    parser.add_argument('--clean', action='store_true', help='Clean existing results before running pipeline')
+    parser.add_argument('--clean-only', action='store_true', help='Only clean results without running pipeline')
+    parser.add_argument('--clean-all', action='store_true', help='Clean results for all datasets')
+    parser.add_argument('--dry-run', action='store_true', help='Show what would be deleted without deleting')
+    parser.add_argument('--no-backup', action='store_true', help='Skip backup creation during cleanup')
+    parser.add_argument('--no-confirm', action='store_true', help='Skip confirmation prompt during cleanup')
+    
     args = parser.parse_args()
     
+    # Handle --clean-only flag first
+    if args.clean_only:
+        print(f"\n🧹 CLEANUP ONLY MODE")
+        cleaner = ResultsCleaner()
+        
+        if args.clean_all:
+            # Clean all datasets
+            if not args.dry_run and not args.no_confirm:
+                datasets = cleaner.get_all_datasets()
+                print(f"This will delete results for ALL {len(datasets)} datasets: {', '.join(sorted(datasets))}")
+                response = input("\nAre you sure? (yes/no): ").strip().lower()
+                if response not in ['yes', 'y']:
+                    print("Cleanup cancelled.")
+                    return
+            
+            cleaner.clean_all_datasets(dry_run=args.dry_run, backup=not args.no_backup)
+        else:
+            if not args.dataset:
+                print("Please specify a dataset with --dataset or use --clean-all for all datasets")
+            else:
+                # Clean specific dataset
+                if not args.dry_run and not args.no_confirm:
+                    print(f"This will delete all results for dataset: {args.dataset}")
+                    response = input("\nAre you sure? (yes/no): ").strip().lower()
+                    if response not in ['yes', 'y']:
+                        print("Cleanup cancelled.")
+                        return
+                
+                cleaner.clean_dataset(args.dataset, dry_run=args.dry_run, backup=not args.no_backup)
+        return  # Exit after cleanup
+    
     if args.action == 'pipeline':
-        # Run complete pipeline by default
+        # Handle --clean flag BEFORE pipeline execution
+        if args.clean and args.dataset:
+            print(f"\n🧹 PRE-PIPELINE CLEANUP")
+            cleaner = ResultsCleaner()
+            
+            if not args.dry_run and not args.no_confirm:
+                print(f"This will delete all existing results for dataset: {args.dataset}")
+                response = input("\nAre you sure? (yes/no): ").strip().lower()
+                if response not in ['yes', 'y']:
+                    print("Cleanup cancelled.")
+                    return
+            
+            cleaner.clean_dataset(args.dataset, dry_run=args.dry_run, backup=not args.no_backup)
+            print("\n✅ Cleanup complete. Starting fresh pipeline...\n")
+        
+        # Run complete pipeline
         run_complete_pipeline(
             models=args.models,
             dataset=args.dataset,
             epochs=args.epochs,
-            cv_folds=args.cv_folds,
+            n_folds=args.n_folds,
+            cv=args.cv,
             batch_size=args.batch_size,
             lr=args.lr,
             seed=args.seed,
@@ -252,9 +330,8 @@ def main():
             loss=args.loss,
             ce_weight=args.ce_weight,
             qwk_weight=args.qwk_weight,
-            emd_weight=args.emd_weight,
             coral_weight=args.coral_weight,
-            ordinal_alpha=args.ordinal_alpha
+            focal_weight=args.focal_weight
         )
     
     elif args.action == 'train':
@@ -268,7 +345,7 @@ def main():
                 "--model", model,
                 "--dataset", args.dataset,
                 "--epochs", str(args.epochs),
-                "--n_folds", str(args.cv_folds),
+                "--n_folds", str(args.n_folds),
                 "--batch_size", str(args.batch_size),
                 "--lr", str(args.lr),
                 "--seed", str(args.seed)
@@ -277,16 +354,33 @@ def main():
             if args.device:
                 cmd.extend(["--device", args.device])
             
-            # Add loss function arguments
-            if args.loss != 'ce':
-                cmd.extend(["--loss", args.loss])
-            if args.loss == 'combined':
-                cmd.extend(["--ce_weight", str(args.ce_weight)])
-                cmd.extend(["--qwk_weight", str(args.qwk_weight)])
-                cmd.extend(["--emd_weight", str(args.emd_weight)])
-                cmd.extend(["--coral_weight", str(args.coral_weight)])
-            elif args.loss == 'ordinal_ce':
-                cmd.extend(["--ordinal_alpha", str(args.ordinal_alpha)])
+            # Add cv flag if enabled
+            if args.cv:
+                cmd.append("--cv")
+            
+            # Model-specific loss configuration (same as pipeline mode)
+            if model == 'coral_gpcm_proper':
+                cmd.extend(["--loss", "combined"])
+                cmd.extend(["--focal_weight", "0.4"])
+                cmd.extend(["--qwk_weight", "0.2"])
+                cmd.extend(["--coral_weight", "0.4"])
+                cmd.extend(["--ce_weight", "0.0"])
+                print(f"  ⚙️  {model}: Using combined loss (Focal: 0.4, QWK: 0.2, CORAL: 0.4)")
+            elif model == 'deep_gpcm':
+                cmd.extend(["--loss", "focal"])
+                print(f"  ⚙️  {model}: Using focal loss")
+            elif model == 'attn_gpcm':
+                cmd.extend(["--loss", "ce"])
+                print(f"  ⚙️  {model}: Using cross-entropy loss")
+            else:
+                # Allow user-specified loss function if provided
+                if args.loss != 'ce':
+                    cmd.extend(["--loss", args.loss])
+                if args.loss == 'combined':
+                    cmd.extend(["--ce_weight", str(args.ce_weight)])
+                    cmd.extend(["--qwk_weight", str(args.qwk_weight)])
+                    cmd.extend(["--coral_weight", str(args.coral_weight)])
+                    cmd.extend(["--focal_weight", str(args.focal_weight) if hasattr(args, 'focal_weight') else "0.0"])
             
             run_command(cmd, f"Training {model.upper()}")
     
@@ -295,15 +389,18 @@ def main():
         print(f"\n🧪 ENHANCED EVALUATION ONLY")
         
         for model in args.models:
-            model_path = args.model_path or f"save_models/best_{model}_{args.dataset}.pth"
+            if args.model_path:
+                model_path = Path(args.model_path)
+            else:
+                model_path = find_best_model(model, args.dataset)
             
-            if os.path.exists(model_path):
+            if model_path and model_path.exists():
                 cmd = [
                     sys.executable, "evaluate.py",
-                    "--model_path", model_path,
+                    "--model_path", str(model_path),
                     "--dataset", args.dataset,
                     "--batch_size", str(args.batch_size),
-                    "--regenerate_plots", "True"  # Enhanced data collection for plotting
+                    "--regenerate_plots"  # Enhanced data collection for plotting
                 ]
                 if args.device:
                     cmd.extend(["--device", args.device])
@@ -314,13 +411,13 @@ def main():
         
         # Auto-generate plots after evaluation
         print(f"\n📊 AUTO-GENERATING PLOTS")
-        cmd = [sys.executable, "utils/plot_metrics.py"]
+        cmd = [sys.executable, "utils/plot_metrics.py", "--dataset", args.dataset]
         run_command(cmd, "Generating comprehensive visualizations")
     
     elif args.action == 'plot':
         # Plotting only (enhanced visualization system)
         print(f"\n📊 ENHANCED PLOTTING ONLY")
-        cmd = [sys.executable, "utils/plot_metrics.py"]
+        cmd = [sys.executable, "utils/plot_metrics.py", "--dataset", args.dataset]
         success = run_command(cmd, "Generating 9 comprehensive visualizations")
         if success:
             print("✅ Generated all plots with enhanced features:")
@@ -341,6 +438,37 @@ def main():
             print("✅ Generated IRT analysis with enhanced features:")
             print("  • Static hit rate student selection (not temporal)")
             print("  • Clean temporal heatmaps without 'cherry-picked' references")
+    
+    elif args.action == 'clean':
+        # Cleanup action
+        print(f"\n🧹 CLEANUP MODE")
+        cleaner = ResultsCleaner()
+        
+        if args.clean_all:
+            # Clean all datasets
+            if not args.dry_run and not args.no_confirm:
+                datasets = cleaner.get_all_datasets()
+                print(f"This will delete results for ALL {len(datasets)} datasets: {', '.join(sorted(datasets))}")
+                response = input("\nAre you sure? (yes/no): ").strip().lower()
+                if response not in ['yes', 'y']:
+                    print("Cleanup cancelled.")
+                    return
+            
+            cleaner.clean_all_datasets(dry_run=args.dry_run, backup=not args.no_backup)
+        else:
+            if not args.dataset:
+                print("Please specify a dataset with --dataset or use --clean-all for all datasets")
+            else:
+                # Clean specific dataset
+                if not args.dry_run and not args.no_confirm:
+                    print(f"This will delete all results for dataset: {args.dataset}")
+                    response = input("\nAre you sure? (yes/no): ").strip().lower()
+                    if response not in ['yes', 'y']:
+                        print("Cleanup cancelled.")
+                        return
+                
+                cleaner.clean_dataset(args.dataset, dry_run=args.dry_run, backup=not args.no_backup)
+    
     
     print("\n🎯 Enhanced main runner completed!")
 

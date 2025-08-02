@@ -1,211 +1,199 @@
-# GPCM-CORAL Threshold Integration TODO
+# Deep-GPCM TODO: Critical Issues and Implementation Roadmap
 
-## Project Overview
+## CRITICAL PRIORITY: CORAL Design Flaw Fix
 
-Integration of GPCM β thresholds with CORAL ordinal thresholds to improve the coral_gpcm model. Focus on **simple, clean implementation** with proven value before adding complexity.
+### 🚨 BLOCKING ISSUE: Incorrect Parameter Usage
 
-**Key Principle**: Start minimal, prove value, then expand if needed.
+**Status**: CRITICAL - Invalidates all current CORAL research
 
-## Phase 0: Simplification (CRITICAL - Missing from Original Plan)
+**Problem**: CORAL uses β (beta) parameters instead of τ (tau) thresholds, making CORAL and GPCM computations identical.
 
-### 0.1 Archive Over-Engineered Implementation
-- [ ] **Move current threshold_coupling.py to research/ directory**
-  - Current implementation is 486 lines for simple threshold combination
-  - 4 different mechanisms when 1-2 would suffice
-  - Complex mathematical formulations without proven necessity
-  - Inconsistent interfaces between couplers
+**Evidence**:
+- CORAL parameters (τ): `[0., 0., 0.]` (all zeros - unused)
+- GPCM parameters (β): `[-0.8234, -0.0156, 0.7453]` (actively learned)
+- Both systems use identical β parameters for computation
 
-### 0.2 Identify Core Requirements
-- [ ] **Define minimal viable coupling**
-  - Simple weighted combination of GPCM and CORAL thresholds
-  - Learnable weights with proper initialization
-  - Clean interface for integration
-  - Backward compatibility
+**Required Actions**:
 
-### 0.3 Clean Slate Implementation
-- [ ] **Create new core/threshold_coupling.py**
-  - Start with single LinearThresholdCoupler
-  - Clean, consistent interface
-  - Minimal dependencies
-  - Comprehensive testing from start
+#### Task 1: Fix CORAL Parameter Extraction (Priority: CRITICAL)
+- 📋 **Implement τ extraction from CORAL logits**: Convert `coral_logits` to usable threshold parameters
+- 📋 **Update CORAL computation pathway**: Use τ parameters instead of β in `coral_probs` calculation
+- ✅ **Preserve GPCM computation**: Keep existing IRT extractor for GPCM baseline
+- 📋 **Files to modify**:
+  - `models/model.py` (Lines ~180-200): Core CORAL computation logic
+  - `models/coral_layer.py`: CORAL layer parameter usage
+  - `analysis/extract_beta_params.py`: Extract both β and τ parameters
 
-## Phase 1: Clean Linear Coupling Implementation
+#### Task 2: Verification and Validation (Priority: CRITICAL)
+- 📋 **Parameter usage audit**: Confirm τ parameters are extracted and used for CORAL
+- 📋 **Computational verification**: Validate CORAL and GPCM produce different results
+- 📋 **Training validation**: Ensure adaptive blending provides genuine benefit
+- 📋 **Re-run all benchmarks**: Invalidate current results and generate corrected comparisons
 
-### 1.1 Base Interface Design
-- [ ] **Create ThresholdCoupler base class**
-```python
-class ThresholdCoupler(ABC):
-    def couple(self, 
-               gpcm_thresholds: torch.Tensor,
-               coral_thresholds: torch.Tensor, 
-               student_ability: torch.Tensor,
-               item_discrimination: Optional[torch.Tensor] = None) -> torch.Tensor:
-```
+#### Task 3: Architecture Testing (Priority: HIGH)
+- [ ] **τ parameter learning**: Test that ordinal thresholds are properly optimized
+- [ ] **Threshold coupling validation**: Confirm coupling/decoupling mechanisms work with correct parameters
+- [ ] **Gradient flow analysis**: Verify gradient flow through corrected CORAL pathway
 
-### 1.2 Linear Coupling Implementation
-- [ ] **Implement LinearThresholdCoupler**
-  - Simple weighted combination: `gpcm_weight * gpcm + coral_weight * coral`
-  - Learnable weights (default: gpcm_weight=0.7, coral_weight=0.3)
-  - Proper tensor broadcasting
-  - Clean parameter validation
+## HIGH PRIORITY: Adaptive Blending System Completion
 
-### 1.3 Factory Pattern
-- [ ] **Create ThresholdCouplerFactory**
-  - Configuration-driven coupler creation
-  - Clean separation of concerns
-  - Easy extension for future couplers
+### Task 4: BGT Framework Integration (Priority: HIGH)
 
-### 1.4 Testing Framework
-- [ ] **Create comprehensive tests**
-  - Unit tests for LinearThresholdCoupler
-  - Shape consistency tests
-  - Gradient flow validation
-  - Performance benchmarks
+**Status**: ✅ BGT mathematics proven stable, 🚧 forward pass integration needs debugging
 
-## Phase 2: Integration with coral_gpcm
+**Completed**:
+- ✅ BGT mathematical framework developed and validated
+- ✅ `StableThresholdDistanceBlender` with comprehensive testing (4/4 tests pass)
+- ✅ Gradient explosion prevention (reduced >20,000 to <10 gradient norms)
+- ✅ Component-level validation (all BGT transforms stable)
 
-### 2.1 Integration Points
-- [ ] **Modify CORALDeepGPCM class**
-  - Add optional `threshold_coupler` parameter
-  - Integrate coupling in forward pass
-  - Maintain 100% backward compatibility
-  - Clean error handling
+**Outstanding Issues**:
+- 🚧 **Resolve model-level integration**: BGT components work but full model training unstable
+- 🚧 **Debug gradient coupling**: Investigate memory network interaction with adaptive blending
+- 📋 **Implement gradient isolation**: Apply `item_betas.detach()` solution for memory decoupling
+- 📋 **Validate training stability**: Ensure consistent training with adaptive blending enabled
 
-### 2.2 Configuration System
-- [ ] **Create simple configuration**
-```python
-@dataclass
-class ThresholdCouplingConfig:
-    enabled: bool = False
-    coupling_type: str = "linear"
-    gpcm_weight: float = 0.7
-    coral_weight: float = 0.3
-```
+**Action Items**:
+- 🚧 **Complete MinimalAdaptiveBlender integration**: Deploy gradient isolation solution
+- ❌ **Test FullAdaptiveBlender training**: BLOCKED by CORAL design flaw
+- ❌ **Production deployment**: BLOCKED until CORAL fix implemented
 
-### 2.3 Training Integration
-- [ ] **Update training pipeline**
-  - Add coupling config to train.py
-  - Update model_factory.py
-  - Ensure training stability
+### Task 5: Multi-Dataset Validation (Priority: MEDIUM)
 
-## Phase 3: Validation and Performance
+**Requirements**:
+- [ ] **Test across datasets**: Validate adaptive blending on multiple educational datasets
+- [ ] **Performance consistency**: Ensure improvements generalize beyond synthetic data
+- [ ] **Computational overhead**: Verify <15% training overhead target met
+- [ ] **Memory efficiency**: Confirm reasonable GPU memory usage
 
-### 3.1 Performance Validation
-- [ ] **Benchmark coupling vs no coupling**
-  - Training time overhead (target: ≤5%)
-  - Performance improvement (target: ≥2%)
-  - Memory usage impact
-  - Forward pass timing
+## MEDIUM PRIORITY: System Enhancements
 
-### 3.2 Comprehensive Testing
-- [ ] **End-to-end validation**
-  - Train on synthetic_OC dataset
-  - Compare metrics with/without coupling
-  - Validate training stability
-  - Test model save/load with coupling
+### Task 6: IRT Analysis Integration (Priority: MEDIUM)
 
-### 3.3 Success Criteria Validation
-- [ ] **Verify all targets met**
-  - ≤5% training time overhead
-  - ≥2% performance improvement on validation metrics
-  - 100% backward compatibility maintained
-  - >95% test coverage for coupling modules
+**Status**: System functional but needs CORAL parameter fix integration
 
-## Phase 4: Documentation and Examples
+**Action Items**:
+- [ ] **Update parameter extraction**: Integrate corrected β/τ parameter extraction
+- [ ] **Enhanced temporal analysis**: Improve temporal parameter visualization
+- [ ] **Parameter recovery metrics**: Develop better correlation measures for temporal parameters
+- [ ] **Comparative analysis**: Enable side-by-side CORAL vs GPCM parameter comparison
 
-### 4.1 Clean Documentation
-- [ ] **Create practical documentation**
-  - Simple usage guide
-  - Configuration examples
-  - When to enable coupling
-  - Performance characteristics
+### Task 7: Loss Function Optimization (Priority: MEDIUM)
 
-### 4.2 Usage Examples
-- [ ] **Create example scripts**
-  - Basic coupling usage
-  - Training with coupling enabled
-  - Performance comparison script
+**Current Status**: QWK and combined losses implemented
 
-## Improved Naming Conventions
+**Enhancement Opportunities**:
+- [ ] **Ordinal loss tuning**: Optimize QWK loss hyperparameters for better convergence
+- [ ] **Combined loss balancing**: Find optimal weights for multi-objective optimization
+- [ ] **EMD loss integration**: Complete Earth Mover's Distance loss implementation
+- [ ] **Loss scheduling**: Implement dynamic loss weight scheduling during training
 
-**Professional, Specific Names:**
-- `LinearThresholdCoupler` (not "BasicThresholdCoupler")
-- `AttentionThresholdCoupler` (not "AttentionCoupler")
-- `MLPThresholdCoupler` (not "NeuralCoupler")
-- `EnsembleThresholdCoupler` (not "AdaptiveCoupler")
+### Task 8: Architecture Improvements (Priority: MEDIUM)
 
-**Avoid:**
-- Generic names ("Basic", "Neural", "Adaptive")
-- Mathematical jargon ("Hierarchical", "Mathematical")
-- Limiting implications ("Basic" implies inferiority)
+**Attention Mechanisms**:
+- [ ] **Attention-CORAL integration**: Combine attention refinement with CORAL ordinal structure
+- [ ] **Memory capacity scaling**: Optimize memory size for different dataset scales
+- [ ] **Embedding strategy optimization**: Compare and optimize response embedding approaches
 
-## Implementation Priority
+**Model Efficiency**:
+- [ ] **Parameter reduction**: Investigate model compression techniques
+- [ ] **Training acceleration**: Implement gradient checkpointing and mixed precision
+- [ ] **Inference optimization**: Optimize models for deployment scenarios
 
-### Priority 1: Prove Value (Phases 0-2)
-- Simple linear coupling only
-- Clean interface and integration
-- Performance validation
-- **Decision Point**: Continue only if coupling shows ≥2% improvement
+## LOWER PRIORITY: Research and Validation
 
-### Priority 2: Expand if Warranted (Phase 3+)
-- Add AttentionThresholdCoupler if linear coupling successful
-- Add MLPThresholdCoupler if attention shows further gains
-- Only implement additional complexity if justified by results
+### Task 9: Temporal Parameter Research (Priority: LOW)
 
-### Priority 3: Advanced Features (Future)
-- Ensemble coupling selection
-- Adaptive weighting mechanisms
-- Complex mathematical formulations
+**Research Questions**:
+- [ ] **Temporal vs static IRT**: Develop theoretical framework for temporal parameter interpretation
+- [ ] **Learning trajectory modeling**: Implement explicit learning curve modeling
+- [ ] **Parameter evolution patterns**: Analyze common temporal parameter evolution patterns
+- [ ] **Curriculum learning integration**: Use temporal patterns for curriculum design
+
+### Task 10: Bayesian Extensions (Priority: LOW)
+
+**Proposed Enhancements**:
+- [ ] **Variational parameter estimation**: Implement Bayesian parameter uncertainty
+- [ ] **Hierarchical modeling**: Add student and item population modeling
+- [ ] **Uncertainty quantification**: Provide confidence intervals for predictions
+- [ ] **Active learning integration**: Use uncertainty for intelligent question selection
+
+### Task 11: Visualization and Interpretability (Priority: LOW)
+
+**Dashboard Development**:
+- [ ] **Interactive parameter visualization**: Real-time parameter evolution display
+- [ ] **Student trajectory analysis**: Individual learning journey visualization
+- [ ] **Item analysis tools**: Item characteristic curve interactive plots
+- [ ] **Model comparison interface**: Side-by-side model performance comparison
+
+## Implementation Timeline
+
+### Phase 1: Critical Fixes (Week 1-2)
+**Priority**: CRITICAL
+- [ ] Complete CORAL design flaw fix
+- [ ] Validate corrected parameter usage
+- [ ] Re-run benchmark comparisons
+- [ ] Update all documentation
+
+### Phase 2: Adaptive Blending (Week 3-4)  
+**Priority**: HIGH
+- [ ] Finalize BGT integration debugging
+- [ ] Deploy stable adaptive blending
+- [ ] Multi-dataset validation
+- [ ] Performance optimization
+
+### Phase 3: System Enhancement (Week 5-8)
+**Priority**: MEDIUM
+- [ ] IRT analysis improvements
+- [ ] Loss function optimization
+- [ ] Architecture enhancements
+- [ ] Production hardening
+
+### Phase 4: Research Extensions (Month 3+)
+**Priority**: LOW
+- [ ] Temporal parameter research
+- [ ] Bayesian extensions
+- [ ] Advanced visualization
+- [ ] Publication preparation
+
+## Success Criteria
+
+### Phase 1 Success Metrics
+- 📋 **CORAL parameters**: τ ≠ β demonstrated with different learned values
+- 📋 **Performance differentiation**: CORAL vs GPCM show measurable differences
+- 📋 **Benchmark validity**: All results regenerated with corrected implementation
+- 🚧 **Documentation complete**: Partially updated with status indicators
+
+### Phase 2 Success Metrics
+- [ ] **Training stability**: Adaptive models train without gradient explosion
+- [ ] **Performance improvement**: >10% QWK improvement with full adaptive blending
+- [ ] **Resource efficiency**: <15% computational overhead
+- [ ] **Production readiness**: Models deployable in main pipeline
+
+### Overall Project Success
+- [ ] **Research validity**: All CORAL claims backed by corrected implementation
+- [ ] **Practical impact**: Demonstrable improvements in educational assessment
+- [ ] **Scientific contribution**: Novel adaptive blending and temporal IRT insights
+- [ ] **Community adoption**: System used by educational data mining researchers
 
 ## Risk Mitigation
 
-### Critical Risks Addressed
-- **Over-engineering**: Start with minimal implementation
-- **Performance degradation**: Benchmark at each step
-- **Breaking changes**: Maintain backward compatibility
-- **Complexity creep**: Require justification for each addition
+### Technical Risks
+- **CORAL fix complexity**: May require extensive architecture changes
+  - *Mitigation*: Incremental implementation with rollback capability
+- **BGT integration stability**: Complex mathematical transforms may be fragile
+  - *Mitigation*: Comprehensive testing and gradual integration
+- **Performance regression**: Fixes may reduce current performance
+  - *Mitigation*: A/B testing and performance monitoring
 
-### Success Gates
-- **Phase 0 Gate**: Clean, simple implementation ready
-- **Phase 1 Gate**: Linear coupling works and is tested
-- **Phase 2 Gate**: Integration maintains compatibility
-- **Phase 3 Gate**: Performance targets met
-
-## Architecture Principles
-
-### Code Quality
-- **Modularity**: Clean separation of concerns
-- **Testability**: Comprehensive test coverage
-- **Maintainability**: Simple, readable code
-- **Performance**: Minimal overhead
-
-### Interface Design
-- **Consistency**: Same interface pattern across couplers
-- **Simplicity**: Minimal required parameters
-- **Flexibility**: Easy to extend without breaking changes
-- **Validation**: Clear error messages and parameter checking
-
-## Success Metrics
-
-**Technical Success:**
-- ≤5% training time overhead for coupling
-- ≥2% performance improvement on validation metrics  
-- 100% backward compatibility maintained
-- >95% test coverage for coupling modules
-
-**Architectural Success:**
-- Clean, maintainable interface
-- Easy configuration and usage
-- Minimal cognitive complexity
-- Clear performance characteristics
+### Project Risks
+- **Timeline pressure**: Critical fixes may delay other enhancements
+  - *Mitigation*: Prioritize critical issues and defer non-essential features
+- **Research validity**: Corrected results may not support original claims
+  - *Mitigation*: Prepare for honest reporting of corrected findings
+- **Resource constraints**: Multiple complex tasks competing for attention  
+  - *Mitigation*: Clear prioritization and incremental delivery
 
 ---
 
-**Estimated Effort**: 
-- Phase 0: 3-4 hours (simplification)
-- Phase 1: 4-5 hours (linear coupling)
-- Phase 2: 3-4 hours (integration)
-- Phase 3: 3-4 hours (validation)
-- **Total**: 13-17 hours
-
-**Critical Success Factor**: Phase 0 simplification must be completed first to avoid building on over-engineered foundation.
+**Next Action**: Begin Task 1 (CORAL parameter extraction fix) immediately - this blocks all other CORAL-related work and invalidates current research claims.

@@ -1,0 +1,17 @@
+CLEANUP SUMMARY
+===============
+
+Files moved to to_remove/:
+138
+
+Directories moved:
+16
+
+File moved to new location:
+scripts/data_gen.py -> utils/data_gen.py
+
+Core files remaining:
+23
+
+Documentation files remaining:
+0

@@ -10,6 +10,8 @@ import torch
 import torch.nn.functional as F
 import json
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')  # Set backend for consistent rendering
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib.gridspec import GridSpec
@@ -24,31 +26,43 @@ warnings.filterwarnings('ignore')
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.model import DeepGPCM, AttentionGPCM
-from core.attention_enhanced import EnhancedAttentionGPCM
-from core.coral_gpcm import HybridCORALGPCM
+from models.implementations import DeepGPCM, AttentionGPCM, EnhancedAttentionGPCM
+from models.implementations.coral_gpcm_proper import CORALGPCM
 from train import load_simple_data, create_data_loaders
+from utils.irt_utils import extract_effective_thresholds, extract_irt_parameters, summarize_irt_parameters
+from utils.path_utils import get_path_manager, find_best_model
 
 
 class UnifiedIRTAnalyzer:
     """Unified IRT analysis tool with all functionality."""
     
-    def __init__(self, dataset='synthetic_OC', output_dir='results/irt'):
+    def __init__(self, dataset='synthetic_OC', output_dir='results/irt_plots'):
         self.dataset = dataset
-        self.output_dir = Path(output_dir)
+        # Create dataset-specific output directory
+        self.output_dir = Path(output_dir) / dataset
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         # Initialize consistent model coloring system (matching utils/plot_metrics.py)
         self.model_colors = {
             'deep_gpcm': '#ff7f0e',     # Orange
             'attn_gpcm': '#1f77b4',     # Blue
-            'coral_gpcm': '#d62728'     # Red
+            'coral_gpcm': '#2ca02c',    # Green
+            'coral_gpcm_proper': '#e377c2',  # Pink
+            'ecoral_gpcm': '#d62728',   # Red
+            'adaptive_coral_gpcm': '#9467bd',  # Purple
+            'full_adaptive_coral_gpcm': '#8c564b'  # Brown
         }
         
-        # Load data
+        # Load data - support both old and new naming formats
         data_dir = Path('data') / dataset
-        train_path = data_dir / f'{dataset.lower()}_train.txt'
-        test_path = data_dir / f'{dataset.lower()}_test.txt'
+        if dataset.startswith('synthetic_') and '_' in dataset[10:]:
+            # New format: synthetic_4000_200_2
+            train_path = data_dir / f'{dataset}_train.txt'
+            test_path = data_dir / f'{dataset}_test.txt'
+        else:
+            # Legacy format: synthetic_OC -> synthetic_oc_train.txt
+            train_path = data_dir / f'{dataset.lower()}_train.txt'
+            test_path = data_dir / f'{dataset.lower()}_test.txt'
         
         self.train_data, self.test_data, self.n_questions, self.n_cats = load_simple_data(
             str(train_path), str(test_path)
@@ -69,7 +83,15 @@ class UnifiedIRTAnalyzer:
             return json.load(f)
     
     def get_model_color(self, model_name: str) -> str:
-        """Get consistent color for a model, matching the main plotting system."""
+        """Get consistent color for a model using factory-defined colors."""
+        # First try to get color from model factory
+        try:
+            from models.factory import get_model_color as factory_get_color
+            return factory_get_color(model_name)
+        except:
+            pass
+        
+        # Fallback to local mapping
         if model_name in self.model_colors:
             return self.model_colors[model_name]
         else:
@@ -80,8 +102,16 @@ class UnifiedIRTAnalyzer:
     
     def find_models(self):
         """Automatically find all trained models for the dataset."""
-        model_pattern = f"save_models/best_*_{self.dataset}.pth"
-        model_files = glob(model_pattern)
+        path_manager = get_path_manager()
+        
+        # Find models in both new and legacy structures
+        model_files = []
+        model_names = ['deep_gpcm', 'attn_gpcm', 'coral_gpcm_proper']
+        
+        for model_name in model_names:
+            model_path = find_best_model(model_name, self.dataset)
+            if model_path:
+                model_files.append(str(model_path))
         
         # Filter out fold-specific models
         model_files = [f for f in model_files if not any(f'fold_{i}' in f for i in range(1, 10))]
@@ -90,7 +120,7 @@ class UnifiedIRTAnalyzer:
         for model_path in model_files:
             # Extract model name from path
             base_name = os.path.basename(model_path)
-            model_name = base_name.replace(f'best_', '').replace(f'_{self.dataset}.pth', '')
+            model_name = base_name.replace(f'best_', '').replace(f'_{self.dataset}.pth', '').replace('.pth', '')
             models[model_name] = model_path
             
         print(f"Found {len(models)} models: {list(models.keys())}")
@@ -114,6 +144,15 @@ class UnifiedIRTAnalyzer:
         # Determine model type from config or state dict
         if 'config' in checkpoint:
             model_type = checkpoint['config'].get('model_type', 'baseline')
+        elif 'model_config' in checkpoint:
+            # Handle model_config key (used by coral_gpcm_proper)
+            config = checkpoint['model_config']
+            # Try to infer model type from filename
+            filename = os.path.basename(model_path)
+            if 'coral_gpcm_proper' in filename:
+                model_type = 'coral_gpcm_proper'
+            else:
+                model_type = 'baseline'
         else:
             if has_coral_projection:
                 model_type = 'coral_gpcm'  # Updated to match new naming
@@ -124,12 +163,12 @@ class UnifiedIRTAnalyzer:
             else:
                 model_type = 'deep_gpcm'  # Updated to match new naming
         
-        # Skip pure CORAL models as they don't have IRT parameters
+        # Skip old coral models as they don't exist anymore
         if model_type == 'coral':
-            raise ValueError(f"Pure CORAL model does not have IRT parameters - skipping")
+            raise ValueError(f"Deprecated coral model - skipping")
         
         # Create model
-        if has_learnable_params or ('attn_gpcm' in model_path):
+        if has_learnable_params or ('attn_gpcm' in str(model_path)):
             # Use EnhancedAttentionGPCM for models with learnable parameters
             model = EnhancedAttentionGPCM(
                 n_questions=self.n_questions, 
@@ -144,25 +183,45 @@ class UnifiedIRTAnalyzer:
                 ability_scale=2.0
             )
             model_type = 'attn_gpcm'
-        elif model_type == 'coral_gpcm' or has_coral_projection:
-            # Import the correct CORAL model
-            from core.coral_gpcm import HybridCORALGPCM
-            model = HybridCORALGPCM(
+        elif model_type == 'coral_gpcm_proper':
+            model = CORALGPCM(
                 n_questions=self.n_questions,
                 n_cats=self.n_cats,
                 memory_size=50,
                 key_dim=50,
                 value_dim=200,
-                final_fc_dim=50
+                final_fc_dim=50,
+                use_adaptive_blending=True
             )
         elif model_type == 'attention' or 'attention' in str(checkpoint['model_state_dict'].keys()):
             model = AttentionGPCM(n_questions=self.n_questions, n_cats=self.n_cats)
         else:
             model = DeepGPCM(n_questions=self.n_questions, n_cats=self.n_cats)
         
-        # Load weights with proper handling for wrapped models
+        # Load weights with proper handling for wrapped models and compatibility
         try:
-            model.load_state_dict(checkpoint['model_state_dict'])
+            state_dict = checkpoint['model_state_dict']
+            
+            # Handle missing threshold coupling parameters for backward compatibility
+            if model_type in ['coral_gpcm', 'ecoral_gpcm', 'adaptive_coral_gpcm', 'full_adaptive_coral_gpcm', 'coral_gpcm_proper']:
+                model_state_keys = set(model.state_dict().keys())
+                saved_state_keys = set(state_dict.keys())
+                
+                # Add missing threshold coupling parameters with defaults
+                missing_keys = model_state_keys - saved_state_keys
+                for key in missing_keys:
+                    if 'threshold_gpcm_weight' in key:
+                        state_dict[key] = model.state_dict()[key].clone()
+                    elif 'threshold_coral_weight' in key:
+                        state_dict[key] = model.state_dict()[key].clone()
+                
+                # Remove unexpected parameters
+                unexpected_keys = saved_state_keys - model_state_keys
+                for key in list(unexpected_keys):
+                    if key in state_dict:
+                        del state_dict[key]
+            
+            model.load_state_dict(state_dict, strict=False)
         except RuntimeError as e:
             # Handle models saved with wrapper
             if 'gpcm_model' in str(e):
@@ -175,7 +234,7 @@ class UnifiedIRTAnalyzer:
                         unwrapped_state_dict[new_key] = value
                     else:
                         unwrapped_state_dict[key] = value
-                model.load_state_dict(unwrapped_state_dict)
+                model.load_state_dict(unwrapped_state_dict, strict=False)
             else:
                 raise e
         
@@ -201,7 +260,12 @@ class UnifiedIRTAnalyzer:
             'question_ids': [],
             'responses': [],
             'masks': [],
-            'student_ids': []  # Track which student each sequence belongs to
+            'student_ids': [],  # Track which student each sequence belongs to
+            # CORAL-specific parameters
+            'coral_taus': None,
+            'coral_weights': None,
+            'coral_thresholds': None,
+            'has_coral': False
         }
         
         student_id = 0
@@ -212,8 +276,46 @@ class UnifiedIRTAnalyzer:
                 responses = responses.to(device)
                 batch_size, seq_len = questions.shape
                 
-                # Forward pass
+                # Forward pass - using EXACT same computational pathway as GPCM probability computation
+                # This matches the beta extraction method implemented in extract_beta_params.py
                 student_abilities, item_thresholds, discrimination_params, gpcm_probs = model(questions, responses)
+                
+                # Extract CORAL parameters if available (only need to do this once)
+                if batch_idx == 0:
+                    # Handle coral_gpcm_proper with special IRT utilities
+                    if model_type == 'coral_gpcm_proper':
+                        effective_tau, raw_tau = extract_effective_thresholds(model, model_type)
+                        if effective_tau is not None:
+                            temporal_data['has_coral'] = True
+                            temporal_data['coral_taus'] = effective_tau.cpu().numpy()
+                            
+                            # Get CORAL info for additional details
+                            coral_info = model.get_coral_info()
+                            if coral_info:
+                                temporal_data['coral_integration_type'] = coral_info.get('integration_type', 'unknown')
+                                
+                            # Extract blend weight if available
+                            if hasattr(model, 'blend_weight'):
+                                temporal_data['blend_weight'] = model.blend_weight
+                                
+                    # Legacy CORAL models
+                    elif hasattr(model, 'coral_layer'):
+                        temporal_data['has_coral'] = True
+                        # Extract CORAL τ parameters (biases)
+                        temporal_data['coral_taus'] = model.coral_layer.rank_classifier.bias.data.cpu().numpy()
+                        # Extract CORAL τ weights
+                        temporal_data['coral_weights'] = model.coral_layer.rank_classifier.weight.data.cpu().numpy()
+                        # Extract ordinal thresholds if present
+                        if hasattr(model.coral_layer, 'ordinal_thresholds'):
+                            temporal_data['coral_thresholds'] = model.coral_layer.ordinal_thresholds.data.cpu().numpy()
+                        
+                        # Extract adaptive blending parameters if present
+                        if hasattr(model, 'threshold_blender'):
+                            temporal_data['adaptive_params'] = {
+                                'range_sensitivity': model.threshold_blender.range_sensitivity.data.cpu().numpy(),
+                                'distance_sensitivity': model.threshold_blender.distance_sensitivity.data.cpu().numpy(),
+                                'baseline_bias': model.threshold_blender.baseline_bias.data.cpu().numpy()
+                            }
                 
                 # Store temporal sequences for each student
                 for i in range(batch_size):
@@ -326,6 +428,32 @@ class UnifiedIRTAnalyzer:
         results['item_thresholds'] = item_betas
         results['item_counts'] = item_counts
         
+        # Handle CORAL-specific parameters
+        if temporal_data['has_coral']:
+            results['coral_taus'] = temporal_data['coral_taus']
+            results['has_coral'] = True
+            
+            # For coral_gpcm_proper, compute effective thresholds
+            if temporal_data['model_type'] == 'coral_gpcm_proper':
+                # Compute average effective thresholds using blend weight
+                blend_weight = temporal_data.get('blend_weight', 0.5)
+                effective_betas = np.zeros_like(item_betas)
+                
+                # For each question, compute effective threshold
+                for q_id in range(n_questions):
+                    if item_counts[q_id] > 0:
+                        from utils.irt_utils import compute_effective_beta_for_item
+                        effective_betas[q_id] = compute_effective_beta_for_item(
+                            torch.tensor(item_betas[q_id]),
+                            torch.tensor(temporal_data['coral_taus']),
+                            blend_weight
+                        ).numpy()
+                
+                results['effective_thresholds'] = effective_betas
+                results['blend_weight'] = blend_weight
+        else:
+            results['has_coral'] = False
+        
         return results
     
     def normalize_parameters(self, alphas, betas, thetas=None):
@@ -394,7 +522,8 @@ class UnifiedIRTAnalyzer:
                 norm_true_alpha[valid_indices], norm_learned_alpha)[0, 1]
             
             beta_corrs = []
-            for k in range(3):
+            n_thresholds = min(norm_true_beta.shape[1], norm_learned_beta.shape[1])
+            for k in range(n_thresholds):
                 beta_corrs.append(np.corrcoef(
                     norm_true_beta[valid_indices, k], 
                     norm_learned_beta[:, k])[0, 1])
@@ -405,7 +534,7 @@ class UnifiedIRTAnalyzer:
         
         return results
     
-    def plot_parameter_recovery(self, model_results, save_path):
+    def plot_parameter_recovery(self, model_results, save_path, model_colors=None):
         """Create parameter recovery comparison plots."""
         # Count only models with correlations for plotting
         models_with_corr = [(name, results) for name, results in model_results.items() 
@@ -415,18 +544,48 @@ class UnifiedIRTAnalyzer:
         if n_models == 0:
             print("No models with correlations to plot")
             return
-            
-        fig, axes = plt.subplots(n_models, 5, figsize=(20, 4 * n_models))
+        
+        # Determine maximum number of thresholds across all models
+        max_thresholds = 0
+        for model_name, results in models_with_corr:
+            corr = results['correlations']
+            if 'beta_correlations' in corr:
+                max_thresholds = max(max_thresholds, len(corr['beta_correlations']))
+        
+        # Calculate number of columns: theta + alpha + thresholds
+        n_cols = 2 + max_thresholds  # theta, alpha, then thresholds
+        fig, axes = plt.subplots(n_models, n_cols, figsize=(4 * n_cols, 4 * n_models))
         
         if n_models == 1:
             axes = axes.reshape(1, -1)
         
         # Determine best model for each parameter type separately
         best_models = {}
+        overall_scores = {}
+        
+        # Calculate overall performance for each model
+        for model_name, results in models_with_corr:
+            corr = results['correlations']
+            correlations = []
+            
+            # Collect all correlations
+            if 'theta_correlation' in corr:
+                correlations.append(corr['theta_correlation'])
+            if 'alpha_correlation' in corr:
+                correlations.append(corr['alpha_correlation'])
+            if 'beta_correlations' in corr:
+                correlations.extend(corr['beta_correlations'])
+            
+            # Calculate average correlation as overall score
+            if correlations:
+                overall_scores[model_name] = np.mean(correlations)
+        
+        # Find overall best model
+        best_overall_model = max(overall_scores, key=overall_scores.get) if overall_scores else None
         
         if len(models_with_corr) > 1:
-            # Find best model for each parameter type
-            parameter_types = ['theta', 'alpha'] + [f'beta_{i}' for i in range(3)]  # Assuming max 3 thresholds
+            # Find best model for each parameter type (dynamic based on actual thresholds)
+            parameter_types = ['theta', 'alpha'] + [f'beta_{i}' for i in range(max_thresholds)]
             
             for param_type in parameter_types:
                 best_corr = -1
@@ -455,7 +614,11 @@ class UnifiedIRTAnalyzer:
                 
             params = results['aggregated_params']
             corr = results['correlations']
-            model_color = self.get_model_color(model_name)
+            # Use passed model colors if available, otherwise fetch
+            if model_colors and model_name in model_colors:
+                model_color = model_colors[model_name]
+            else:
+                model_color = self.get_model_color(model_name)
             
             # Student ability plot
             if 'theta_correlation' in corr:
@@ -470,10 +633,10 @@ class UnifiedIRTAnalyzer:
                 title_text = f'{model_name.upper()}\nStudent Ability (r={corr["theta_correlation"]:.3f})'
                 is_best_theta = best_models.get('theta') == model_name
                 if is_best_theta:
-                    title_text += ' ★'
+                    title_text += ' *'
                     ax.set_title(title_text, color='green', fontweight='bold')
                 else:
-                    ax.set_title(title_text)
+                    ax.set_title(title_text, color=model_color, fontweight='bold')
                 ax.legend()
                 ax.grid(True, alpha=0.3)
             
@@ -489,16 +652,17 @@ class UnifiedIRTAnalyzer:
                 title_text = f'Discrimination (r={corr["alpha_correlation"]:.3f})'
                 is_best_alpha = best_models.get('alpha') == model_name
                 if is_best_alpha:
-                    title_text += ' ★'
+                    title_text += ' *'
                     ax.set_title(title_text, color='green', fontweight='bold')
                 else:
-                    ax.set_title(title_text)
+                    ax.set_title(title_text, color=model_color, fontweight='bold')
                 ax.legend()
                 ax.grid(True, alpha=0.3)
             
-            # Threshold plots
+            # Threshold plots - handle variable number of thresholds
             if 'beta_correlations' in corr:
-                for k in range(3):
+                n_thresholds = len(corr['beta_correlations'])
+                for k in range(n_thresholds):  # Use all available thresholds
                     ax = axes[idx, k + 2]
                     ax.scatter(results['true_betas_norm'][results['valid_indices'], k], 
                               results['learned_betas_norm'][:, k], alpha=0.6, color=model_color)
@@ -509,21 +673,27 @@ class UnifiedIRTAnalyzer:
                     title_text = f'Threshold {k} (r={corr["beta_correlations"][k]:.3f})'
                     is_best_beta = best_models.get(f'beta_{k}') == model_name
                     if is_best_beta:
-                        title_text += ' ★'
+                        title_text += ' *'
                         ax.set_title(title_text, color='green', fontweight='bold')
                     else:
-                        ax.set_title(title_text)
+                        ax.set_title(title_text, color=model_color, fontweight='bold')
                     ax.legend()
                     ax.grid(True, alpha=0.3)
         
-        plt.suptitle('IRT Parameter Recovery Analysis\n' +
-                    'All parameters normalized with standard IRT priors\n★ = Best correlation per parameter type',
-                    fontsize=14, fontweight='bold')
+        # Create suptitle - always black, never green, never model colors
+        title = 'IRT Parameter Recovery Analysis\n' + \
+                'All parameters normalized with standard IRT priors\n* = Best correlation per parameter type'
+        
+        if best_overall_model:
+            avg_corr = overall_scores.get(best_overall_model, 0)
+            title += f'\nBest Overall: {best_overall_model.upper()} (avg r={avg_corr:.3f})'
+        
+        plt.suptitle(title, fontsize=14, fontweight='bold')  # Always black
         plt.tight_layout()
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
         plt.close()
     
-    def plot_temporal_analysis(self, temporal_data_dict, save_path):
+    def plot_temporal_analysis(self, temporal_data_dict, save_path, best_model=None, model_colors=None):
         """Create temporal analysis plots."""
         n_models = len(temporal_data_dict)
         fig, axes = plt.subplots(n_models, 3, figsize=(15, 4 * n_models))
@@ -532,7 +702,11 @@ class UnifiedIRTAnalyzer:
             axes = axes.reshape(1, -1)
         
         for idx, (model_name, temporal_data) in enumerate(temporal_data_dict.items()):
-            model_color = self.get_model_color(model_name)
+            # Use passed model colors if available, otherwise fetch
+            if model_colors and model_name in model_colors:
+                model_color = model_colors[model_name]
+            else:
+                model_color = self.get_model_color(model_name)
             
             # Plot 1: Student ability evolution
             ax = axes[idx, 0]
@@ -542,7 +716,7 @@ class UnifiedIRTAnalyzer:
                 ax.plot(abilities, alpha=0.5, linewidth=1, color=model_color)
             ax.set_xlabel('Time Step')
             ax.set_ylabel('Student Ability (θ)')
-            ax.set_title(f'{model_name.upper()}: Student Ability Evolution')
+            ax.set_title(f'{model_name.upper()}: Student Ability Evolution', color=model_color, fontweight='bold')
             ax.grid(True, alpha=0.3)
             
             # Plot 2: Average ability trajectory
@@ -570,7 +744,7 @@ class UnifiedIRTAnalyzer:
                            color=model_color, alpha=0.3, label='±1 SD')
             ax.set_xlabel('Time Step')
             ax.set_ylabel('Average Student Ability')
-            ax.set_title('Population Ability Trajectory')
+            ax.set_title('Population Ability Trajectory', color=model_color, fontweight='bold')
             ax.legend()
             ax.grid(True, alpha=0.3)
             
@@ -579,15 +753,20 @@ class UnifiedIRTAnalyzer:
             final_abilities = [seq[-1] for seq in temporal_data['student_abilities']]
             avg_abilities = [seq.mean() for seq in temporal_data['student_abilities']]
             
-            ax.scatter(avg_abilities, final_abilities, alpha=0.5)
+            ax.scatter(avg_abilities, final_abilities, alpha=0.5, color=model_color)
             ax.plot([-5, 5], [-5, 5], 'r--', label='y=x')
             ax.set_xlabel('Average Ability')
             ax.set_ylabel('Final Ability')
-            ax.set_title('Final vs Average Student Ability')
+            ax.set_title('Final vs Average Student Ability', color=model_color, fontweight='bold')
             ax.legend()
             ax.grid(True, alpha=0.3)
         
-        plt.suptitle('Temporal Analysis of IRT Parameters', fontsize=14, fontweight='bold')
+        # Suptitle remains neutral - no green color, no emoji
+        if best_model and best_model in temporal_data_dict:
+            plt.suptitle(f'Temporal Analysis of IRT Parameters\nBest Model: {best_model.upper()}', 
+                        fontsize=14, fontweight='bold')
+        else:
+            plt.suptitle('Temporal Analysis of IRT Parameters', fontsize=14, fontweight='bold')
         plt.tight_layout()
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
         plt.close()
@@ -649,7 +828,7 @@ class UnifiedIRTAnalyzer:
         
         return selected_indices, hit_rates
     
-    def plot_temporal_theta_heatmap(self, temporal_data_dict, save_path):
+    def plot_temporal_theta_heatmap(self, temporal_data_dict, save_path, best_model=None, model_colors=None):
         """Create temporal theta heatmap visualization (students x questions)."""
         n_models = len(temporal_data_dict)
         
@@ -661,7 +840,11 @@ class UnifiedIRTAnalyzer:
             axes = [axes]
         
         for idx, (model_name, temporal_data) in enumerate(temporal_data_dict.items()):
-            model_color = self.get_model_color(model_name)
+            # Use passed model colors if available, otherwise fetch
+            if model_colors and model_name in model_colors:
+                model_color = model_colors[model_name]
+            else:
+                model_color = self.get_model_color(model_name)
             ax = axes[idx]
             
             # Select students based on temporal hit rate (limit to first 50 questions)
@@ -704,12 +887,17 @@ class UnifiedIRTAnalyzer:
             ax.set_yticks(y_ticks)
             ax.set_yticklabels([student_labels[i] for i in y_ticks])  # Show actual student IDs
         
-        plt.suptitle('Temporal Theta Heatmaps', fontsize=14, fontweight='bold')
-        plt.tight_layout()
+        # Suptitle remains neutral - no green color, no emoji
+        if best_model and best_model in temporal_data_dict:
+            plt.suptitle(f'Temporal Theta Heatmaps\nBest Model: {best_model.upper()}', 
+                        fontsize=14, fontweight='bold')
+        else:
+            plt.suptitle('Temporal Theta Heatmaps', fontsize=14, fontweight='bold')
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])  # Add space for suptitle
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
         plt.close()
     
-    def plot_temporal_gpcm_probs_heatmap(self, temporal_data_dict, save_path):
+    def plot_temporal_gpcm_probs_heatmap(self, temporal_data_dict, save_path, best_model=None, model_colors=None):
         """Create temporal GPCM probabilities heatmap for predicted categories."""
         n_models = len(temporal_data_dict)
         
@@ -721,7 +909,11 @@ class UnifiedIRTAnalyzer:
             axes = [axes]
         
         for idx, (model_name, temporal_data) in enumerate(temporal_data_dict.items()):
-            model_color = self.get_model_color(model_name)
+            # Use passed model colors if available, otherwise fetch
+            if model_colors and model_name in model_colors:
+                model_color = model_colors[model_name]
+            else:
+                model_color = self.get_model_color(model_name)
             ax = axes[idx]
             
             # Select students based on temporal hit rate (limit to first 50 questions)
@@ -768,12 +960,16 @@ class UnifiedIRTAnalyzer:
             ax.set_yticks(y_ticks)
             ax.set_yticklabels([student_labels[i] for i in y_ticks])  # Show actual student IDs
         
-        plt.suptitle('Temporal GPCM Probability Heatmaps\n(Probabilities computed using temporal α and β parameters)', fontsize=14, fontweight='bold')
+        # Suptitle remains neutral - no green color, no emoji
+        title = 'Temporal GPCM Probability Heatmaps\n(Probabilities computed using temporal alpha and beta parameters)'
+        if best_model and best_model in temporal_data_dict:
+            title += f'\nBest Model: {best_model.upper()}'
+        plt.suptitle(title, fontsize=14, fontweight='bold')
         plt.tight_layout()
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
         plt.close()
     
-    def plot_temporal_parameters_combined(self, temporal_data_dict, save_path):
+    def plot_temporal_parameters_combined(self, temporal_data_dict, save_path, best_model=None, model_colors=None):
         """Create combined visualization showing temporal α, β, and resulting GPCM probabilities."""
         n_models = len(temporal_data_dict)
         
@@ -789,7 +985,11 @@ class UnifiedIRTAnalyzer:
             axes = axes.reshape(1, -1)
         
         for model_idx, (model_name, temporal_data) in enumerate(temporal_data_dict.items()):
-            model_color = self.get_model_color(model_name)
+            # Use passed model colors if available, otherwise fetch
+            if model_colors and model_name in model_colors:
+                model_color = model_colors[model_name]
+            else:
+                model_color = self.get_model_color(model_name)
             
             # Select students and limit questions
             max_questions = min(50, max(len(q_seq) for q_seq in temporal_data['question_ids']))
@@ -867,8 +1067,11 @@ class UnifiedIRTAnalyzer:
             ax_prob.set_yticks(y_ticks)
             ax_prob.set_yticklabels([student_labels[i] for i in y_ticks])
         
-        plt.suptitle('Temporal IRT Parameters → GPCM Probabilities\n(α and β evolve over time, determining probability calculations)', 
-                    fontsize=14, fontweight='bold')
+        # Suptitle remains neutral - no green color, no emoji
+        title = 'Temporal IRT Parameters -> GPCM Probabilities\n(alpha and beta evolve over time, determining probability calculations)'
+        if best_model and best_model in temporal_data_dict:
+            title += f'\nBest Model: {best_model.upper()}'
+        plt.suptitle(title, fontsize=14, fontweight='bold')
         plt.tight_layout()
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
         plt.close()
@@ -1006,12 +1209,12 @@ class UnifiedIRTAnalyzer:
         
         plt.suptitle(f'{model_name} - Wright Map', fontsize=14)
         plt.tight_layout()
-        plt.savefig(output_dir / f'{model_name}_wright_map.png', dpi=150)
+        plt.savefig(output_dir / f'{model_name}_wright.png', dpi=150)
         plt.close()
     
     def generate_summary_report(self, all_results, args):
         """Generate comprehensive summary report."""
-        summary_path = self.output_dir / 'irt_analysis_summary.txt'
+        summary_path = self.output_dir / 'irt_summary.txt'  # Shortened from irt_analysis_summary.txt
         
         with open(summary_path, 'w') as f:
             f.write("="*80 + "\n")
@@ -1097,6 +1300,8 @@ class UnifiedIRTAnalyzer:
         
         all_results = {}
         temporal_data_dict = {}
+        best_overall_model = None
+        best_overall_score = -1
         
         # Process each model
         for model_name, model_path in models.items():
@@ -1131,6 +1336,21 @@ class UnifiedIRTAnalyzer:
                         self.true_params, aggregated_params
                     )
                     results['correlations'] = correlations
+                    
+                    # Calculate overall score for this model
+                    model_correlations = []
+                    if 'theta_correlation' in correlations:
+                        model_correlations.append(correlations['theta_correlation'])
+                    if 'alpha_correlation' in correlations:
+                        model_correlations.append(correlations['alpha_correlation'])
+                    if 'beta_correlations' in correlations:
+                        model_correlations.extend(correlations['beta_correlations'])
+                    
+                    if model_correlations:
+                        overall_score = np.mean(model_correlations)
+                        if overall_score > best_overall_score:
+                            best_overall_score = overall_score
+                            best_overall_model = model_name
                     
                     # Store normalized parameters for plotting
                     if 'theta_correlation' in correlations:
@@ -1177,29 +1397,34 @@ class UnifiedIRTAnalyzer:
                 print(f"  Error processing {model_name}: {str(e)}")
                 print(f"  Skipping this model...")
         
+        # Create model color dictionary for all plots
+        model_colors = {}
+        for model_name in all_results.keys():
+            model_colors[model_name] = self.get_model_color(model_name)
+        
         # Generate plots based on analysis types
         if 'recovery' in args.analysis_types and self.true_params and all_results:
-            plot_path = self.output_dir / 'parameter_recovery.png'
-            self.plot_parameter_recovery(all_results, plot_path)
+            plot_path = self.output_dir / 'param_recovery.png'  # Shortened from parameter_recovery.png
+            self.plot_parameter_recovery(all_results, plot_path, model_colors=model_colors)
             print(f"\nParameter recovery plot saved to: {plot_path}")
         
         if 'temporal' in args.analysis_types and temporal_data_dict:
-            plot_path = self.output_dir / 'temporal_analysis.png'
-            self.plot_temporal_analysis(temporal_data_dict, plot_path)
+            plot_path = self.output_dir / 'temporal.png'  # Shortened from temporal_analysis.png
+            self.plot_temporal_analysis(temporal_data_dict, plot_path, best_model=best_overall_model, model_colors=model_colors)
             print(f"Temporal analysis plot saved to: {plot_path}")
             
             # Generate temporal heatmaps
-            theta_heatmap_path = self.output_dir / 'temporal_theta_heatmap.png'
-            self.plot_temporal_theta_heatmap(temporal_data_dict, theta_heatmap_path)
+            theta_heatmap_path = self.output_dir / 'theta_heatmap.png'  # Shortened from temporal_theta_heatmap.png
+            self.plot_temporal_theta_heatmap(temporal_data_dict, theta_heatmap_path, best_model=best_overall_model, model_colors=model_colors)
             print(f"Temporal theta heatmap saved to: {theta_heatmap_path}")
             
-            gpcm_heatmap_path = self.output_dir / 'temporal_gpcm_probs_heatmap.png'
-            self.plot_temporal_gpcm_probs_heatmap(temporal_data_dict, gpcm_heatmap_path)
+            gpcm_heatmap_path = self.output_dir / 'gpcm_probs_heatmap.png'  # Shortened from temporal_gpcm_probs_heatmap.png
+            self.plot_temporal_gpcm_probs_heatmap(temporal_data_dict, gpcm_heatmap_path, best_model=best_overall_model, model_colors=model_colors)
             print(f"Temporal GPCM probabilities heatmap saved to: {gpcm_heatmap_path}")
             
             # Generate combined temporal parameters visualization
-            combined_params_path = self.output_dir / 'temporal_parameters_combined.png'
-            self.plot_temporal_parameters_combined(temporal_data_dict, combined_params_path)
+            combined_params_path = self.output_dir / 'params_combined.png'  # Shortened from temporal_parameters_combined.png
+            self.plot_temporal_parameters_combined(temporal_data_dict, combined_params_path, best_model=best_overall_model, model_colors=model_colors)
             print(f"Combined temporal parameters visualization saved to: {combined_params_path}")
             
             # Print summary of selected students
@@ -1208,7 +1433,7 @@ class UnifiedIRTAnalyzer:
         if 'irt_plots' in args.analysis_types:
             for model_name, results in all_results.items():
                 if 'aggregated_params' in results:
-                    plot_dir = self.output_dir / 'irt_plots' / model_name
+                    plot_dir = self.output_dir / 'model_specs' / model_name
                     self.plot_irt_functions(
                         results['aggregated_params'], 
                         model_name, 
@@ -1245,7 +1470,7 @@ Examples:
     
     parser.add_argument('--dataset', default='synthetic_OC', 
                         help='Dataset name')
-    parser.add_argument('--output_dir', default='results/irt', 
+    parser.add_argument('--output_dir', default='results/irt_plots', 
                         help='Output directory for results')
     parser.add_argument('--split', default='test', choices=['train', 'test'],
                         help='Which data split to analyze')
