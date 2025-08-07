@@ -219,7 +219,17 @@ class AdaptivePlotter:
                     
                     # Add model info from config
                     if 'config' in result:
-                        model_type = result['config'].get('model', 'unknown')
+                        # Try multiple ways to get model type
+                        model_type = result['config'].get('model_type')
+                        if not model_type:
+                            model_type = result['config'].get('model')
+                        if not model_type and 'models' in result['config']:
+                            models_list = result['config']['models']
+                            if models_list and len(models_list) > 0:
+                                model_type = models_list[0]  # Take first model
+                        if not model_type:
+                            model_type = 'unknown'
+                            
                         row['model_type'] = model_type
                         row['dataset'] = result['config'].get('dataset', 'unknown')
                         if 'fold' in result['config']:
@@ -326,7 +336,7 @@ class AdaptivePlotter:
             axes = axes.flatten()
         
         # Get unique models and datasets for grouping
-        models = df['model_type'].unique() if 'model_type' in df.columns else ['unknown']
+        models = [m for m in df['model_type'].unique() if m is not None] if 'model_type' in df.columns else ['unknown']
         datasets = df['dataset'].unique() if 'dataset' in df.columns else ['unknown']
         
         # Use consistent color mapping for models
@@ -477,7 +487,7 @@ class AdaptivePlotter:
             axes[idx].set_visible(False)
         
         # Create figure-level legend
-        unique_models = sorted(models)
+        unique_models = sorted([m for m in models if m is not None])
         legend_elements = [plt.Line2D([0], [0], color=self.get_model_color(model), 
                                      linewidth=3, label=model) for model in unique_models]
         fig.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 0.92), 
@@ -539,7 +549,7 @@ class AdaptivePlotter:
             axes = axes.flatten()
         
         # Get unique models for comparison
-        models = df['model_type'].unique() if 'model_type' in df.columns else ['unknown']
+        models = [m for m in df['model_type'].unique() if m is not None] if 'model_type' in df.columns else ['unknown']
         
         # Plot each metric
         for idx, metric in enumerate(metrics_to_plot):
@@ -640,8 +650,8 @@ class AdaptivePlotter:
                     # Handle NaN/invalid std values
                     if pd.isna(std) or np.isinf(std) or std <= 0:
                         std = 0.0
-                    # Get best model color
-                    best_model = models[idx] if idx < len(models) else models[0]
+                    # Get best model color from model_values index
+                    best_model = model_values.index[idx]
                     best_model_color = self.get_model_color(best_model)
                     # Position text above error bar
                     text_y = mean + std + (std * 0.5 if std > 0 else mean * 0.1)
@@ -657,8 +667,8 @@ class AdaptivePlotter:
                                    edgecolor=best_model_color, linewidth=1.5, alpha=0.9))
                 else:  # Single evaluation case
                     idx, value = best_value_info
-                    # Get best model color
-                    best_model = models[idx] if idx < len(models) else models[0]
+                    # Get best model color from model_values index
+                    best_model = model_values.index[idx]
                     best_model_color = self.get_model_color(best_model)
                     # Position text above bar
                     text_y = value + abs(value) * 0.05
@@ -752,23 +762,52 @@ class AdaptivePlotter:
         if validation_results:
             for result in validation_results:
                 if 'config' in result and 'cv_summary' in result:
-                    # Normalize model name to match test results
-                    model = result['config'].get('model', 'unknown')
+                    # Try multiple ways to get model type
+                    model = result['config'].get('model_type')
+                    if not model:
+                        model = result['config'].get('model')
+                    if not model and 'models' in result['config']:
+                        models_list = result['config']['models']
+                        if models_list and len(models_list) > 0:
+                            model = models_list[0]
+                    if not model:
+                        model = 'unknown'
                     train_data[model] = result['cv_summary']
         
         # Fall back to train_results if no validation results
         if not train_data:
             for result in train_results:
-                if 'config' in result and 'cv_summary' in result:
-                    # Normalize model name to match test results
-                    model = result['config'].get('model', 'unknown')
-                    train_data[model] = result['cv_summary']
+                if 'config' in result:
+                    # Try multiple ways to get model type (same logic as in extract_metrics_from_results)
+                    model = result['config'].get('model_type')
+                    if not model:
+                        model = result['config'].get('model')
+                    if not model and 'models' in result['config']:
+                        models_list = result['config']['models']
+                        if models_list and len(models_list) > 0:
+                            model = models_list[0]  # Take first model
+                    if not model:
+                        model = 'unknown'
+                        
+                    # Use metrics field instead of cv_summary
+                    if 'metrics' in result:
+                        train_data[model] = result['metrics']
+                    elif 'cv_summary' in result:
+                        train_data[model] = result['cv_summary']
         
         # Process test results
         for result in test_results:
             if 'config' in result:
-                # Normalize model name to match training results
-                model = result['config'].get('model_type', result['config'].get('model', 'unknown'))
+                # Try multiple ways to get model type
+                model = result['config'].get('model_type')
+                if not model:
+                    model = result['config'].get('model')
+                if not model and 'models' in result['config']:
+                    models_list = result['config']['models']
+                    if models_list and len(models_list) > 0:
+                        model = models_list[0]
+                if not model:
+                    model = 'unknown'
                 test_data[model] = result
         
         if not train_data or not test_data:
@@ -829,9 +868,14 @@ class AdaptivePlotter:
             
             # Plot each model
             for i, model in enumerate(models):
-                # Get values
+                # Get values - handle both nested and flat structures
                 if model in train_data and metric in train_data[model]:
-                    train_val = train_data[model][metric]['mean']
+                    # Check if it's a nested structure with 'mean' or a flat value
+                    if isinstance(train_data[model][metric], dict) and 'mean' in train_data[model][metric]:
+                        train_val = train_data[model][metric]['mean']
+                    else:
+                        # Flat structure - direct value
+                        train_val = train_data[model][metric]
                 else:
                     train_val = 0
                     
@@ -896,22 +940,20 @@ class AdaptivePlotter:
                                edgecolor=test_model_color, linewidth=1.5, alpha=0.9))
             
             # Highlight best performers on both training AND test data
-            # Find train bars (x position around 0) and test bars (x position around 1)
-            train_bars = []
-            test_bars = []
-            for patch in ax.patches:
-                if patch.get_x() < 0.5:  # Train bars have x position < 0.5
-                    train_bars.append(patch)
-                else:  # Test bars have x position > 0.5
-                    test_bars.append(patch)
+            # Collect bars in the correct order by sorting by x position
+            all_patches = list(ax.patches)
+            
+            # Separate train and test bars based on x position
+            train_patches = sorted([p for p in all_patches if p.get_x() < 0.5], key=lambda p: p.get_x())
+            test_patches = sorted([p for p in all_patches if p.get_x() >= 0.5], key=lambda p: p.get_x())
             
             # Highlight best training performer
-            if len(train_bars) == len(train_values) and any(v > 0 for v in train_values):
-                highlight_best_value(ax, train_bars, train_values, metric)
+            if len(train_patches) == len(train_values) and any(v > 0 for v in train_values):
+                highlight_best_value(ax, train_patches, train_values, metric)
             
             # Highlight best test performer  
-            if len(test_bars) == len(test_values) and any(v > 0 for v in test_values):
-                highlight_best_value(ax, test_bars, test_values, metric)
+            if len(test_patches) == len(test_values) and any(v > 0 for v in test_values):
+                highlight_best_value(ax, test_patches, test_values, metric)
             
             # Customize subplot
             title = metric.replace('_', ' ').title()
@@ -988,7 +1030,7 @@ class AdaptivePlotter:
         category_metrics.sort(key=lambda x: int(x.split('_')[1]))
         
         # Get unique models
-        models = df['model_type'].unique() if 'model_type' in df.columns else ['unknown']
+        models = [m for m in df['model_type'].unique() if m is not None] if 'model_type' in df.columns else ['unknown']
         
         # Create figure
         fig_width = 10
@@ -1476,7 +1518,7 @@ class AdaptivePlotter:
             axes[idx].set_visible(False)
         
         # Create figure-level legend
-        unique_models = sorted(models)
+        unique_models = sorted([m for m in models if m is not None])
         legend_elements = []
         for model in unique_models:
             legend_elements.extend([

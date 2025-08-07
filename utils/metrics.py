@@ -523,3 +523,33 @@ def compute_model_metrics(model, data_loader, device, n_cats: int = 4,
     # Compute metrics
     return compute_metrics(all_targets, all_predictions, all_probabilities, 
                           n_cats, metrics_list)
+
+
+def compute_statistical_comparison(model_scores: dict) -> dict:
+    """
+    Perform statistical comparison between models.
+    
+    Args:
+        model_scores: Dictionary mapping model names to scores
+        
+    Returns:
+        Statistical comparison results
+    """
+    import itertools
+    
+    results = {
+        'model_ranking': sorted(model_scores.items(), key=lambda x: x[1], reverse=True),
+        'best_model': max(model_scores.items(), key=lambda x: x[1]),
+        'pairwise_differences': {}
+    }
+    
+    # Simple pairwise differences (no statistical tests for now)
+    for (model1, score1), (model2, score2) in itertools.combinations(model_scores.items(), 2):
+        diff = score1 - score2
+        results['pairwise_differences'][f"{model1}_vs_{model2}"] = {
+            'difference': diff,
+            'better_model': model1 if diff > 0 else model2,
+            'magnitude': abs(diff)
+        }
+    
+    return results

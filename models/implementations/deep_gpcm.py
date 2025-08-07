@@ -130,7 +130,10 @@ class DeepGPCM(BaseKnowledgeTracingModel):
         q_embeds = self.q_embed(questions)  # (batch_size, seq_len, key_dim)
         
         # Process embeddings (can be enhanced by subclasses)
-        processed_embeds = self.process_embeddings(gpcm_embeds, q_embeds)
+        if hasattr(self, '_current_responses'):
+            processed_embeds = self.process_embeddings(gpcm_embeds, q_embeds, self._current_responses)
+        else:
+            processed_embeds = self.process_embeddings(gpcm_embeds, q_embeds)
         
         # Sequential processing
         student_abilities = []

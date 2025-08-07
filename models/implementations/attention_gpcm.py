@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, List
 
 from ..base.base_model import BaseKnowledgeTracingModel
 from .deep_gpcm import DeepGPCM
@@ -18,7 +18,8 @@ class AttentionGPCM(DeepGPCM):
                  memory_size: int = 50, key_dim: int = 50, value_dim: int = 200,
                  final_fc_dim: int = 50, n_heads: int = 4, n_cycles: int = 2,
                  embedding_strategy: str = "linear_decay", ability_scale: float = 1.0,
-                 dropout_rate: float = 0.1):
+                 dropout_rate: float = 0.1, use_ordinal_attention: bool = False,
+                 attention_types: Optional[List[str]] = None):
         
         # Initialize base model
         super().__init__(
@@ -38,6 +39,8 @@ class AttentionGPCM(DeepGPCM):
         self.embed_dim = embed_dim
         self.n_heads = n_heads
         self.n_cycles = n_cycles
+        self.use_ordinal_attention = use_ordinal_attention
+        self.attention_types = attention_types
         
         # Import here to avoid circular imports
         from ..components.attention_layers import AttentionRefinementModule, EmbeddingProjection
@@ -49,13 +52,25 @@ class AttentionGPCM(DeepGPCM):
             dropout_rate=dropout_rate
         )
         
-        # Attention refinement module
-        self.attention_refinement = AttentionRefinementModule(
-            embed_dim=embed_dim,
-            n_heads=n_heads,
-            n_cycles=n_cycles,
-            dropout_rate=dropout_rate
-        )
+        # Attention refinement module - use ordinal-aware if requested
+        if use_ordinal_attention:
+            from ..components.ordinal_attention_integration import OrdinalAwareAttentionRefinement
+            self.attention_refinement = OrdinalAwareAttentionRefinement(
+                embed_dim=embed_dim,
+                n_heads=n_heads,
+                n_cycles=n_cycles,
+                dropout_rate=dropout_rate,
+                n_cats=n_cats,
+                attention_types=attention_types,
+                use_legacy=False
+            )
+        else:
+            self.attention_refinement = AttentionRefinementModule(
+                embed_dim=embed_dim,
+                n_heads=n_heads,
+                n_cycles=n_cycles,
+                dropout_rate=dropout_rate
+            )
         
         # Override the value embedding to work with the new embed_dim
         self.gpcm_value_embed = nn.Linear(embed_dim, value_dim)
@@ -72,12 +87,25 @@ class AttentionGPCM(DeepGPCM):
         
         return projected_embeds
     
-    def process_embeddings(self, gpcm_embeds: torch.Tensor, q_embeds: torch.Tensor) -> torch.Tensor:
+    def process_embeddings(self, gpcm_embeds: torch.Tensor, q_embeds: torch.Tensor,
+                          responses: Optional[torch.Tensor] = None) -> torch.Tensor:
         """Apply attention refinement to embeddings."""
         # Apply iterative attention refinement
-        refined_embeds = self.attention_refinement(gpcm_embeds)
+        if self.use_ordinal_attention and responses is not None:
+            # Pass responses for ordinal-aware attention
+            refined_embeds = self.attention_refinement(gpcm_embeds, responses)
+        else:
+            refined_embeds = self.attention_refinement(gpcm_embeds)
         
         return refined_embeds
+    
+    def forward(self, questions: torch.Tensor, responses: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Forward pass with response-aware attention."""
+        # Store responses for process_embeddings
+        self._current_responses = responses
+        
+        # Call parent forward
+        return super().forward(questions, responses)
 
 class LearnableLinearDecayEmbedding(nn.Module, EmbeddingStrategy):
     """Linear decay embedding with learnable weights (from old AKVMN)."""
@@ -129,8 +157,8 @@ class EnhancedAttentionGPCM(AttentionGPCM):
     def __init__(self, n_questions: int, n_cats: int = 4, embed_dim: int = 64, 
                  memory_size: int = 50, key_dim: int = 50, value_dim: int = 200,
                  final_fc_dim: int = 50, n_heads: int = 4, n_cycles: int = 2,
-                 embedding_strategy: str = "linear_decay", ability_scale: float = 2.0,
-                 dropout_rate: float = 0.1):
+                 embedding_strategy: str = "linear_decay", ability_scale: float = 1.0,
+                 dropout_rate: float = 0.1, use_learnable_embedding: bool = True):
         
         # Initialize base AttentionGPCM
         super().__init__(
@@ -165,8 +193,8 @@ class EnhancedAttentionGPCM(AttentionGPCM):
             question_dim=key_dim
         )
         
-        # Replace embedding with learnable version if using linear_decay
-        if embedding_strategy == "linear_decay":
+        # Replace embedding with learnable version if using linear_decay and enabled
+        if embedding_strategy == "linear_decay" and use_learnable_embedding:
             self.learnable_embedding = LearnableLinearDecayEmbedding(
                 n_questions, n_cats, embed_dim
             )

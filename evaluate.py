@@ -18,6 +18,7 @@ from datetime import datetime
 from typing import Optional
 
 from models import create_model as factory_create_model
+from models.factory import get_all_model_types, validate_model_type, get_model_default_params
 from utils.metrics import compute_metrics, compute_metrics_multimethod, save_results
 from utils.predictions import compute_unified_predictions, PredictionConfig, extract_probabilities_from_model_output
 from utils.path_utils import get_path_manager, find_best_model
@@ -144,16 +145,28 @@ def load_trained_model(model_path, device):
     # If still no model_type, try to infer from filename
     if 'model_type' not in config:
         filename = os.path.basename(model_path)
-        if 'coral_gpcm_proper' in filename:
-            config['model_type'] = 'coral_gpcm_proper'
-        elif 'deep_gpcm' in filename:
-            config['model_type'] = 'deep_gpcm'
-        elif 'attn_gpcm' in filename:
-            config['model_type'] = 'attn_gpcm'
+        detected_type = None
+        
+        # Try to detect model type from filename using factory registry
+        available_models = get_all_model_types()
+        for model_type in available_models:
+            if model_type in filename:
+                detected_type = model_type
+                break
+        
+        if detected_type:
+            config['model_type'] = detected_type
         else:
-            raise ValueError(f"Cannot determine model type from config or filename: {filename}")
+            raise ValueError(f"Cannot determine model type from config or filename: {filename}. "
+                           f"Available types: {', '.join(available_models)}")
     
     model_type = config['model_type']
+    
+    # Validate that detected model type exists in factory registry
+    if not validate_model_type(model_type):
+        available_models = get_all_model_types()
+        raise ValueError(f"Model type '{model_type}' not found in factory registry. "
+                        f"Available types: {', '.join(available_models)}")
     n_questions = config['n_questions']
     n_cats = config['n_cats']
     
@@ -182,7 +195,11 @@ def load_trained_model(model_path, device):
     print(f"📊 Dataset config: {n_questions} questions, {n_cats} categories")
     print(f"🏗️ Architecture: memory_size={memory_size}, key_dim={key_dim}, value_dim={value_dim}")
     
-    # Create model using factory with config parameters
+    # Get factory default parameters for this model type
+    from models.factory import get_model_default_params
+    factory_params = get_model_default_params(model_type)
+    
+    # Create base model_kwargs from saved config, fallback to inferred dimensions
     model_kwargs = {
         'memory_size': config.get('memory_size', memory_size),
         'key_dim': config.get('key_dim', key_dim),
@@ -191,22 +208,15 @@ def load_trained_model(model_path, device):
         'embedding_strategy': config.get('embedding_strategy', 'linear_decay')
     }
     
-    # Add model-specific parameters
-    if model_type == 'attn_gpcm':
-        model_kwargs.update({
-            'embed_dim': 64,
-            'n_heads': 4,
-            'n_cycles': 2,
-            'ability_scale': 2.0
-        })
-    elif model_type == 'coral_gpcm_proper':
-        model_kwargs.update({
-            'ability_scale': 1.0,
-            'use_discrimination': True,
-            'coral_dropout': 0.1,
-            'use_adaptive_blending': config.get('use_adaptive_blending', True),
-            'blend_weight': config.get('blend_weight', 0.5)
-        })
+    # Apply factory defaults for model-specific parameters
+    model_kwargs.update(factory_params)
+    
+    # Override with any explicitly saved config parameters (highest priority)
+    for key, value in config.items():
+        if key not in ['model_type', 'n_questions', 'n_cats'] and key in factory_params:
+            model_kwargs[key] = value
+    
+    print(f"🏭 Using factory configuration for {model_type}")
     
     # Create model using factory
     model = factory_create_model(model_type, n_questions, n_cats, **model_kwargs)
@@ -605,7 +615,7 @@ def print_evaluation_summary(results, model_name):
 
 
 def find_trained_models(models_dir: str = "save_models") -> dict:
-    """Find all trained model files for batch evaluation."""
+    """Find all trained model files for batch evaluation with factory validation."""
     from pathlib import Path
     
     models_dir = Path(models_dir)
@@ -613,31 +623,56 @@ def find_trained_models(models_dir: str = "save_models") -> dict:
         print(f"❌ Models directory not found: {models_dir}")
         return {}
     
+    # Get available models from factory
+    available_models = get_all_model_types()
+    
     model_files = {}
-    for model_file in models_dir.glob("*.pth"):
+    for model_file in models_dir.glob("**/*.pth"):
         model_name = model_file.stem
-        # Expected format: best_modeltype_dataset.pth
+        # Expected format: best_modeltype_dataset.pth or best_modeltype.pth (dataset from directory)
         parts = model_name.split('_')
-        if len(parts) >= 3 and parts[0] == 'best':
-            # Handle the three main model types
-            if len(parts) >= 3:
-                if parts[1] == 'deep' and parts[2] == 'gpcm':
-                    model_type = 'deep'
-                    dataset = '_'.join(parts[3:])
-                elif parts[1] == 'attn' and parts[2] == 'gpcm':
-                    model_type = 'attn'
-                    dataset = '_'.join(parts[3:])
-                elif parts[1] == 'coral' and parts[2] == 'gpcm' and parts[3] == 'proper':
-                    model_type = 'coral_gpcm_proper'
-                    dataset = '_'.join(parts[4:])
-                else:
-                    # Fallback for other patterns
-                    model_type = parts[1]
-                    dataset = '_'.join(parts[2:])
+        if len(parts) >= 2 and parts[0] == 'best':
+            detected_type = None
+            dataset = None
             
-            if dataset not in model_files:
-                model_files[dataset] = {}
-            model_files[dataset][model_type] = str(model_file)
+            # Legacy name mapping
+            legacy_mapping = {
+                'coral_gpcm_proper': 'coral_prob',
+                'coral_gpcm_fixed': 'coral_thresh'
+            }
+            
+            # Try to detect model type using factory registry
+            for model_type in available_models:
+                if model_type in model_name:
+                    detected_type = model_type
+                    # Extract dataset: check if dataset is in filename or use parent directory name
+                    if model_name.startswith(f'best_{model_type}'):
+                        remaining = model_name[len(f'best_{model_type}'):].strip('_')
+                        if remaining:
+                            dataset = remaining
+                        else:
+                            # Use parent directory as dataset name
+                            dataset = model_file.parent.name
+                    else:
+                        dataset = model_file.parent.name
+                    break
+            
+            # Check legacy names if not found
+            if not detected_type:
+                for legacy_name, canonical_name in legacy_mapping.items():
+                    if legacy_name in model_name:
+                        detected_type = canonical_name
+                        dataset = model_file.parent.name
+                        break
+            
+            # Validate that detected type exists in factory
+            if detected_type and validate_model_type(detected_type) and dataset:
+                if dataset not in model_files:
+                    model_files[dataset] = {}
+                model_files[dataset][detected_type] = str(model_file)
+            else:
+                # Skip invalid model files with warning
+                print(f"⚠️  Skipping unrecognized model file: {model_file.name}")
     
     return model_files
 
@@ -728,10 +763,10 @@ def print_evaluation_summary(summary: dict):
 
 def batch_evaluate_models(dataset_filter=None, model_filter=None, batch_size=32, device=None, regenerate_plots=False, include_cv_folds=False):
     """Batch evaluate all available models."""
-    available_models = find_trained_models()
+    available_models = find_trained_models("saved_models")
     
     if not available_models:
-        print("❌ No trained models found in save_models/")
+        print("❌ No trained models found in saved_models/")
         return
     
     # Filter out CV fold models by default (they lack corresponding data directories)
@@ -881,7 +916,7 @@ def main():
     if args.all:
         print("🚀 BATCH EVALUATION MODE")
         batch_evaluate_models(
-            dataset_filter=args.dataset if args.dataset != 'synthetic_OC' else None,
+            dataset_filter=args.dataset,
             model_filter=args.models,
             batch_size=args.batch_size,
             device=args.device,

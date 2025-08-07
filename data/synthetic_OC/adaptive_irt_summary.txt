@@ -1,0 +1,28 @@
+ADAPTIVE IRT EVALUATION SUMMARY
+========================================
+
+Dataset: synthetic_OC
+Total Predictions: 3,718
+Sequences Evaluated: 25
+
+PERFORMANCE METRICS:
+--------------------
+Categorical Accuracy: 0.343
+Ordinal Accuracy: 0.844
+Quadratic Weighted Kappa: 0.431
+Mean Absolute Error: 0.824
+Kendall Tau: 0.401
+Spearman Correlation: 0.460
+Cohen Kappa: 0.150
+Cross Entropy: 1.479
+Theta MAE: 1.341
+
+CONFUSION MATRIX:
+--------------------
+     Cat 0 Cat 1 Cat 2 Cat 3 
+Cat 0  213   611   229    21   (Total: 1074)
+Cat 1   70   389   267    45   (Total: 771)
+Cat 2   25   313   376    93   (Total: 807)
+Cat 3   19   242   506   299   (Total: 1066)
+
+Total: 3718

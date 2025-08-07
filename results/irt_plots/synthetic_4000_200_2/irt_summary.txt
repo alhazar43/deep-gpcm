@@ -3,12 +3,12 @@ UNIFIED IRT ANALYSIS REPORT
 ================================================================================
 
 Dataset: synthetic_4000_200_2
-Models analyzed: 3
+Models analyzed: 4
 
 Analysis settings:
 - Student ability method: last
 - Item parameter method: average
-- Analysis types: recovery
+- Analysis types: recovery, temporal
 
 Parameter normalization:
 - Student ability (θ): Normal prior (mean=0, std=1)
@@ -21,67 +21,89 @@ MODEL: DEEP_GPCM
   Type: deep_gpcm
 
   Student Ability (θ) Recovery:
-    Correlation: -0.0237
+    Correlation: -0.0335
     Students analyzed: 800
 
   Item Parameter Recovery:
-    Discrimination (α): 0.6415
+    Discrimination (α): 0.9474
     Items analyzed: 199/200
     Threshold correlations:
-      β_0: 0.8262
-    Average β correlation: 0.8262
+      β_0: 0.8987
+    Average β correlation: 0.8987
 
   Student ability statistics:
-    Range: [-2.199, 2.419]
-    Mean: 0.104, Std: 0.732
+    Range: [-2.005, 2.194]
+    Mean: 0.084, Std: 0.740
 
   Discrimination statistics:
-    Range: [0.389, 0.872]
-    Mean: 0.627, Std: 0.095
+    Range: [0.292, 1.356]
+    Mean: 0.699, Std: 0.159
 
 MODEL: ATTN_GPCM
   Type: attn_gpcm
 
   Student Ability (θ) Recovery:
-    Correlation: -0.0322
+    Correlation: -0.0347
     Students analyzed: 800
 
   Item Parameter Recovery:
-    Discrimination (α): 0.8691
+    Discrimination (α): 0.9387
     Items analyzed: 199/200
     Threshold correlations:
-      β_0: 0.8944
-    Average β correlation: 0.8944
+      β_0: 0.9548
+    Average β correlation: 0.9548
 
   Student ability statistics:
-    Range: [-5.303, 4.572]
-    Mean: 0.027, Std: 1.933
+    Range: [-4.549, 4.527]
+    Mean: -0.002, Std: 2.102
 
   Discrimination statistics:
-    Range: [0.315, 1.105]
-    Mean: 0.584, Std: 0.129
+    Range: [0.245, 1.195]
+    Mean: 0.616, Std: 0.149
 
 MODEL: CORAL_GPCM_PROPER
   Type: coral_gpcm_proper
 
   Student Ability (θ) Recovery:
-    Correlation: -0.0449
+    Correlation: -0.0238
     Students analyzed: 800
 
   Item Parameter Recovery:
-    Discrimination (α): 0.7782
+    Discrimination (α): 0.4562
     Items analyzed: 199/200
     Threshold correlations:
-      β_0: -0.9733
-    Average β correlation: -0.9733
+      β_0: 0.9526
+    Average β correlation: 0.9526
 
   Student ability statistics:
-    Range: [-3.611, 3.900]
-    Mean: 0.054, Std: 1.339
+    Range: [-1.739, 1.841]
+    Mean: -0.105, Std: 0.613
 
   Discrimination statistics:
-    Range: [0.677, 2.005]
-    Mean: 1.318, Std: 0.252
+    Range: [0.921, 1.696]
+    Mean: 1.288, Std: 0.147
+
+MODEL: CORAL_GPCM_FIXED
+  Type: coral_gpcm_fixed
+
+  Student Ability (θ) Recovery:
+    Correlation: -0.0454
+    Students analyzed: 800
+
+  Item Parameter Recovery:
+    Discrimination (α): 0.9118
+    Items analyzed: 199/200
+    Threshold correlations:
+      β_0: 0.9267
+    Average β correlation: 0.9267
+
+  Student ability statistics:
+    Range: [-2.864, 2.874]
+    Mean: -0.317, Std: 1.020
+
+  Discrimination statistics:
+    Range: [0.448, 2.563]
+    Mean: 1.327, Std: 0.364
 
 --------------------------------------------------------------------------------
 

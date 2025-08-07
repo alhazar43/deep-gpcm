@@ -1,0 +1,21 @@
+{
+  "dataset": "synthetic_4000_200_4",
+  "timestamp": "20250802_152831",
+  "files_backed_up": {
+    "train": [
+      "results/train/synthetic_4000_200_4"
+    ],
+    "validation": [
+      "results/validation/synthetic_4000_200_4"
+    ],
+    "test": [
+      "results/test/synthetic_4000_200_4"
+    ],
+    "irt_plots": [
+      "results/irt_plots/synthetic_4000_200_4"
+    ],
+    "models": [
+      "saved_models/synthetic_4000_200_4"
+    ]
+  }
+}

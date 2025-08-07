@@ -30,6 +30,8 @@ python main.py --dataset synthetic_OC --epochs 30 --clean  # Clean before traini
 - ✅ **Adaptive Blending**: Dynamic blending of GPCM and CORAL predictions based on threshold geometry
 - ✅ **Memory Networks**: DKVMN architecture with attention-based knowledge state tracking
 - ✅ **Comprehensive Analysis**: Full IRT parameter analysis with temporal visualization
+- ✅ **Extended Model Support**: 6 models including coral_gpcm_fixed, test_gpcm, and attn_gpcm_new
+- ✅ **Enhanced Visualizations**: Temporal rank-rank heatmaps and improved parameter recovery plots
 
 ## Main Pipeline
 
@@ -75,6 +77,9 @@ python main.py --action clean --clean-all --no-confirm  # Clean all without prom
 | `deep_gpcm` | Core DKVMN + IRT + GPCM | ~279K | Focal loss (γ=2.0) |
 | `attn_gpcm` | Attention-enhanced with refinement | ~194K | Cross-entropy |
 | `coral_gpcm_proper` | Proper IRT-CORAL separation | ~274K | Combined (Focal: 0.4, QWK: 0.2, CORAL: 0.4) |
+| `coral_gpcm_fixed` | CORAL with combined β+τ thresholds | ~274K | Combined (Focal: 0.4, QWK: 0.2, CORAL: 0.4) |
+| `test_gpcm` | coral_gpcm_fixed architecture | ~274K | Cross-entropy |
+| `attn_gpcm_new` | Enhanced attention GPCM | ~194K | Combined (CE: 0.6, QWK: 0.2, Focal: 0.2) |
 
 **Note**: The main.py pipeline automatically configures the optimal loss function for each model type.
 
@@ -90,6 +95,9 @@ python train.py --model coral_gpcm_proper --dataset synthetic_OC --epochs 30
 
 # Multiple models in sequence
 python train.py --models deep_gpcm attn_gpcm coral_gpcm_proper --dataset synthetic_OC --epochs 30
+
+# Train all 6 models
+python train.py --models deep_gpcm attn_gpcm coral_gpcm_proper coral_gpcm_fixed test_gpcm attn_gpcm_new --dataset synthetic_OC --epochs 30
 ```
 
 ### Evaluation
@@ -106,14 +114,17 @@ python evaluate.py --summary_only --dataset synthetic_OC
 
 ### Visualization
 ```bash
-# Generate all plots from existing results
+# Generate all plots from existing results for a specific dataset
+python utils/plot_metrics.py --dataset synthetic_OC
+
+# Generate plots for all available results (no dataset filter)
 python utils/plot_metrics.py
 
 # Custom plot generation with specific models
 python utils/plot_metrics.py --models deep_gpcm attn_gpcm coral_gpcm_proper --dataset synthetic_OC
 
-# Compare all three main models
-python utils/plot_metrics.py --models deep_gpcm attn_gpcm coral_gpcm_proper
+# Compare all six models
+python utils/plot_metrics.py --models deep_gpcm attn_gpcm coral_gpcm_proper coral_gpcm_fixed test_gpcm attn_gpcm_new --dataset synthetic_OC
 ```
 
 ### IRT Analysis
@@ -124,14 +135,20 @@ python analysis/irt_analysis.py --dataset synthetic_OC
 # Binary classification datasets (automatically handles 1 threshold)
 python analysis/irt_analysis.py --dataset synthetic_4000_200_2 --analysis_types recovery temporal
 
-# Temporal analysis with heatmaps
+# Temporal analysis with rank-rank heatmaps
 python analysis/irt_analysis.py --dataset synthetic_OC --analysis_types temporal
 
-# Parameter recovery analysis (dynamic column layout)
+# Parameter recovery analysis with enhanced visualizations
 python analysis/irt_analysis.py --dataset synthetic_OC --analysis_types recovery
 
 # Save extracted parameters
 python analysis/irt_analysis.py --dataset synthetic_OC --save_params
+
+# IRT Analysis Features:
+# - Parameter recovery plots with KDE distributions for theta
+# - Temporal rank-rank correlation heatmaps showing stability over time
+# - Adaptive spacing and clean visualization
+# - Support for all 6 model types
 ```
 
 ## Installation and Setup
@@ -265,13 +282,25 @@ utils/
 ### Results Structure
 ```
 results/
-├── plots/              # 7 comprehensive visualizations
-│   ├── training_metrics.png
-│   ├── test_metrics.png
-│   ├── confusion_matrices_test.png
-│   └── category_transitions_test.png
-├── irt_plots/         # IRT analysis with temporal heatmaps
+├── plots/              # Comprehensive visualizations
+│   └── [dataset]/     # Dataset-specific plots
+│       ├── train.png           # Training metrics over epochs
+│       ├── test.png            # Test performance comparison
+│       ├── train_v_test.png    # Train vs test comparison (all 6 models)
+│       ├── confusion_matrices_test.png
+│       ├── category_accuracy_test.png
+│       ├── ordinal_distance_test.png
+│       ├── category_transitions_test.png
+│       ├── roc_curves_test.png
+│       └── calibration_curves_test.png
+├── irt_plots/         # IRT analysis with enhanced visualizations
 │   └── [dataset]/     # Dataset-specific IRT plots
+│       ├── param_recovery.png      # Parameter recovery with KDE theta distributions
+│       ├── temporal_rank_rank.png  # Temporal rank stability heatmaps
+│       ├── temporal.png            # Temporal parameter evolution
+│       ├── gpcm_probs_heatmap.png  # GPCM probability heatmaps
+│       ├── params_combined.png      # Combined parameter visualization
+│       └── irt_summary.txt          # Summary statistics
 ├── train/             # Training metrics and histories
 │   └── [dataset]/     # Dataset-specific training results
 ├── valid/             # Validation results
@@ -279,7 +308,7 @@ results/
 └── test/              # Test evaluation results
     └── [dataset]/     # Dataset-specific test results
 
-saved_models/          # New model storage structure
+saved_models/          # Model storage structure
 └── [dataset]/         # Dataset-specific models
     └── best_[model]_[dataset].pth
 ```

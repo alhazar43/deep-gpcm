@@ -10,6 +10,7 @@ import os
 os.environ['MKL_SERVICE_FORCE_INTEL'] = '1'
 
 import torch
+import torch.nn.functional as F
 import json
 import time
 import argparse
@@ -19,6 +20,8 @@ from sklearn.model_selection import KFold
 
 from utils.metrics import compute_metrics, save_results, ensure_results_dirs
 from utils.path_utils import get_path_manager, ensure_directories
+from models.factory import get_all_model_types, get_model_hyperparameter_grid, validate_model_type
+from training.losses import create_loss_function
 import torch.utils.data as data_utils
 import torch.nn as nn
 import torch.optim as optim
@@ -123,34 +126,26 @@ def create_model(model_type, n_questions, n_cats, device, **model_kwargs):
     return model.to(device)
 
 
-def create_loss_function(loss_type, n_cats, **kwargs):
-    """Create loss function based on type."""
-    # Import the unified factory function
-    from training.losses import create_loss_function as create_loss
-    
-    # Use the unified factory function which supports all loss types including focal
-    return create_loss(loss_type, n_cats, **kwargs)
+# Removed duplicate create_loss_function - using direct import from training.losses for better performance
 
 
 def get_hyperparameter_grid(model_name):
-    """Get hyperparameter grid for cross-validation."""
-    # Define hyperparameter grids for each model
+    """Get hyperparameter grid for cross-validation from factory registry."""
+    # Validate model exists in factory
+    if not validate_model_type(model_name):
+        raise ValueError(f"Model '{model_name}' not found in factory registry")
+    
+    # Get factory-defined hyperparameter grid
+    factory_grid = get_model_hyperparameter_grid(model_name)
+    
+    # Base grid for all models (training-specific parameters)
     base_grid = {
         'lr': [0.001, 0.005, 0.01],
         'batch_size': [32, 64, 128],
     }
     
-    # Model-specific parameters
-    if model_name == 'deep_gpcm':
-        base_grid['final_fc_dim'] = [50, 100]
-        base_grid['memory_size'] = [20, 50]
-    elif model_name == 'attn_gpcm':
-        base_grid['final_fc_dim'] = [50, 100]
-        base_grid['memory_size'] = [20, 50]
-        base_grid['attention_dim'] = [64, 128]
-    elif model_name == 'coral_gpcm_proper':
-        base_grid['final_fc_dim'] = [50, 100]
-        base_grid['memory_size'] = [20, 50]
+    # Merge factory grid with base grid
+    base_grid.update(factory_grid)
     
     return base_grid
 
@@ -188,6 +183,7 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
     
     print(f"Parameters: {sum(p.numel() for p in model.parameters()):,}")
     print(f"Model type: {type(model).__name__}")
+    print(f"Loss function: {loss_type} {loss_kwargs if loss_kwargs else ''}")
     print("Epoch | Train Loss | Train Acc | Test Acc | QWK | Ord.Acc | MAE | Grad.Norm | LR | Time(s)")
     print("-" * 95)
     
@@ -208,43 +204,56 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
             
             optimizer.zero_grad()
             
-            # Forward pass
-            student_abilities, item_thresholds, discrimination_params, gpcm_probs = model(questions, responses)
+            # Forward pass with training mode configuration
+            # Get logits for training to fix double log-softmax bug
+            if hasattr(model, 'get_logits'):
+                # Model has separate logits method
+                student_abilities, item_thresholds, discrimination_params, gpcm_logits = model.get_logits(questions, responses)
+                gpcm_probs = F.softmax(gpcm_logits, dim=-1)  # For metrics computation
+            else:
+                # Modify model forward to return logits during training
+                student_abilities, item_thresholds, discrimination_params, gpcm_output = model(questions, responses)
+                if hasattr(model, 'gpcm_layer') and hasattr(model.gpcm_layer, 'forward'):
+                    # Get logits from GPCM layer for proper loss computation
+                    gpcm_logits = model.gpcm_layer(student_abilities, discrimination_params, item_thresholds, return_logits=True)
+                    gpcm_probs = F.softmax(gpcm_logits, dim=-1)
+                else:
+                    # Fallback: treat output as probabilities (suboptimal but functional)
+                    gpcm_probs = gpcm_output
+                    gpcm_logits = torch.log(gpcm_probs + 1e-8)
             
-            # Get CORAL-specific information if available (for CORAL loss)
-            coral_info = None
-            if hasattr(model, 'get_coral_info'):
-                coral_info = model.get_coral_info()
+            # All loss functions now use standard (logits, targets) interface
             
             # Flatten for loss computation and apply mask
+            logits_flat = gpcm_logits.view(-1, gpcm_logits.size(-1))
             probs_flat = gpcm_probs.view(-1, gpcm_probs.size(-1))
             responses_flat = responses.view(-1)
             mask_flat = mask.view(-1).bool()
             
             # Only compute loss on valid (non-padded) tokens
+            valid_logits = logits_flat[mask_flat]
             valid_probs = probs_flat[mask_flat]
             valid_responses = responses_flat[mask_flat]
             
-            # Compute loss only on valid tokens
+            # Compute loss with proper configuration for IRT
             if loss_type == 'ce':
-                # CrossEntropyLoss expects log probabilities
-                valid_log_probs = torch.log(valid_probs + 1e-8)
-                loss = criterion(valid_log_probs, valid_responses)
+                # FIXED: Use raw logits with CrossEntropyLoss (no double log-softmax)
+                loss = criterion(valid_logits, valid_responses)
             elif loss_type == 'focal':
-                # Focal loss expects logits and supports masking
-                valid_logits = torch.log(valid_probs + 1e-8)  # Convert to logits
+                # Focal loss expects logits
                 loss = criterion(valid_logits, valid_responses)
             elif loss_type in ['qwk', 'ordinal_ce']:
-                # These losses work with probabilities directly
-                # Reshape back to include sequence dimension for proper masking
-                loss = criterion(gpcm_probs, responses, mask)
-            elif loss_type in ['combined', 'triple_coral']:
-                # Combined/Triple loss handles both probabilities and logits
-                # Pass CORAL info for CORAL-specific loss computation
-                loss_dict = criterion(gpcm_probs, responses, mask, coral_info=coral_info)
-                loss = loss_dict['total_loss']
+                # These losses work with logits and handle masking internally
+                loss = criterion(valid_logits, valid_responses)
+            elif loss_type == 'combined':
+                # Combined loss handles multiple loss components
+                loss = criterion(valid_logits, valid_responses)
+            elif loss_type == 'coral':
+                # CORAL loss for ordinal classification
+                loss = criterion(valid_logits, valid_responses)
             else:
-                loss = criterion(valid_probs, valid_responses)
+                # Default: use logits for better numerical stability
+                loss = criterion(valid_logits, valid_responses)
             
             # Check for NaN loss or invalid probabilities
             if torch.isnan(loss) or torch.isinf(loss):
@@ -519,10 +528,13 @@ def perform_cross_validation(model_name, all_data, n_questions, n_cats, device, 
 
 
 def main():
+    # Get available models from factory registry
+    available_models = get_all_model_types()
+    
     parser = argparse.ArgumentParser(description='Unified Deep-GPCM Training')
-    parser.add_argument('--model', choices=['deep_gpcm', 'attn_gpcm', 'coral_gpcm_proper'], 
+    parser.add_argument('--model', choices=available_models, 
                         help='Single model to train (for backward compatibility)')
-    parser.add_argument('--models', nargs='+', choices=['deep_gpcm', 'attn_gpcm', 'coral_gpcm_proper'],
+    parser.add_argument('--models', nargs='+', choices=available_models,
                         help='Multiple models to train sequentially')
     parser.add_argument('--dataset', default='synthetic_OC', help='Dataset name')
     parser.add_argument('--epochs', type=int, default=30, help='Number of epochs')
@@ -534,34 +546,7 @@ def main():
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--device', default=None, help='Device (cuda/cpu)')
     
-    # Loss function arguments
-    parser.add_argument('--loss', type=str, default='ce',
-                        choices=['ce', 'focal', 'qwk', 'ordinal_ce', 'combined', 'triple_coral'],
-                        help='Loss function type (default: ce)')
-    parser.add_argument('--ce_weight', type=float, default=0.4,
-                        help='Weight for CE loss in combined loss')
-    parser.add_argument('--qwk_weight', type=float, default=0.2,
-                        help='Weight for QWK loss in combined loss')
-    parser.add_argument('--coral_weight', type=float, default=0.4,
-                        help='Weight for CORAL loss in combined loss')
-    
-    # Focal loss specific arguments
-    parser.add_argument('--focal_gamma', type=float, default=2.0,
-                        help='Gamma parameter for focal loss (default: 2.0)')
-    parser.add_argument('--focal_alpha', type=float, default=None,
-                        help='Alpha parameter for focal loss (default: None)')
-    parser.add_argument('--focal_weight', type=float, default=0.0,
-                        help='Weight for focal loss in combined loss (default: 0.0)')
-    
-    # Triple CORAL loss arguments
-    parser.add_argument('--triple_coral', action='store_true',
-                        help='Use triple CORAL loss (CE + QWK + CORAL)')
-    parser.add_argument('--triple_ce_weight', type=float, default=0.33,
-                        help='CE weight in triple CORAL loss')
-    parser.add_argument('--triple_qwk_weight', type=float, default=0.33,
-                        help='QWK weight in triple CORAL loss')
-    parser.add_argument('--triple_coral_weight', type=float, default=0.34,
-                        help='CORAL weight in triple CORAL loss')
+    # Loss function configurations are now managed by factory - no command line overrides needed
     
     # Threshold coupling arguments
     parser.add_argument('--enable_threshold_coupling', action='store_true',
@@ -587,6 +572,18 @@ def main():
     else:
         models_to_train = args.models
     
+    # Validate all models exist in factory registry
+    validated_models = []
+    for model in models_to_train:
+        if validate_model_type(model):
+            validated_models.append(model)
+        else:
+            print(f"⚠️  Warning: Model '{model}' not found in factory registry, skipping")
+    
+    models_to_train = validated_models
+    if not models_to_train:
+        raise ValueError("No valid models found in factory registry")
+    
     # Set seed
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -610,16 +607,7 @@ def main():
         print(f"Cross-validation: {args.n_folds}-fold with hyperparameter tuning")
     else:
         print(f"K-fold training: {args.n_folds}-fold (no hyperparameter tuning)")
-    print(f"Loss function: {args.loss}")
-    if args.loss == 'combined':
-        print(f"  - CE weight: {args.ce_weight}")
-        print(f"  - Focal weight: {args.focal_weight}")
-        print(f"  - QWK weight: {args.qwk_weight}")
-        print(f"  - CORAL weight: {args.coral_weight}")
-    elif args.loss == 'triple_coral':
-        print(f"  - CE weight: {args.triple_ce_weight}")
-        print(f"  - QWK weight: {args.triple_qwk_weight}")
-        print(f"  - CORAL weight: {args.triple_coral_weight}")
+    print(f"Loss configuration: Per-model factory settings")
     print()
     
     # Create directories
@@ -648,6 +636,20 @@ def main():
     # Train each model
     for model_name in models_to_train:
         print(f"\n{'='*20} TRAINING {model_name.upper()} {'='*20}")
+        
+        # Always use factory configuration for each model
+        from models.factory import get_model_loss_config
+        loss_config = get_model_loss_config(model_name)
+        
+        # Always use factory loss configuration (ignore command line for per-model config)
+        current_loss = loss_config.get('type', 'ce')
+        print(f"🔧 Using factory loss configuration: {current_loss}")
+        
+        # Use factory loss parameters for this model
+        factory_loss_kwargs = {}
+        for param, value in loss_config.items():
+            if param != 'type':
+                factory_loss_kwargs[param] = value
         
         # Cross-validation or single training
         if args.no_cv or args.n_folds == 0:
@@ -701,26 +703,10 @@ def main():
             
             print()
             
-            # Prepare loss kwargs
-            loss_kwargs = {
-                'ce_weight': args.ce_weight,
-                'qwk_weight': args.qwk_weight,
-                'coral_weight': args.coral_weight,
-                # Triple CORAL loss arguments
-                'triple_ce_weight': args.triple_ce_weight,
-                'triple_qwk_weight': args.triple_qwk_weight,
-                'triple_coral_weight': args.triple_coral_weight,
-                # Focal loss arguments
-                'focal_gamma': args.focal_gamma,
-                'focal_alpha': args.focal_alpha,
-                'focal_weight': args.focal_weight,
-                'gamma': args.focal_gamma,  # For standalone focal loss
-                'alpha': args.focal_alpha   # For standalone focal loss
-            }
-            
+            # Use factory loss configuration for this model
             best_model_state, best_metrics, training_history = train_single_fold(
                 model, train_loader, test_loader, device, args.epochs, model_name,
-                loss_type=args.loss, loss_kwargs=loss_kwargs
+                loss_type=current_loss, loss_kwargs=factory_loss_kwargs
             )
             
             # Save model using new path structure
@@ -912,26 +898,10 @@ def main():
                     
                     print()
             
-                # Prepare loss kwargs (same as above)
-                loss_kwargs = {
-                    'ce_weight': args.ce_weight,
-                    'qwk_weight': args.qwk_weight,
-                    'coral_weight': args.coral_weight,
-                    # Triple CORAL loss arguments
-                    'triple_ce_weight': args.triple_ce_weight,
-                    'triple_qwk_weight': args.triple_qwk_weight,
-                    'triple_coral_weight': args.triple_coral_weight,
-                    # Focal loss arguments
-                    'focal_gamma': args.focal_gamma,
-                    'focal_alpha': args.focal_alpha,
-                    'focal_weight': args.focal_weight,
-                    'gamma': args.focal_gamma,  # For standalone focal loss
-                    'alpha': args.focal_alpha   # For standalone focal loss
-                }
-                
+                # Use factory loss configuration for this model
                 best_model_state, best_metrics, training_history = train_single_fold(
                     model, train_loader, test_loader, device, args.epochs, model_name, fold,
-                    loss_type=args.loss, loss_kwargs=loss_kwargs
+                    loss_type=current_loss, loss_kwargs=factory_loss_kwargs
                 )
             
                 # Save fold results

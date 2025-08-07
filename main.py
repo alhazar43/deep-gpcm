@@ -16,6 +16,7 @@ os.environ['MKL_SERVICE_FORCE_INTEL'] = '1'
 from utils.metrics import ensure_results_dirs
 from utils.path_utils import get_path_manager, find_best_model, ensure_directories
 from utils.clean_res import ResultsCleaner
+from models.factory import get_all_model_types, get_model_loss_config, validate_model_type
 
 
 def run_command(cmd, description):
@@ -33,9 +34,26 @@ def run_command(cmd, description):
         return False
 
 
-def run_complete_pipeline(models=['deep_gpcm', 'attn_gpcm', 'coral_gpcm_proper'], dataset='synthetic_OC', 
+def run_complete_pipeline(models=None, dataset='synthetic_OC', 
                          epochs=30, n_folds=5, cv=False, **kwargs):
-    """Run the complete Deep-GPCM pipeline."""
+    """Run the complete Deep-GPCM pipeline with dynamic model discovery."""
+    
+    # Use all available models if none specified
+    if models is None:
+        models = get_all_model_types()
+        print("📋 Using all available models from factory registry")
+    
+    # Validate all models exist in factory
+    validated_models = []
+    for model in models:
+        if validate_model_type(model):
+            validated_models.append(model)
+        else:
+            print(f"⚠️  Warning: Model '{model}' not found in factory registry, skipping")
+    
+    models = validated_models
+    if not models:
+        raise ValueError("No valid models found in factory registry")
     
     print("=" * 80)
     print("DEEP-GPCM COMPLETE PIPELINE")
@@ -51,15 +69,26 @@ def run_complete_pipeline(models=['deep_gpcm', 'attn_gpcm', 'coral_gpcm_proper']
     else:
         print("Training: Single run (no folds)")
     
-    # Print loss function info
-    loss_type = kwargs.get('loss', 'ce')
-    if loss_type != 'ce':
-        print(f"Loss function: {loss_type}")
-        if loss_type == 'combined':
-            print(f"  - CE weight: {kwargs.get('ce_weight', 1.0)}")
-            print(f"  - Focal weight: {kwargs.get('focal_weight', 0.0)}")
-            print(f"  - QWK weight: {kwargs.get('qwk_weight', 0.5)}")
-            print(f"  - CORAL weight: {kwargs.get('coral_weight', 0.0)}")
+    # Print model-specific loss configurations from factory
+    print("\n🔧 Model Configurations from Factory:")
+    for model in models:
+        loss_config = get_model_loss_config(model)
+        if loss_config:
+            loss_type = loss_config.get('type', 'ce')
+            print(f"  • {model}: {loss_type}", end="")
+            if loss_type == 'combined':
+                weights = []
+                for weight_key in ['ce_weight', 'focal_weight', 'qwk_weight', 'coral_weight']:
+                    if weight_key in loss_config:
+                        weights.append(f"{weight_key.replace('_weight', '')}={loss_config[weight_key]}")
+                if weights:
+                    print(f" ({', '.join(weights)})")
+                else:
+                    print()
+            else:
+                print()
+        else:
+            print(f"  • {model}: ce (default)")
     
     print()
     
@@ -70,7 +99,7 @@ def run_complete_pipeline(models=['deep_gpcm', 'attn_gpcm', 'coral_gpcm_proper']
     
     results = {'training': {}, 'evaluation': {}}
     
-    # 1. Training phase with CV (model-specific loss configurations)
+    # 1. Training phase with CV (factory-based loss configurations)
     print(f"\n{'='*20} TRAINING PHASE {'='*20}")
     for model in models:
         cmd = [
@@ -81,27 +110,10 @@ def run_complete_pipeline(models=['deep_gpcm', 'attn_gpcm', 'coral_gpcm_proper']
             "--n_folds", str(n_folds)
         ]
         
-        # Model-specific loss configuration
-        if model == 'coral_gpcm_proper':
-            # CORAL-GPCM uses combined loss with focal, QWK, and CORAL components
-            cmd.extend(["--loss", "combined"])
-            cmd.extend(["--focal_weight", "0.4"])
-            cmd.extend(["--qwk_weight", "0.2"])
-            cmd.extend(["--coral_weight", "0.4"])
-            cmd.extend(["--ce_weight", "0.0"])  # Disable CE since we use focal
-            print(f"  ⚙️  {model}: Using combined loss (Focal: 0.4, QWK: 0.2, CORAL: 0.4)")
-        elif model == 'deep_gpcm':
-            # deep_gpcm uses focal loss
-            cmd.extend(["--loss", "focal"])
-            print(f"  ⚙️  {model}: Using focal loss")
-        elif model == 'attn_gpcm':
-            # attn_gpcm uses standard cross-entropy
-            cmd.extend(["--loss", "ce"])
-            print(f"  ⚙️  {model}: Using cross-entropy loss")
-        else:
-            # Default to cross-entropy
-            cmd.extend(["--loss", "ce"])
-            print(f"  ⚙️  {model}: Using cross-entropy loss")
+        # Loss configuration is now handled automatically by train.py factory system
+        loss_config = get_model_loss_config(model)
+        loss_type = loss_config.get('type', 'ce')
+        print(f"  ⚙️  {model}: Using factory {loss_type} loss configuration")
         
         # Add cv flag if enabled
         if cv:
@@ -113,7 +125,7 @@ def run_complete_pipeline(models=['deep_gpcm', 'attn_gpcm', 'coral_gpcm_proper']
                 cmd.extend([f"--{key}", str(value)])
             elif key == "device" and value is not None:
                 cmd.extend([f"--{key}", value])
-            # Skip loss arguments - handled by model-specific configuration above
+            # Skip loss arguments - handled by factory configuration above
         
         success = run_command(cmd, f"Training {model.upper()}")
         results['training'][model] = success
@@ -226,11 +238,12 @@ def main():
                             'evaluate=enhanced evaluation+plots, plot=visualization only, irt=IRT analysis only, '
                             'clean=cleanup results and models')
     
-    # Model and dataset selection
+    # Model and dataset selection (dynamic from factory registry)
+    available_models = get_all_model_types()
     parser.add_argument('--models', nargs='+', 
-                       choices=['deep_gpcm', 'attn_gpcm', 'coral_gpcm_proper'], 
-                       default=['deep_gpcm', 'attn_gpcm', 'coral_gpcm_proper'], 
-                       help='Main pipeline models with optimized loss configurations')
+                       choices=available_models, 
+                       default=available_models, 
+                       help='Pipeline models from factory registry')
     parser.add_argument('--dataset', default='synthetic_OC', help='Dataset name (e.g., synthetic_OC, synthetic_4000_200_2)')
     
     # Training parameters
@@ -242,18 +255,7 @@ def main():
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--device', default=None, help='Device (cuda/cpu)')
     
-    # Loss function arguments
-    parser.add_argument('--loss', type=str, default='ce',
-                        choices=['ce', 'qwk', 'ordinal_ce', 'combined'],
-                        help='Loss function type (default: ce)')
-    parser.add_argument('--ce_weight', type=float, default=1.0,
-                        help='Weight for CE loss in combined loss')
-    parser.add_argument('--qwk_weight', type=float, default=0.5,
-                        help='Weight for QWK loss in combined loss')
-    parser.add_argument('--coral_weight', type=float, default=0.0,
-                        help='Weight for CORAL loss in combined loss')
-    parser.add_argument('--focal_weight', type=float, default=0.0,
-                        help='Weight for focal loss in combined loss')
+    # Loss configurations are now managed automatically by factory system
     
     
     # Individual control
@@ -327,11 +329,6 @@ def main():
             lr=args.lr,
             seed=args.seed,
             device=args.device,
-            loss=args.loss,
-            ce_weight=args.ce_weight,
-            qwk_weight=args.qwk_weight,
-            coral_weight=args.coral_weight,
-            focal_weight=args.focal_weight
         )
     
     elif args.action == 'train':
@@ -358,29 +355,10 @@ def main():
             if args.cv:
                 cmd.append("--cv")
             
-            # Model-specific loss configuration (same as pipeline mode)
-            if model == 'coral_gpcm_proper':
-                cmd.extend(["--loss", "combined"])
-                cmd.extend(["--focal_weight", "0.4"])
-                cmd.extend(["--qwk_weight", "0.2"])
-                cmd.extend(["--coral_weight", "0.4"])
-                cmd.extend(["--ce_weight", "0.0"])
-                print(f"  ⚙️  {model}: Using combined loss (Focal: 0.4, QWK: 0.2, CORAL: 0.4)")
-            elif model == 'deep_gpcm':
-                cmd.extend(["--loss", "focal"])
-                print(f"  ⚙️  {model}: Using focal loss")
-            elif model == 'attn_gpcm':
-                cmd.extend(["--loss", "ce"])
-                print(f"  ⚙️  {model}: Using cross-entropy loss")
-            else:
-                # Allow user-specified loss function if provided
-                if args.loss != 'ce':
-                    cmd.extend(["--loss", args.loss])
-                if args.loss == 'combined':
-                    cmd.extend(["--ce_weight", str(args.ce_weight)])
-                    cmd.extend(["--qwk_weight", str(args.qwk_weight)])
-                    cmd.extend(["--coral_weight", str(args.coral_weight)])
-                    cmd.extend(["--focal_weight", str(args.focal_weight) if hasattr(args, 'focal_weight') else "0.0"])
+            # Loss configuration is now handled automatically by train.py factory system
+            loss_config = get_model_loss_config(model)
+            loss_type = loss_config.get('type', 'ce')
+            print(f"  ⚙️  {model}: Using factory {loss_type} loss configuration")
             
             run_command(cmd, f"Training {model.upper()}")
     

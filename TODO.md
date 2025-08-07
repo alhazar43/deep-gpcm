@@ -1,199 +1,310 @@
-# Deep-GPCM TODO: Critical Issues and Implementation Roadmap
+# TODO: Ordinal-Aware Attention Module Implementation
 
-## CRITICAL PRIORITY: CORAL Design Flaw Fix
+## Overview
+Systematic implementation plan for integrating ordinal-aware attention mechanisms into the deep-gpcm project while ensuring backward compatibility and minimal disruption to existing models.
 
-### 🚨 BLOCKING ISSUE: Incorrect Parameter Usage
+## Phase 1: Foundation Setup (Week 1)
 
-**Status**: CRITICAL - Invalidates all current CORAL research
+### 1.1 Core Infrastructure (Days 1-2)
+- [ ] Create `models/attention/` directory structure
+  - [ ] `__init__.py` - Module exports
+  - [ ] `base.py` - Base classes (AttentionContext, AttentionMechanism, AttentionConfig)
+  - [ ] `registry.py` - Plugin registry system
+  - [ ] `pipeline.py` - AttentionPipeline for composing mechanisms
+  - [ ] `utils.py` - Helper functions and utilities
 
-**Problem**: CORAL uses β (beta) parameters instead of τ (tau) thresholds, making CORAL and GPCM computations identical.
+- [ ] Implement base classes
+  - [ ] AttentionContext dataclass with proper validation
+  - [ ] Abstract AttentionMechanism base class
+  - [ ] AttentionConfig with sensible defaults
+  - [ ] Registry system with error handling
 
-**Evidence**:
-- CORAL parameters (τ): `[0., 0., 0.]` (all zeros - unused)
-- GPCM parameters (β): `[-0.8234, -0.0156, 0.7453]` (actively learned)
-- Both systems use identical β parameters for computation
+- [ ] Add compatibility layer
+  - [ ] Create `models/attention_gpcm_modular.py` alongside existing `attention_gpcm.py`
+  - [ ] Ensure imports don't break existing code
+  - [ ] Add feature flags for gradual rollout
 
-**Required Actions**:
+### 1.2 Individual Attention Mechanisms (Days 3-5)
+- [ ] Implement core attention mechanisms
+  - [ ] `ordinal_aware.py` - Ordinal distance-based attention scoring
+  - [ ] `response_conditioned.py` - Response-level specific refinement
+  - [ ] `ordinal_pattern.py` - Temporal pattern detection
+  - [ ] `qwk_aligned.py` - QWK metric-aligned attention
+  - [ ] `hierarchical_ordinal.py` - Two-level attention (binary + ordinal)
 
-#### Task 1: Fix CORAL Parameter Extraction (Priority: CRITICAL)
-- 📋 **Implement τ extraction from CORAL logits**: Convert `coral_logits` to usable threshold parameters
-- 📋 **Update CORAL computation pathway**: Use τ parameters instead of β in `coral_probs` calculation
-- ✅ **Preserve GPCM computation**: Keep existing IRT extractor for GPCM baseline
-- 📋 **Files to modify**:
-  - `models/model.py` (Lines ~180-200): Core CORAL computation logic
-  - `models/coral_layer.py`: CORAL layer parameter usage
-  - `analysis/extract_beta_params.py`: Extract both β and τ parameters
+- [ ] Unit tests for each mechanism
+  - [ ] `tests/test_attention_mechanisms.py`
+  - [ ] Test forward pass, shapes, gradients
+  - [ ] Test attention weight extraction
+  - [ ] Test with edge cases (empty sequences, single item)
 
-#### Task 2: Verification and Validation (Priority: CRITICAL)
-- 📋 **Parameter usage audit**: Confirm τ parameters are extracted and used for CORAL
-- 📋 **Computational verification**: Validate CORAL and GPCM produce different results
-- 📋 **Training validation**: Ensure adaptive blending provides genuine benefit
-- 📋 **Re-run all benchmarks**: Invalidate current results and generate corrected comparisons
+### 1.3 Integration Testing (Days 6-7)
+- [ ] Create ModularAttentionGPCM class
+  - [ ] Inherit from existing AttentionGPCM
+  - [ ] Override only necessary methods
+  - [ ] Maintain backward compatibility
 
-#### Task 3: Architecture Testing (Priority: HIGH)
-- [ ] **τ parameter learning**: Test that ordinal thresholds are properly optimized
-- [ ] **Threshold coupling validation**: Confirm coupling/decoupling mechanisms work with correct parameters
-- [ ] **Gradient flow analysis**: Verify gradient flow through corrected CORAL pathway
+- [ ] Integration tests
+  - [ ] Test pipeline composition
+  - [ ] Test different fusion methods
+  - [ ] Test with existing training pipeline
+  - [ ] Memory and performance profiling
 
-## HIGH PRIORITY: Adaptive Blending System Completion
+**Success Criteria Phase 1:**
+- All attention mechanisms pass unit tests
+- ModularAttentionGPCM produces same outputs as AttentionGPCM when using basic attention
+- No regression in existing model performance
+- Memory usage within 10% of baseline
 
-### Task 4: BGT Framework Integration (Priority: HIGH)
+## Phase 2: Validation & Optimization (Week 2)
 
-**Status**: ✅ BGT mathematics proven stable, 🚧 forward pass integration needs debugging
+### 2.1 Synthetic Data Testing (Days 1-2)
+- [ ] Create ordinal-specific test datasets
+  - [ ] Perfect ordinal sequences (0→1→2→3)
+  - [ ] Declining patterns (3→2→1→0)
+  - [ ] Near-miss patterns (consistently ±1)
+  - [ ] Random patterns for baseline
 
-**Completed**:
-- ✅ BGT mathematical framework developed and validated
-- ✅ `StableThresholdDistanceBlender` with comprehensive testing (4/4 tests pass)
-- ✅ Gradient explosion prevention (reduced >20,000 to <10 gradient norms)
-- ✅ Component-level validation (all BGT transforms stable)
+- [ ] Validate mechanism behavior
+  - [ ] Ordinal-aware attention focuses on similar response levels
+  - [ ] Pattern detection identifies sequences correctly
+  - [ ] QWK-aligned attention penalizes large distances
+  - [ ] Response conditioning shows different behaviors per level
 
-**Outstanding Issues**:
-- 🚧 **Resolve model-level integration**: BGT components work but full model training unstable
-- 🚧 **Debug gradient coupling**: Investigate memory network interaction with adaptive blending
-- 📋 **Implement gradient isolation**: Apply `item_betas.detach()` solution for memory decoupling
-- 📋 **Validate training stability**: Ensure consistent training with adaptive blending enabled
+### 2.2 Small-Scale Real Data Testing (Days 3-4)
+- [ ] Test on subset of actual datasets
+  - [ ] Use 10% of assist2009_updated for quick iterations
+  - [ ] Compare metrics: QWK, ordinal accuracy, MAE
+  - [ ] Analyze attention weight visualizations
+  - [ ] Check for overfitting indicators
 
-**Action Items**:
-- 🚧 **Complete MinimalAdaptiveBlender integration**: Deploy gradient isolation solution
-- ❌ **Test FullAdaptiveBlender training**: BLOCKED by CORAL design flaw
-- ❌ **Production deployment**: BLOCKED until CORAL fix implemented
+- [ ] Hyperparameter tuning
+  - [ ] Distance penalty in ordinal-aware (0.1-1.0)
+  - [ ] Window size for pattern detection (3-7)
+  - [ ] Correct threshold for hierarchical (2-3)
+  - [ ] Number of attention heads (4-16)
 
-### Task 5: Multi-Dataset Validation (Priority: MEDIUM)
+### 2.3 Performance Optimization (Days 5-7)
+- [ ] Implement caching strategies
+  - [ ] Cache attention weights during inference
+  - [ ] Implement gradient checkpointing option
+  - [ ] Add mixed precision support
 
-**Requirements**:
-- [ ] **Test across datasets**: Validate adaptive blending on multiple educational datasets
-- [ ] **Performance consistency**: Ensure improvements generalize beyond synthetic data
-- [ ] **Computational overhead**: Verify <15% training overhead target met
-- [ ] **Memory efficiency**: Confirm reasonable GPU memory usage
+- [ ] Profile and optimize
+  - [ ] Identify bottlenecks with PyTorch profiler
+  - [ ] Optimize matrix operations
+  - [ ] Consider torch.compile for PyTorch 2.0+
+  - [ ] Batch processing optimization
 
-## MEDIUM PRIORITY: System Enhancements
+**Success Criteria Phase 2:**
+- Synthetic data shows expected attention patterns
+- Small-scale testing shows ≥2% QWK improvement
+- Performance within 20% of baseline AttentionGPCM
+- Memory usage optimized for large batches
 
-### Task 6: IRT Analysis Integration (Priority: MEDIUM)
+## Phase 3: Full Integration (Week 3)
 
-**Status**: System functional but needs CORAL parameter fix integration
+### 3.1 Configuration System (Days 1-2)
+- [ ] Implement configuration management
+  - [ ] YAML configuration loader
+  - [ ] Command-line argument integration
+  - [ ] Default configurations for each dataset
+  - [ ] Configuration validation
 
-**Action Items**:
-- [ ] **Update parameter extraction**: Integrate corrected β/τ parameter extraction
-- [ ] **Enhanced temporal analysis**: Improve temporal parameter visualization
-- [ ] **Parameter recovery metrics**: Develop better correlation measures for temporal parameters
-- [ ] **Comparative analysis**: Enable side-by-side CORAL vs GPCM parameter comparison
+- [ ] Add to existing training scripts
+  - [ ] Update `train_gpcm.py` with modular option
+  - [ ] Add `--attention-type` flag (basic/modular)
+  - [ ] Add `--attention-mechanisms` flag
+  - [ ] Maintain backward compatibility
 
-### Task 7: Loss Function Optimization (Priority: MEDIUM)
+### 3.2 Full Dataset Evaluation (Days 3-5)
+- [ ] Run complete benchmarks
+  - [ ] All 9 datasets with 5-fold CV
+  - [ ] Compare against baseline AttentionGPCM
+  - [ ] Generate comprehensive metrics report
+  - [ ] Create visualization notebooks
 
-**Current Status**: QWK and combined losses implemented
+- [ ] Ablation studies
+  - [ ] Test each mechanism individually
+  - [ ] Test combinations of 2-3 mechanisms
+  - [ ] Test different fusion methods
+  - [ ] Analyze computational vs accuracy trade-offs
 
-**Enhancement Opportunities**:
-- [ ] **Ordinal loss tuning**: Optimize QWK loss hyperparameters for better convergence
-- [ ] **Combined loss balancing**: Find optimal weights for multi-objective optimization
-- [ ] **EMD loss integration**: Complete Earth Mover's Distance loss implementation
-- [ ] **Loss scheduling**: Implement dynamic loss weight scheduling during training
+### 3.3 Model Checkpoint Compatibility (Days 6-7)
+- [ ] Implement checkpoint migration
+  - [ ] Load legacy AttentionGPCM checkpoints
+  - [ ] Convert to modular format
+  - [ ] Save in new format with metadata
+  - [ ] Backward compatibility for old scripts
 
-### Task 8: Architecture Improvements (Priority: MEDIUM)
+- [ ] Documentation and examples
+  - [ ] Update README with modular attention section
+  - [ ] Create example notebooks
+  - [ ] Document configuration options
+  - [ ] Migration guide for existing users
 
-**Attention Mechanisms**:
-- [ ] **Attention-CORAL integration**: Combine attention refinement with CORAL ordinal structure
-- [ ] **Memory capacity scaling**: Optimize memory size for different dataset scales
-- [ ] **Embedding strategy optimization**: Compare and optimize response embedding approaches
+**Success Criteria Phase 3:**
+- Full benchmark shows consistent improvements:
+  - QWK: +0.03 to +0.08 average improvement
+  - Ordinal Accuracy: +2% to +4% improvement
+  - Large error rate: 20-30% reduction
+- All existing scripts work without modification
+- New modular system fully documented
 
-**Model Efficiency**:
-- [ ] **Parameter reduction**: Investigate model compression techniques
-- [ ] **Training acceleration**: Implement gradient checkpointing and mixed precision
-- [ ] **Inference optimization**: Optimize models for deployment scenarios
+## Phase 4: Production Readiness (Week 4)
 
-## LOWER PRIORITY: Research and Validation
+### 4.1 Robustness Testing (Days 1-3)
+- [ ] Edge case testing
+  - [ ] Empty sequences
+  - [ ] Single-item sequences
+  - [ ] Very long sequences (>1000 items)
+  - [ ] Extreme class imbalance
 
-### Task 9: Temporal Parameter Research (Priority: LOW)
+- [ ] Stress testing
+  - [ ] Large batch sizes (256+)
+  - [ ] Mixed precision training
+  - [ ] Multi-GPU training
+  - [ ] Memory pressure scenarios
 
-**Research Questions**:
-- [ ] **Temporal vs static IRT**: Develop theoretical framework for temporal parameter interpretation
-- [ ] **Learning trajectory modeling**: Implement explicit learning curve modeling
-- [ ] **Parameter evolution patterns**: Analyze common temporal parameter evolution patterns
-- [ ] **Curriculum learning integration**: Use temporal patterns for curriculum design
+### 4.2 Final Integration (Days 4-5)
+- [ ] Merge strategy
+  - [ ] Create feature branch with all changes
+  - [ ] Gradual merge with feature flags
+  - [ ] A/B testing infrastructure
+  - [ ] Rollback plan
 
-### Task 10: Bayesian Extensions (Priority: LOW)
+- [ ] Production monitoring
+  - [ ] Add metrics logging
+  - [ ] Performance monitoring
+  - [ ] Error tracking
+  - [ ] Resource usage alerts
 
-**Proposed Enhancements**:
-- [ ] **Variational parameter estimation**: Implement Bayesian parameter uncertainty
-- [ ] **Hierarchical modeling**: Add student and item population modeling
-- [ ] **Uncertainty quantification**: Provide confidence intervals for predictions
-- [ ] **Active learning integration**: Use uncertainty for intelligent question selection
+### 4.3 Release Preparation (Days 6-7)
+- [ ] Final documentation
+  - [ ] API reference
+  - [ ] Architecture diagrams
+  - [ ] Performance benchmarks
+  - [ ] Known limitations
 
-### Task 11: Visualization and Interpretability (Priority: LOW)
+- [ ] Release checklist
+  - [ ] All tests passing
+  - [ ] Documentation complete
+  - [ ] Benchmarks documented
+  - [ ] Migration guide ready
+  - [ ] Deprecation warnings added
 
-**Dashboard Development**:
-- [ ] **Interactive parameter visualization**: Real-time parameter evolution display
-- [ ] **Student trajectory analysis**: Individual learning journey visualization
-- [ ] **Item analysis tools**: Item characteristic curve interactive plots
-- [ ] **Model comparison interface**: Side-by-side model performance comparison
+**Success Criteria Phase 4:**
+- Zero regression in existing functionality
+- Robust under all test scenarios
+- Performance meets production standards
+- Complete documentation and examples
 
-## Implementation Timeline
+## Key Milestones
 
-### Phase 1: Critical Fixes (Week 1-2)
-**Priority**: CRITICAL
-- [ ] Complete CORAL design flaw fix
-- [ ] Validate corrected parameter usage
-- [ ] Re-run benchmark comparisons
-- [ ] Update all documentation
-
-### Phase 2: Adaptive Blending (Week 3-4)  
-**Priority**: HIGH
-- [ ] Finalize BGT integration debugging
-- [ ] Deploy stable adaptive blending
-- [ ] Multi-dataset validation
-- [ ] Performance optimization
-
-### Phase 3: System Enhancement (Week 5-8)
-**Priority**: MEDIUM
-- [ ] IRT analysis improvements
-- [ ] Loss function optimization
-- [ ] Architecture enhancements
-- [ ] Production hardening
-
-### Phase 4: Research Extensions (Month 3+)
-**Priority**: LOW
-- [ ] Temporal parameter research
-- [ ] Bayesian extensions
-- [ ] Advanced visualization
-- [ ] Publication preparation
-
-## Success Criteria
-
-### Phase 1 Success Metrics
-- 📋 **CORAL parameters**: τ ≠ β demonstrated with different learned values
-- 📋 **Performance differentiation**: CORAL vs GPCM show measurable differences
-- 📋 **Benchmark validity**: All results regenerated with corrected implementation
-- 🚧 **Documentation complete**: Partially updated with status indicators
-
-### Phase 2 Success Metrics
-- [ ] **Training stability**: Adaptive models train without gradient explosion
-- [ ] **Performance improvement**: >10% QWK improvement with full adaptive blending
-- [ ] **Resource efficiency**: <15% computational overhead
-- [ ] **Production readiness**: Models deployable in main pipeline
-
-### Overall Project Success
-- [ ] **Research validity**: All CORAL claims backed by corrected implementation
-- [ ] **Practical impact**: Demonstrable improvements in educational assessment
-- [ ] **Scientific contribution**: Novel adaptive blending and temporal IRT insights
-- [ ] **Community adoption**: System used by educational data mining researchers
+1. **Week 1 Milestone**: Working prototype with all mechanisms implemented
+2. **Week 2 Milestone**: Validated improvements on synthetic and small-scale data
+3. **Week 3 Milestone**: Full integration with proven benefits across all datasets
+4. **Week 4 Milestone**: Production-ready system with complete documentation
 
 ## Risk Mitigation
 
 ### Technical Risks
-- **CORAL fix complexity**: May require extensive architecture changes
-  - *Mitigation*: Incremental implementation with rollback capability
-- **BGT integration stability**: Complex mathematical transforms may be fragile
-  - *Mitigation*: Comprehensive testing and gradual integration
-- **Performance regression**: Fixes may reduce current performance
-  - *Mitigation*: A/B testing and performance monitoring
+- **Risk**: Overfitting to ordinal structure
+  - **Mitigation**: Strong regularization, dropout, validation monitoring
+  
+- **Risk**: Computational overhead
+  - **Mitigation**: Caching, optimization, optional mechanism selection
 
-### Project Risks
-- **Timeline pressure**: Critical fixes may delay other enhancements
-  - *Mitigation*: Prioritize critical issues and defer non-essential features
-- **Research validity**: Corrected results may not support original claims
-  - *Mitigation*: Prepare for honest reporting of corrected findings
-- **Resource constraints**: Multiple complex tasks competing for attention  
-  - *Mitigation*: Clear prioritization and incremental delivery
+- **Risk**: Training instability
+  - **Mitigation**: Careful initialization, gradient clipping, learning rate scheduling
 
----
+### Integration Risks
+- **Risk**: Breaking existing workflows
+  - **Mitigation**: Feature flags, backward compatibility, extensive testing
 
-**Next Action**: Begin Task 1 (CORAL parameter extraction fix) immediately - this blocks all other CORAL-related work and invalidates current research claims.
+- **Risk**: Checkpoint incompatibility
+  - **Mitigation**: Migration tools, versioning, fallback options
+
+## Testing Strategy
+
+### Unit Testing
+- Each attention mechanism tested in isolation
+- Mock data for predictable outputs
+- Gradient flow verification
+- Edge case handling
+
+### Integration Testing
+- Full model training on small datasets
+- Checkpoint save/load cycles
+- Multi-GPU compatibility
+- Memory leak detection
+
+### Performance Testing
+- Benchmark against baseline
+- Profile critical paths
+- Memory usage monitoring
+- Scaling tests (batch size, sequence length)
+
+### Validation Testing
+- Metric improvements across datasets
+- Attention weight interpretability
+- Ablation study results
+- Statistical significance tests
+
+## Implementation Notes
+
+### Design Principles
+1. **Modularity**: Each mechanism is self-contained and testable
+2. **Compatibility**: No breaking changes to existing code
+3. **Performance**: Optimization without sacrificing accuracy
+4. **Flexibility**: Easy to add new mechanisms or modify existing ones
+
+### Code Organization
+```
+models/
+├── attention/
+│   ├── __init__.py
+│   ├── base.py              # Base classes
+│   ├── registry.py          # Plugin system
+│   ├── pipeline.py          # Composition logic
+│   ├── mechanisms/
+│   │   ├── __init__.py
+│   │   ├── ordinal_aware.py
+│   │   ├── response_conditioned.py
+│   │   ├── ordinal_pattern.py
+│   │   ├── qwk_aligned.py
+│   │   └── hierarchical_ordinal.py
+│   └── utils.py
+├── attention_gpcm.py        # Original (unchanged)
+└── attention_gpcm_modular.py # New modular version
+```
+
+### Configuration Example
+```yaml
+attention:
+  type: modular
+  mechanisms:
+    - ordinal_aware
+    - qwk_aligned
+  fusion_method: weighted
+  config:
+    distance_penalty: 0.5
+    n_heads: 8
+    dropout: 0.1
+```
+
+## Progress Tracking
+
+- [ ] Phase 1: Foundation Setup (0/7 days)
+- [ ] Phase 2: Validation & Optimization (0/7 days)
+- [ ] Phase 3: Full Integration (0/7 days)
+- [ ] Phase 4: Production Readiness (0/7 days)
+
+Total: 0/28 days completed
+
+## Next Steps
+
+1. Start with Phase 1.1 - Create directory structure and base classes
+2. Implement one attention mechanism as proof of concept
+3. Validate approach with small-scale testing
+4. Proceed with full implementation based on initial results

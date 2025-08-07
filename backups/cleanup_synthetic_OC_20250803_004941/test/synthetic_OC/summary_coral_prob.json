@@ -1,0 +1,21 @@
+{
+  "model": "coral_prob",
+  "dataset": "synthetic_OC",
+  "timestamp": "2025-08-03T00:33:57.807256",
+  "configuration": {
+    "device": "cuda",
+    "batch_size": 32,
+    "prediction_methods": [
+      "hard",
+      "soft",
+      "threshold"
+    ],
+    "detailed_analysis": false
+  },
+  "performance": {
+    "qwk": 0.0,
+    "accuracy": 0.0,
+    "mae": 0.0,
+    "mse": 0.0
+  }
+}

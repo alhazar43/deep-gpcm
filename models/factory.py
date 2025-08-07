@@ -5,38 +5,224 @@ from .implementations.deep_gpcm import DeepGPCM
 from .implementations.attention_gpcm import AttentionGPCM, EnhancedAttentionGPCM
 # Legacy CORAL imports removed - only coral_gpcm_proper remains
 from .implementations.coral_gpcm_proper import CORALGPCM
+from .implementations.coral_gpcm_fixed import CORALGPCMFixed
 # Legacy adaptive imports removed
 
-# Model metadata registry with colors and display names
+# Enhanced model registry with configuration management
 MODEL_REGISTRY = {
     'deep_gpcm': {
         'class': DeepGPCM,
         'color': '#ff7f0e',  # Orange
         'display_name': 'Deep-GPCM',
-        'description': 'Deep learning GPCM with DKVMN memory'
+        'description': 'Deep learning GPCM with DKVMN memory',
+        'default_params': {
+            'memory_size': 50,
+            'key_dim': 50,
+            'value_dim': 200,
+            'final_fc_dim': 50,
+            'embedding_strategy': 'linear_decay',
+            'dropout_rate': 0.0
+        },
+        'hyperparameter_grid': {
+            'memory_size': [20, 50, 100],
+            'final_fc_dim': [50, 100],
+            'dropout_rate': [0.0, 0.1]
+        },
+        'loss_config': {
+            'type': 'focal',
+            'focal_gamma': 2.0,
+            'focal_alpha': 1.0
+        }
     },
     'attn_gpcm': {
         'class': EnhancedAttentionGPCM,
-        'color': '#1f77b4',  # Blue
+        'color': "#1100FF",  # Blue
         'display_name': 'Attention-GPCM',
-        'description': 'Attention-enhanced GPCM with multi-head attention'
+        'description': 'Attention-enhanced GPCM with multi-head attention',
+        'default_params': {
+            'memory_size': 50,
+            'key_dim': 50,
+            'value_dim': 200,
+            'final_fc_dim': 50,
+            'embedding_strategy': 'linear_decay',
+            'dropout_rate': 0.1,
+            'embed_dim': 64,
+            'n_heads': 4,
+            'n_cycles': 2,
+            'ability_scale': 1.0
+        },
+        'hyperparameter_grid': {
+            'memory_size': [20, 50, 100],
+            'final_fc_dim': [50, 100],
+            'dropout_rate': [0.0, 0.1, 0.2],
+            'embed_dim': [32, 64, 128],
+            'n_heads': [2, 4, 8],
+            'n_cycles': [1, 2, 3]
+        },
+        'loss_config': {
+            'type': 'combined',
+            'ce_weight': 0.6,
+            'qwk_weight': 0.2,
+            'focal_weight': 0.2
+        }
     },
-    'coral_gpcm_proper': {
+    'coral_prob': {
         'class': CORALGPCM,
         'color': '#e377c2',  # Pink
-        'display_name': 'CORAL-GPCM',
-        'description': 'CORAL-enhanced GPCM with ordinal regression'
+        'display_name': 'CORAL_GPCM-PROB',
+        'description': 'CORAL-enhanced GPCM with ordinal regression',
+        'default_params': {
+            'memory_size': 50,
+            'key_dim': 50,
+            'value_dim': 200,
+            'final_fc_dim': 50,
+            'embedding_strategy': 'linear_decay',
+            'dropout_rate': 0.0,
+            'ability_scale': 1.0,
+            'use_discrimination': True,
+            'coral_dropout': 0.1,
+            'use_adaptive_blending': True,
+            'blend_weight': 0.5
+        },
+        'hyperparameter_grid': {
+            'memory_size': [20, 50, 100],
+            'final_fc_dim': [50, 100],
+            'coral_dropout': [0.0, 0.1, 0.2],
+            'blend_weight': [0.3, 0.5, 0.7]
+        },
+        'loss_config': {
+            'type': 'combined',
+            'focal_weight': 0.4,
+            'qwk_weight': 0.2,
+            'coral_weight': 0.4,
+            'ce_weight': 0.0
+        }
+    },
+    'coral_thresh': {
+        'class': CORALGPCMFixed,
+        'color': '#ff0000',  # Red
+        'display_name': 'CORAL-GPCM-TAU',
+        'description': 'CORAL-GPCM with combined beta and tau parameters',
+        'default_params': {
+            'memory_size': 50,
+            'key_dim': 50,
+            'value_dim': 200,
+            'final_fc_dim': 50,
+            'embedding_strategy': 'linear_decay',
+            'dropout_rate': 0.0,
+            'ability_scale': 1.0,
+            'use_discrimination': True,
+            'coral_dropout': 0.1
+        },
+        'hyperparameter_grid': {
+            'memory_size': [20, 50, 100],
+            'final_fc_dim': [50, 100],
+            'coral_dropout': [0.0, 0.1, 0.2]
+        },
+        'loss_config': {
+            'type': 'combined',
+            'focal_weight': 0.4,
+            'qwk_weight': 0.2,
+            'coral_weight': 0.4,
+            'ce_weight': 0.0
+        }
+    },
+    'attn_gpcm_fixed': {
+        'class': EnhancedAttentionGPCM,
+        'color': '#2ca02c',  # Green
+        'display_name': 'Enhanced-Attention-GPCM-Fixed',
+        'description': 'Enhanced AttentionGPCM with standard linear decay embedding (no learnable embedding)',
+        'default_params': {
+            'memory_size': 50,
+            'key_dim': 50,
+            'value_dim': 200,
+            'final_fc_dim': 50,
+            'embedding_strategy': 'linear_decay',
+            'dropout_rate': 0.1,
+            'embed_dim': 64,
+            'n_heads': 4,
+            'n_cycles': 2,
+            'ability_scale': 1.0,
+            'use_learnable_embedding': False
+        },
+        'hyperparameter_grid': {
+            'memory_size': [20, 50, 100],
+            'final_fc_dim': [50, 100],
+            'dropout_rate': [0.0, 0.1, 0.2],
+            'embed_dim': [32, 64, 128],
+            'n_heads': [2, 4, 8],
+            'n_cycles': [1, 2, 3]
+        },
+        'loss_config': {
+            'type': 'focal',
+            'focal_gamma': 2.0,
+            'focal_alpha': 1.0
+        }
     }
+    # Legacy model name aliases for backward compatibility
+    # 'coral_gpcm_proper': {
+    #     'class': CORALGPCM,
+    #     'color': '#e377c2',  # Pink
+    #     'display_name': 'CORAL_GPCM-PROPER',
+    #     'description': 'CORAL-enhanced GPCM with ordinal regression (legacy name)',
+    #     'default_params': {
+    #         'memory_size': 50,
+    #         'key_dim': 50,
+    #         'value_dim': 200,
+    #         'final_fc_dim': 50,
+    #         'embedding_strategy': 'linear_decay',
+    #         'dropout_rate': 0.0,
+    #         'ability_scale': 1.0,
+    #         'use_discrimination': True,
+    #         'coral_dropout': 0.1,
+    #         'use_adaptive_blending': True,
+    #         'blend_weight': 0.5
+    #     },
+    #     'hyperparameter_grid': {
+    #         'memory_size': [20, 50, 100],
+    #         'final_fc_dim': [50, 100],
+    #         'coral_dropout': [0.0, 0.1, 0.2],
+    #         'blend_weight': [0.3, 0.5, 0.7]
+    #     },
+    #     'loss_config': {
+    #         'type': 'ce'  # Original used CE loss
+    #     }
+    # },
+    # 'coral_gpcm_fixed': {
+    #     'class': CORALGPCMFixed,
+    #     'color': '#ff0000',  # Red
+    #     'display_name': 'CORAL-GPCM-FIXED',
+    #     'description': 'CORAL-GPCM with combined beta and tau parameters (legacy name)',
+    #     'default_params': {
+    #         'memory_size': 50,
+    #         'key_dim': 50,
+    #         'value_dim': 200,
+    #         'final_fc_dim': 50,
+    #         'embedding_strategy': 'linear_decay',
+    #         'dropout_rate': 0.0,
+    #         'ability_scale': 1.0,
+    #         'use_discrimination': True,
+    #         'coral_dropout': 0.1
+    #     },
+    #     'hyperparameter_grid': {
+    #         'memory_size': [20, 50, 100],
+    #         'final_fc_dim': [50, 100],
+    #         'coral_dropout': [0.0, 0.1, 0.2]
+    #     },
+    #     'loss_config': {
+    #         'type': 'ce'  # Original used CE loss
+    #     }
+    # }
 }
 
 def create_model(model_type, n_questions, n_cats, **kwargs):
-    """Create model based on type.
+    """Create model based on type using registry configuration.
     
     Args:
         model_type: Model type name from MODEL_REGISTRY
         n_questions: Number of questions
         n_cats: Number of response categories
-        **kwargs: Additional model-specific parameters
+        **kwargs: Parameter overrides for model-specific parameters
         
     Returns:
         Model instance with metadata attributes
@@ -48,49 +234,23 @@ def create_model(model_type, n_questions, n_cats, **kwargs):
     model_info = MODEL_REGISTRY[model_type]
     model_class = model_info['class']
     
-    # Common parameters
-    common_params = {
+    # Get default parameters from registry and merge with overrides
+    default_params = get_model_default_params(model_type)
+    
+    # Base parameters that all models need
+    model_params = {
         'n_questions': n_questions,
         'n_cats': n_cats,
-        'memory_size': kwargs.get('memory_size', 50),
-        'key_dim': kwargs.get('key_dim', 50),
-        'value_dim': kwargs.get('value_dim', 200),
-        'final_fc_dim': kwargs.get('final_fc_dim', 50),
-        'embedding_strategy': kwargs.get('embedding_strategy', 'linear_decay'),
-        'dropout_rate': kwargs.get('dropout_rate', 0.0)
     }
     
-    # Model-specific creation
-    if model_type == 'deep_gpcm':
-        model = model_class(**common_params)
+    # Add default parameters from registry
+    model_params.update(default_params)
     
-    elif model_type == 'attn_gpcm':
-        # Use enhanced version with learnable parameters
-        model = model_class(
-            n_questions=n_questions,
-            n_cats=n_cats,
-            embed_dim=kwargs.get('embed_dim', 64),
-            memory_size=common_params['memory_size'],
-            key_dim=common_params['key_dim'],
-            value_dim=common_params['value_dim'],
-            final_fc_dim=common_params['final_fc_dim'],
-            n_heads=kwargs.get('n_heads', 4),
-            n_cycles=kwargs.get('n_cycles', 2),
-            embedding_strategy=common_params['embedding_strategy'],
-            ability_scale=kwargs.get('ability_scale', 2.0),
-            dropout_rate=kwargs.get('dropout_rate', 0.1)
-        )
+    # Override with any explicitly provided kwargs
+    model_params.update(kwargs)
     
-    elif model_type == 'coral_gpcm_proper':
-        # Proper CORAL-GPCM with correct IRT-CORAL separation
-        model = model_class(
-            **common_params,
-            ability_scale=kwargs.get('ability_scale', 1.0),
-            use_discrimination=kwargs.get('use_discrimination', True),
-            coral_dropout=kwargs.get('coral_dropout', 0.1),
-            use_adaptive_blending=kwargs.get('use_adaptive_blending', True),
-            blend_weight=kwargs.get('blend_weight', 0.5)
-        )
+    # Create model instance using the unified parameter set
+    model = model_class(**model_params)
     
     # Attach metadata to model instance
     model.model_type = model_type
@@ -134,3 +294,182 @@ def get_model_color(model_type: str) -> str:
 def get_all_model_types() -> list:
     """Get list of all available model types."""
     return list(MODEL_REGISTRY.keys())
+
+
+# Enhanced factory functions for dynamic configuration management
+def get_model_config(model_type: str) -> Dict[str, Any]:
+    """Get full model configuration including default parameters.
+    
+    Args:
+        model_type: Model type name
+        
+    Returns:
+        Dictionary with complete model configuration
+    """
+    if model_type not in MODEL_REGISTRY:
+        raise ValueError(f"Model type '{model_type}' not found in registry")
+    
+    config = MODEL_REGISTRY[model_type].copy()
+    
+    # Handle parameter variants with parent relationships (for future use)
+    if 'parent' in config:
+        parent_config = MODEL_REGISTRY[config['parent']]
+        # Merge parent default_params with variant params
+        merged_params = parent_config.get('default_params', {}).copy()
+        merged_params.update(config.get('default_params', {}))
+        config['default_params'] = merged_params
+        
+        # Inherit loss_config from parent if not specified
+        if 'loss_config' not in config and 'loss_config' in parent_config:
+            config['loss_config'] = parent_config['loss_config']
+    
+    return config
+
+
+def get_model_default_params(model_type: str) -> Dict[str, Any]:
+    """Get default parameters for a model type.
+    
+    Args:
+        model_type: Model type name
+        
+    Returns:
+        Dictionary with default parameters
+    """
+    config = get_model_config(model_type)
+    return config.get('default_params', {})
+
+
+def get_model_loss_config(model_type: str) -> Dict[str, Any]:
+    """Get loss configuration for a model type.
+    
+    Args:
+        model_type: Model type name
+        
+    Returns:
+        Dictionary with loss configuration
+    """
+    config = get_model_config(model_type)
+    return config.get('loss_config', {})
+
+
+def get_model_hyperparameter_grid(model_type: str) -> Dict[str, list]:
+    """Get hyperparameter grid for a model type.
+    
+    Args:
+        model_type: Model type name
+        
+    Returns:
+        Dictionary with hyperparameter search space
+    """
+    config = get_model_config(model_type)
+    return config.get('hyperparameter_grid', {})
+
+
+def get_model_variants(base_model: str) -> list:
+    """Get parameter variants of a base model.
+    
+    Args:
+        base_model: Base model type name
+        
+    Returns:
+        List of variant model names including the base model
+    """
+    variants = [base_model] if base_model in MODEL_REGISTRY else []
+    
+    # Find variants that have this as parent
+    for model_name, config in MODEL_REGISTRY.items():
+        if config.get('parent') == base_model:
+            variants.append(model_name)
+    
+    return variants
+
+
+def create_model_with_config(model_type: str, n_questions: int, n_cats: int, 
+                           config_overrides: Optional[Dict[str, Any]] = None, **kwargs) -> Any:
+    """Create model with configuration-based parameters.
+    
+    Args:
+        model_type: Model type name from MODEL_REGISTRY
+        n_questions: Number of questions
+        n_cats: Number of response categories
+        config_overrides: Dictionary of parameter overrides
+        **kwargs: Additional parameter overrides
+        
+    Returns:
+        Model instance with metadata attributes
+    """
+    # Get default parameters from registry
+    default_params = get_model_default_params(model_type)
+    
+    # Apply config overrides
+    if config_overrides:
+        default_params.update(config_overrides)
+    
+    # Apply kwargs overrides (highest priority)
+    default_params.update(kwargs)
+    
+    # Create model using enhanced parameters
+    return create_model(model_type, n_questions, n_cats, **default_params)
+
+
+def validate_model_type(model_type: str) -> bool:
+    """Validate that a model type exists in the registry.
+    
+    Args:
+        model_type: Model type name to validate
+        
+    Returns:
+        True if model exists, False otherwise
+    """
+    return model_type in MODEL_REGISTRY
+
+
+def get_models_by_capability(capability: str) -> list:
+    """Get models that have a specific capability.
+    
+    Args:
+        capability: Capability to search for (e.g., 'attention', 'coral')
+        
+    Returns:
+        List of model names that have the specified capability
+    """
+    matching_models = []
+    capability_lower = capability.lower()
+    
+    for model_name, config in MODEL_REGISTRY.items():
+        # Check model name
+        if capability_lower in model_name.lower():
+            matching_models.append(model_name)
+        # Check description
+        elif capability_lower in config.get('description', '').lower():
+            matching_models.append(model_name)
+    
+    return matching_models
+
+
+def get_model_type_from_path(model_path) -> str:
+    """
+    Extract model type from model path.
+    
+    Args:
+        model_path: Path to model file
+        
+    Returns:
+        Inferred model type
+    """
+    from pathlib import Path
+    
+    path = Path(model_path)
+    filename = path.stem  # Get filename without extension
+    
+    # Remove common prefixes
+    if filename.startswith('best_'):
+        filename = filename[5:]
+    
+    # Check if it matches any registered model type
+    for model_type in MODEL_REGISTRY.keys():
+        if model_type in filename:
+            return model_type
+    
+    # Default fallback
+    return 'deep_gpcm'

@@ -1,0 +1,131 @@
+{
+  "model_type": "ordinal_attn_gpcm",
+  "dataset": "synthetic_4000_200_2",
+  "final_metrics": {
+    "accuracy": 0.8715141499690147,
+    "qwk": 0.0,
+    "mae": 0.12848585003098534,
+    "ordinal_accuracy": 1.0,
+    "adjacent_accuracy": 1.0,
+    "mean_ordinal_distance": 0.12848585003098534,
+    "max_ordinal_distance": 1,
+    "cross_entropy": 0.5292171239852905,
+    "brier_score": 0.16892041460819063,
+    "expected_calibration_error": 0.2566522938102958
+  },
+  "best_qwk": 0.0,
+  "training_time": 33.58930230140686,
+  "epochs": 3,
+  "training_history": {
+    "train": [
+      {
+        "epoch": 1,
+        "loss": 0.10393256157636642,
+        "metrics": {
+          "accuracy": 0.17834057433506412,
+          "qwk": 0.0,
+          "mae": 0.8216594256649359,
+          "ordinal_accuracy": 1.0,
+          "adjacent_accuracy": 1.0,
+          "mean_ordinal_distance": 0.8216594256649359,
+          "max_ordinal_distance": 1,
+          "cross_entropy": 0.9895772337913513,
+          "brier_score": 0.3741491437927923,
+          "expected_calibration_error": 0.4419803780002136
+        }
+      },
+      {
+        "epoch": 2,
+        "loss": 0.07302625477313995,
+        "metrics": {
+          "accuracy": 0.49404728944016835,
+          "qwk": 0.0,
+          "mae": 0.5059527105598317,
+          "ordinal_accuracy": 1.0,
+          "adjacent_accuracy": 1.0,
+          "mean_ordinal_distance": 0.5059527105598317,
+          "max_ordinal_distance": 1,
+          "cross_entropy": 0.7729721069335938,
+          "brier_score": 0.2804927149591985,
+          "expected_calibration_error": 0.10186577910659807
+        }
+      },
+      {
+        "epoch": 3,
+        "loss": 0.06850232571363449,
+        "metrics": {
+          "accuracy": 0.5446537396121883,
+          "qwk": 0.0,
+          "mae": 0.4553462603878116,
+          "ordinal_accuracy": 1.0,
+          "adjacent_accuracy": 1.0,
+          "mean_ordinal_distance": 0.4553462603878116,
+          "max_ordinal_distance": 1,
+          "cross_entropy": 0.7456308603286743,
+          "brier_score": 0.26492775979654476,
+          "expected_calibration_error": 0.0634737283305118
+        }
+      }
+    ],
+    "val": [
+      {
+        "epoch": 1,
+        "loss": 0.15820067405700683,
+        "metrics": {
+          "accuracy": 0.15410039248089238,
+          "qwk": 0.0,
+          "mae": 0.8458996075191076,
+          "ordinal_accuracy": 1.0,
+          "adjacent_accuracy": 1.0,
+          "mean_ordinal_distance": 0.8458996075191076,
+          "max_ordinal_distance": 1,
+          "cross_entropy": 0.8905425071716309,
+          "brier_score": 0.34356699909694316,
+          "expected_calibration_error": 0.43712283796181595
+        }
+      },
+      {
+        "epoch": 2,
+        "loss": 0.14061123609542847,
+        "metrics": {
+          "accuracy": 0.35612476760999795,
+          "qwk": 0.0,
+          "mae": 0.6438752323900021,
+          "ordinal_accuracy": 1.0,
+          "adjacent_accuracy": 1.0,
+          "mean_ordinal_distance": 0.6438752323900021,
+          "max_ordinal_distance": 1,
+          "cross_entropy": 0.7557137608528137,
+          "brier_score": 0.27978465405244457,
+          "expected_calibration_error": 0.19482281288808107
+        }
+      },
+      {
+        "epoch": 3,
+        "loss": 0.13204304218292237,
+        "metrics": {
+          "accuracy": 0.8715141499690147,
+          "qwk": 0.0,
+          "mae": 0.12848585003098534,
+          "ordinal_accuracy": 1.0,
+          "adjacent_accuracy": 1.0,
+          "mean_ordinal_distance": 0.12848585003098534,
+          "max_ordinal_distance": 1,
+          "cross_entropy": 0.5292171239852905,
+          "brier_score": 0.16892041460819063,
+          "expected_calibration_error": 0.2566522938102958
+        }
+      }
+    ]
+  },
+  "config": {
+    "base_model": "attn_gpcm",
+    "use_ordinal_attention": true,
+    "attention_types": [
+      "ordinal_aware"
+    ],
+    "loss_type": "ordinal_ce",
+    "description": "Attention-GPCM with ordinal-aware attention",
+    "color": "#2ca02c"
+  }
+}

@@ -51,12 +51,21 @@ class ResultsCleaner:
                     key = 'validation' if result_type == 'valid' else result_type
                     files_to_clean[key].append(dataset_dir)
         
-        # Find plot files containing dataset name
+        # Find plots directory and files containing dataset name
         plots_dir = self.result_dirs['plots']
         if plots_dir.exists():
+            # Check for dataset-specific plots directory
+            dataset_plots_dir = plots_dir / dataset
+            if dataset_plots_dir.exists() and dataset_plots_dir.is_dir():
+                files_to_clean['plots'].append(dataset_plots_dir)
+            
+            # Also check for individual plot files containing dataset name
             plot_files = list(plots_dir.glob(f'*_{dataset}_*.png'))
             plot_files.extend(list(plots_dir.glob(f'*_{dataset}.png')))
             plot_files.extend(list(plots_dir.glob(f'{dataset}_*.png')))
+            plot_files.extend(list(plots_dir.glob(f'*_{dataset}_*.pdf')))
+            plot_files.extend(list(plots_dir.glob(f'*_{dataset}.pdf')))
+            plot_files.extend(list(plots_dir.glob(f'{dataset}_*.pdf')))
             files_to_clean['plots'].extend(plot_files)
         
         # Find IRT plots directory

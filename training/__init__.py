@@ -1,35 +1,13 @@
-"""Training components for Deep-GPCM models."""
+"""
+Training utilities for Deep-GPCM models.
+"""
 
-from .losses import (
-    # Base losses
-    WeightedCrossEntropyLoss,
-    FocalLoss,
-    
-    # Ordinal losses
-    DifferentiableQWKLoss,
-    OrdinalEMDLoss,
-    OrdinalCrossEntropyLoss,
-    
-    # Combined losses
-    CombinedOrdinalLoss,
-    
-    # Factory function
-    create_loss_function
-)
+from .optimizers import create_optimizer
+from .schedulers import create_scheduler
+from .losses import create_loss_function
 
 __all__ = [
-    # Base losses
-    'WeightedCrossEntropyLoss',
-    'FocalLoss',
-    
-    # Ordinal losses
-    'DifferentiableQWKLoss',
-    'OrdinalEMDLoss',
-    'OrdinalCrossEntropyLoss',
-    
-    # Combined losses
-    'CombinedOrdinalLoss',
-    
-    # Factory function
+    'create_optimizer',
+    'create_scheduler', 
     'create_loss_function'
 ]

@@ -1,0 +1,21 @@
+================================================================================
+DEEP-GPCM IRT ANALYSIS SUMMARY REPORT
+================================================================================
+
+Dataset: synthetic_OC
+Analysis Date: 2025-08-03 00:52:15
+Analysis Types: recovery, temporal
+
+PARAMETER RECOVERY ANALYSIS
+----------------------------------------
+Models analyzed: 0
+Plots generated: 0
+
+TEMPORAL ANALYSIS
+----------------------------------------
+Models analyzed: 0
+Plots generated: 0
+Best model: N/A
+
+================================================================================
+Analysis completed successfully!

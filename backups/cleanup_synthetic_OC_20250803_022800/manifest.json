@@ -1,0 +1,18 @@
+{
+  "dataset": "synthetic_OC",
+  "timestamp": "20250803_022800",
+  "files_backed_up": {
+    "train": [
+      "results/train/synthetic_OC"
+    ],
+    "validation": [
+      "results/validation/synthetic_OC"
+    ],
+    "test": [
+      "results/test/synthetic_OC"
+    ],
+    "models": [
+      "saved_models/synthetic_OC"
+    ]
+  }
+}

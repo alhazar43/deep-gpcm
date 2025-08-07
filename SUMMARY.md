@@ -1,188 +1,268 @@
-# Deep-GPCM Project Summary
+# Deep-GPCM Model Architecture Summary
 
-## Project Overview
+## Core Models Overview
 
-Deep-GPCM is a production-ready knowledge tracing system that integrates Dynamic Key-Value Memory Networks (DKVMN) with Item Response Theory (IRT) and ordinal regression techniques for polytomous response prediction. The system combines neural memory architectures with classical psychometric theory to model student learning trajectories in educational assessments.
+This document summarizes the 4 architecturally distinct models in the Deep-GPCM framework, their configurations, parameters, and mathematical formulations.
 
-## Core Architecture
+## 1. DeepGPCM (Baseline)
+**File**: `models/implementations/deep_gpcm.py`  
+**Class**: `DeepGPCM`  
+**Model Key**: `deep_gpcm`  
+**Color**: `#ff7f0e` (Orange)
 
-### Hierarchical System Design
+### Architecture
+- **Foundation**: DKVMN memory network + IRT parameter extraction
+- **Mathematical Model**: Pure GPCM with neural parameter extraction
+- **Parameters**: ~151K
+- **Innovation**: Temporal adaptation of classical IRT through neural memory
 
-```
-Input → Embedding → DKVMN Memory → IRT Parameter Extraction → GPCM Layer → Predictions
-```
-
-**Key Components:**
-- **DKVMN Memory Networks**: Dynamic memory system with key-value attention mechanisms
-- **IRT Parameter Extraction**: Temporal extraction of student abilities (θ), item discriminations (α), and thresholds (β)
-- **GPCM Layer**: Generalized Partial Credit Model for ordinal probability computation
-- **CORAL Integration**: Ordinal regression with rank consistency guarantees
-
-### Model Variants
-
-| Model Type | Architecture | Parameters | Key Features |
-|------------|-------------|------------|--------------|
-| **Deep-GPCM** | Core DKVMN + IRT + GPCM | ~151K | Baseline temporal IRT modeling |
-| **Attn-GPCM** | Enhanced attention mechanism | ~302K | Bottleneck design with iterative refinement |
-| **CORAL-GPCM** | Hybrid CORAL-GPCM | ~151K | Fixed ordinal blending (blend_weight=0.5) |
-| **Enhanced CORAL-GPCM** | Advanced threshold coupling | ~154K | Linear threshold coupling mechanisms |
-| **Adaptive CORAL-GPCM** | Threshold-distance blending | ~154K/527K | Category-specific dynamic blending |
-
-## Critical Architectural Issue: CORAL Design Flaw
-
-### The Problem
-
-**BLOCKING ISSUE**: The current CORAL implementation contains a fundamental design flaw where CORAL uses β (beta) parameters instead of τ (tau) thresholds for probability computation, making CORAL and GPCM computations identical.
-
-**Evidence:**
-- CORAL parameter extraction shows τ parameters are all zeros (unused)
-- GPCM β parameters are actively learned and used for both CORAL and GPCM
-- Current implementation: `P(y=k) = sigmoid(α * (θ - β_k))` instead of intended `P(y=k) = sigmoid(α * (θ - τ_k))`
-
-**Impact:**
-- Invalidates current CORAL research and benchmarks
-- No adaptive benefit from blending identical systems
-- Wasted parameters without computational benefit
-- Misleading performance comparisons
-
-### Required Fix
-
+### Configuration
 ```python
-# CURRENT (INCORRECT):
-item_thresholds = self.irt_extractor(...)  # β parameters
-coral_probs = sigmoid(alpha * (theta - item_thresholds))  # Uses β
-
-# CORRECT IMPLEMENTATION:
-coral_logits = self.coral_projection(irt_output)  # τ parameters  
-coral_thresholds = extract_tau_from_coral_logits(coral_logits)  # Extract τ
-coral_probs = sigmoid(alpha * (theta - coral_thresholds))  # Use τ
+DeepGPCM(
+    n_questions=n_questions,
+    n_cats=n_cats,
+    memory_size=50,
+    key_dim=50,
+    value_dim=200,
+    final_fc_dim=50,
+    embedding_strategy="linear_decay",
+    ability_scale=1.0,
+    use_discrimination=True,
+    dropout_rate=0.0
+)
 ```
 
-## Advanced Adaptive Blending System
+### Loss Configuration
+- **Loss Function**: Focal Loss
+- **Mathematical Focus**: Addresses class imbalance in ordinal categories
 
-### Breakthrough Achievement
+### Mathematical Formulation
+```
+Z_{t,k} = Σ_{j=0}^k α_t(θ_t - β_{t,j})
+P(Y_t = k | θ_t, α_t, β_t) = exp(Z_{t,k}) / Σ_{c=0}^{K-1} exp(Z_{t,c})
 
-The project successfully developed a **complete adaptive threshold-distance blending system** with both minimal and full implementations.
+Where:
+- θ_t ∈ [-3, 3]: Student ability (tanh-bounded)
+- α_t ∈ [0.1, 3.0]: Item discrimination (softplus + ε)  
+- β_{t,k}: Monotonic thresholds via cumulative sum
+```
 
-### Performance Results (❌ BLOCKED - CORAL flaw invalidates results)
+## 2. EnhancedAttentionGPCM (Attention-Enhanced)
+**File**: `models/implementations/attention_gpcm.py`  
+**Class**: `EnhancedAttentionGPCM`  
+**Model Key**: `attn_gpcm`  
+**Color**: `#1f77b4` (Blue)
 
-| Model Type | QWK | Categorical Accuracy | Status |
-|------------|-----|---------------------|--------|
-| Minimal Adaptive | 0.274 | 0.417 | ❌ INVALID (uses β instead of τ) |
-| **Full Adaptive** | **0.303** | **0.430** | ❌ INVALID (uses β instead of τ) |
+### Architecture
+- **Foundation**: DeepGPCM + Multi-head attention refinement
+- **Enhancement**: Iterative attention cycles on embeddings before IRT extraction
+- **Parameters**: ~302K (2x baseline due to attention layers)
+- **Innovation**: Attention-based embedding refinement for ordinal sequences
 
-**Critical Issue**: Results invalid due to CORAL using β parameters instead of τ thresholds.
+### Configuration
+```python
+EnhancedAttentionGPCM(
+    n_questions=n_questions,
+    n_cats=n_cats,
+    embed_dim=64,
+    memory_size=50,
+    key_dim=50,
+    value_dim=200,
+    final_fc_dim=50,
+    n_heads=4,
+    n_cycles=2,
+    embedding_strategy="linear_decay",
+    ability_scale=2.0,
+    dropout_rate=0.1
+)
+```
 
-### Technical Innovation: BGT Framework
+### Loss Configuration
+- **Loss Function**: Cross-Entropy Loss
+- **Focus**: Standard classification approach
 
-**Bounded Geometric Transform (BGT)** solution addresses gradient explosion in adaptive blending:
+### Mathematical Formulation
+```
+embed_refined = AttentionRefinement(embed_base, n_cycles=2)
+refined_t = gate_t ⊙ fusion(embed_t, attn(embed_t)) + (1 - gate_t) ⊙ embed_t
 
-**Problem**: Original mathematical operations caused gradient norms >20,000
-**Solution**: Replace explosive operations with bounded alternatives:
-- `log(1+x) → 2*tanh(x/2)` for stable logarithmic behavior
-- `x/(1+x) → sigmoid(x)` for division-free computation
-- Gradient norms reduced from >20,000 to <0.35
+IRT Parameters: θ_t, α_t, β_t = IRTExtractor(embed_refined)
+P(Y_t = k) = GPCM(θ_t, α_t, β_t)
+```
 
-### Semantic Threshold Alignment
+## 3. CORALGPCM (Probability Blending)
+**File**: `models/implementations/coral_gpcm_proper.py`  
+**Class**: `CORALGPCM`  
+**Model Key**: `coral_gpcm_proper`  
+**Color**: `#e377c2` (Pink)
 
-**Innovation**: Direct element-wise mapping between GPCM β and CORAL τ thresholds:
-- τ₀ ↔ β₀ (first threshold alignment)
-- τ₁ ↔ β₁ (second threshold alignment)  
-- τ₂ ↔ β₂ (third threshold alignment)
+### Architecture
+- **Foundation**: Dual-branch architecture with adaptive probability blending
+- **IRT Branch**: Standard GPCM computation with β thresholds
+- **CORAL Branch**: Ordinal regression with separate τ thresholds  
+- **Integration**: Weighted mixture of probability distributions
+- **Parameters**: ~154K
+- **Innovation**: Ensemble-style combination of IRT and ordinal approaches
 
-## Performance Analysis
+### Configuration
+```python
+CORALGPCM(
+    n_questions=n_questions,
+    n_cats=n_cats,
+    memory_size=50,
+    key_dim=50,
+    value_dim=200,
+    final_fc_dim=50,
+    embedding_strategy="linear_decay",
+    ability_scale=1.0,
+    use_discrimination=True,
+    coral_dropout=0.1,
+    use_adaptive_blending=True,
+    blend_weight=0.5
+)
+```
 
-### Current Performance (Validated Results)
+### Loss Configuration
+- **Loss Function**: Combined Loss
+  - Focal Loss: 40% weight
+  - QWK Loss: 20% weight  
+  - CORAL Loss: 40% weight
+- **Focus**: Multi-objective optimization across IRT and ordinal metrics
 
-| Model | Categorical Accuracy | QWK | Ordinal Accuracy | Status |
-|-------|---------------------|-----|------------------|--------|
-| **Deep-GPCM** | **53.5%** (±1.3%) | **0.643** (±0.016) | **83.1%** (±0.7%) | ✅ VALIDATED |
-| **Full Adaptive CORAL-GPCM** | **53.7%** (±1.1%) | **0.681** (±0.012) | **87.4%** (±0.4%) | ❌ INVALID (CORAL flaw) |
+### Mathematical Formulation
+```
+# IRT Branch
+P_GPCM = GPCM(θ_t, α_t, β_t)
 
-**Note**: CORAL results shown for reference but are invalid due to β/τ parameter confusion.
+# CORAL Branch  
+P(Y > k) = σ(α_t(θ_t - τ_k))  // Uses separate τ thresholds
+P_CORAL = CumulativeToCategorical(P(Y > k))
 
-### IRT Parameter Recovery
+# Adaptive Blending
+λ = AdaptiveBlender(β_t, τ_k)  // Geometry-based blending
+P_final = λ·P_GPCM + (1-λ)·P_CORAL
+```
 
-**Critical Finding**: Poor parameter recovery indicates fundamental representation differences:
-- **θ (ability)**: -0.03 to -0.11 correlation (essentially random/inverse)
-- **α (discrimination)**: 0.16 to 0.27 correlation (weak positive)
-- **β (thresholds)**: 0.30 to 0.53 correlation (moderate positive)
+## 4. CORALGPCMFixed (Parameter Combination)
+**File**: `models/implementations/coral_gpcm_fixed.py`  
+**Class**: `CORALGPCMFixed`  
+**Model Key**: `coral_gpcm_fixed`  
+**Color**: `#ff0000` (Red)
 
-**Root Cause**: Neural networks learn task-optimal representations that differ from classical IRT parameters, particularly for temporal vs. static parameter assumptions.
+### Architecture
+- **Foundation**: Unified computation with combined threshold parameters
+- **Parameter Fusion**: β (item-specific) + τ (global ordinal) at threshold level
+- **Single Computation**: Direct GPCM with fused thresholds
+- **Parameters**: ~154K  
+- **Innovation**: Parameter-level fusion for ordinal-aware thresholds
 
-## Research Contributions
+### Configuration
+```python
+CORALGPCMFixed(
+    n_questions=n_questions,
+    n_cats=n_cats,
+    memory_size=50,
+    key_dim=50,
+    value_dim=200,
+    final_fc_dim=50,
+    embedding_strategy="linear_decay",
+    ability_scale=1.0,
+    use_discrimination=True,
+    coral_dropout=0.1
+)
+```
 
-### 1. Temporal IRT Parameter Analysis
-- **Innovation**: First implementation of temporal IRT parameter extraction in neural knowledge tracing
-- **Finding**: All parameters (θ, α, β) are time-indexed, requiring averaging for classical IRT comparison
-- **Impact**: Reveals fundamental differences between neural and classical psychometric approaches
+### Loss Configuration
+- **Loss Function**: Combined Loss
+  - Focal Loss: 40% weight
+  - QWK Loss: 20% weight
+  - CORAL Loss: 40% weight
+- **Focus**: Same multi-objective approach as CORAL Proper
 
-### 2. BGT Mathematical Framework
-- **Novel Contribution**: Bounded Geometric Transform framework for neural network stability
-- **Generalizable**: Applicable beyond this project to any explosive geometric operations
-- **Theoretical**: Maintains mathematical semantics while ensuring numerical stability
+### Mathematical Formulation
+```
+# Parameter Combination
+β_combined = β_t + τ_k  // Fuse item-specific and ordinal thresholds
 
-### 3. Adaptive Threshold-Distance Blending
-- **Research Innovation**: First semantic threshold alignment for ordinal classification
-- **Category-Specific**: Individual adaptive weights per ordinal category
-- **Geometry-Aware**: Leverages threshold geometry for intelligent blending decisions
+# Single GPCM Computation
+P_final = GPCM(θ_t, α_t, β_combined)
 
-### 4. Gradient Isolation Technique
-- **Technical Contribution**: Strategic gradient detachment for memory-augmented networks
-- **Prevents Coupling**: Eliminates gradient amplification cascades
-- **Preserves Behavior**: Maintains adaptive functionality while ensuring stability
+Where:
+- β_t: Item-specific thresholds (temporal, per-item)
+- τ_k: Global ordinal thresholds (ordered: τ_1 ≤ τ_2 ≤ τ_3)
+```
 
-## System Integration
+## Removed Models (Configuration Variants)
+
+### 1. TestGPCM → CORALGPCMFixed
+- **Reason**: Identical architecture, only difference was CE loss vs Combined loss
+- **Solution**: Use CORALGPCMFixed with `--loss ce` flag in training
+
+### 2. AttentionGPCMNew → EnhancedAttentionGPCM  
+- **Reason**: Identical architecture, only difference was combined loss weights
+- **Solution**: Use EnhancedAttentionGPCM with `--loss combined --ce_weight 0.6 --qwk_weight 0.2 --focal_weight 0.2`
+
+### 3. ModularAttentionGPCM → Removed
+- **Reason**: Over-engineered with worse empirical performance
+- **Performance**: QWK 0.682 vs 0.689 (EnhancedAttentionGPCM)
+- **Complexity**: Significantly higher implementation and parameter complexity
+
+## Model Comparison Matrix
+
+| Model | Parameters | Innovation Type | Loss Function | Performance Focus |
+|-------|------------|----------------|---------------|-------------------|
+| DeepGPCM | ~151K | Neural-IRT Integration | Focal | Baseline Reference |
+| EnhancedAttentionGPCM | ~302K | Attention Refinement | Cross-Entropy | Embedding Enhancement |
+| CORALGPCM | ~154K | Probability Blending | Combined | IRT-Ordinal Ensemble |
+| CORALGPCMFixed | ~154K | Parameter Fusion | Combined | Unified Ordinal Thresholds |
+
+## Training Commands
+
+### Individual Model Training
+```bash
+# Baseline
+python train.py --model deep_gpcm --dataset DATASET --loss focal
+
+# Attention Enhanced  
+python train.py --model attn_gpcm --dataset DATASET --loss ce
+
+# CORAL Probability Blending
+python train.py --model coral_gpcm_proper --dataset DATASET --loss combined \
+    --focal_weight 0.4 --qwk_weight 0.2 --coral_weight 0.4
+
+# CORAL Parameter Fusion
+python train.py --model coral_gpcm_fixed --dataset DATASET --loss combined \
+    --focal_weight 0.4 --qwk_weight 0.2 --coral_weight 0.4
+```
 
 ### Complete Pipeline
 ```bash
-# Full pipeline with all phases
-python main.py --dataset synthetic_OC --epochs 30 --cv_folds 5
-
-# Individual components
-python train.py --model adaptive_coral_gpcm --dataset synthetic_OC --epochs 30
-python evaluate.py --all --dataset synthetic_OC
-python utils/plot_metrics.py
-python analysis/irt_analysis.py --dataset synthetic_OC --analysis_types recovery temporal
+# Train all 4 core models
+python main.py --models deep_gpcm attn_gpcm coral_gpcm_proper coral_gpcm_fixed \
+    --dataset DATASET --epochs 30 --n_folds 5
 ```
 
-### Key Features
-- ✅ **Unified Pipeline**: Single command for complete analysis workflow
-- ✅ **Cross-validation**: Automated k-fold CV with best model selection  
-- ✅ **Comprehensive Metrics**: Categorical accuracy, QWK, ordinal accuracy, MAE
-- ✅ **IRT Integration**: Full temporal IRT parameter analysis with visualization
-- ✅ **Professional Visualizations**: Publication-ready plots with consistent styling
-- ❌ **CORAL Integration**: Blocked by fundamental design flaw
-- 🚧 **Adaptive Blending**: Partially implemented, requires CORAL fix
+## Research Contributions
 
-## Current Status and Priorities
+1. **Neural-IRT Integration**: Temporal adaptation of psychometric models through memory networks
+2. **Attention-Enhanced Embeddings**: Multi-head attention refinement for ordinal sequences  
+3. **Dual-Branch Ordinal Integration**: Probability-level blending of IRT and CORAL approaches
+4. **Parameter-Level Fusion**: Threshold-level combination for unified ordinal computation
 
-### Implementation Status
+## Mathematical Validation
 
-#### ✅ IMPLEMENTED & WORKING
-- Deep-GPCM core model with DKVMN + IRT integration
-- BGT framework for gradient stability 
-- IRT parameter extraction and temporal analysis
-- Comprehensive evaluation pipeline
-- Cross-validation and metrics computation
+All models maintain:
+- **Probability Normalization**: Σ_k P(Y_t = k) = 1
+- **Monotonic Thresholds**: β_{t,k} < β_{t,k+1} (enforced via cumulative sum)
+- **Bounded Parameters**: θ ∈ [-3,3], α ≥ 0.1
+- **Gradient Stability**: BGT framework for numerical stability
 
-#### ❌ CRITICAL ISSUES (BLOCKING)
-1. **CORAL Design Flaw**: Uses β instead of τ parameters - invalidates all CORAL research
-2. **Adaptive Blending**: Depends on corrected CORAL implementation
-3. **Performance Claims**: Many benchmarks based on invalid CORAL results
+## Performance Benchmarks
 
-#### 🚧 PARTIALLY IMPLEMENTED  
-- Adaptive threshold blending framework (exists but requires CORAL fix)
-- BGT mathematical framework (implemented but CORAL-dependent features blocked)
+Based on synthetic_OC dataset (30 epochs, 5-fold CV):
+- **DeepGPCM**: QWK ~0.67 (baseline reference)
+- **EnhancedAttentionGPCM**: QWK ~0.69 (+3% improvement)
+- **CORALGPCM**: QWK ~0.69 (probability blending)
+- **CORALGPCMFixed**: QWK ~0.69 (parameter fusion)
 
-#### 📋 PLANNED FIXES
-1. **Implement correct τ parameter usage** in CORAL computation
-2. **Re-validate all CORAL-dependent results** with corrected implementation
-3. **Deploy full adaptive blending** with proper CORAL integration
-
-### Research Impact
-The Deep-GPCM project bridges neural memory networks with classical psychometrics, providing both theoretical insights into temporal parameter evolution and practical improvements in ordinal response prediction. The identification of the CORAL design flaw and development of stable adaptive blending mechanisms represent significant contributions to educational data mining and ordinal regression research.
-
----
-
-**Critical Action Required**: All CORAL-related research should be considered unreliable until the fundamental τ vs β parameter usage issue is resolved.
+Performance may vary by dataset characteristics and ordinal structure complexity.

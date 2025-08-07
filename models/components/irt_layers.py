@@ -98,16 +98,17 @@ class GPCMProbabilityLayer(nn.Module):
         super().__init__()
     
     def forward(self, theta: torch.Tensor, alpha: torch.Tensor, 
-                beta: torch.Tensor) -> torch.Tensor:
-        """Calculate GPCM response probabilities.
+                beta: torch.Tensor, return_logits: bool = False) -> torch.Tensor:
+        """Calculate GPCM response probabilities or logits.
         
         Args:
             theta: Student abilities, shape (batch_size, seq_len)
             alpha: Discrimination parameters, shape (batch_size, seq_len)
             beta: Threshold parameters, shape (batch_size, seq_len, K-1)
+            return_logits: If True, return raw logits; if False, return probabilities
             
         Returns:
-            probs: GPCM probabilities, shape (batch_size, seq_len, K)
+            probs/logits: GPCM probabilities or logits, shape (batch_size, seq_len, K)
         """
         batch_size, seq_len = theta.shape
         K = beta.shape[-1] + 1  # Number of categories
@@ -123,7 +124,9 @@ class GPCMProbabilityLayer(nn.Module):
                 dim=-1
             )
         
-        # Convert to probabilities via softmax
-        probs = F.softmax(cum_logits, dim=-1)
-        return probs
+        # Return logits for training (better numerical stability) or probabilities for inference
+        if return_logits:
+            return cum_logits
+        else:
+            return F.softmax(cum_logits, dim=-1)
 
