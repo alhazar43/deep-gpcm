@@ -908,9 +908,7 @@ def main():
     print("UNIFIED DEEP-GPCM MODEL EVALUATION")
     print("=" * 80)
     
-    # Create results directory
-    from utils.metrics import ensure_results_dirs
-    ensure_results_dirs()
+    # Note: Directory creation now handled by path_manager in new structure
     
     # Handle batch evaluation modes
     if args.summary_only:

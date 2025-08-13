@@ -613,7 +613,7 @@ def main():
     # Create directories
     path_manager = get_path_manager()
     ensure_directories(args.dataset)  # Ensure dataset-specific dirs exist
-    ensure_results_dirs()  # Keep for backward compatibility
+    # Note: Directory creation now handled by path_manager in new structure
     
     # Load data - support both old and new naming formats
     if args.dataset.startswith('synthetic_') and '_' in args.dataset[10:]:

@@ -48,8 +48,10 @@ class AdaptivePlotter:
         
         # Create dataset-specific plots directory if dataset is provided
         if dataset:
-            self.plots_dir = self.results_dir / "plots" / dataset
+            # NEW STRUCTURE: results/{dataset}/plots/
+            self.plots_dir = self.results_dir / dataset / "plots"
         else:
+            # Legacy structure: results/plots/
             self.plots_dir = self.results_dir / "plots"
         
         self.plots_dir.mkdir(exist_ok=True, parents=True)
@@ -163,25 +165,31 @@ class AdaptivePlotter:
             return rows, cols
     
     def load_results_from_dir(self, result_type: str = "train") -> List[Dict[str, Any]]:
-        """Load all results from a directory with support for new nested structure."""
-        target_dir = self.results_dir / result_type
+        """Load all results from a directory with support for new dataset-centric structure."""
         results = []
         
-        if not target_dir.exists():
-            return results
-        
-        # Check if we have the new nested structure (dataset subdirectories)
-        has_dataset_dirs = False
-        for item in target_dir.iterdir():
-            if item.is_dir():
-                has_dataset_dirs = True
-                break
-        
-        if has_dataset_dirs and self.dataset:
-            # New structure: results/[type]/[dataset]/*.json
-            dataset_dir = target_dir / self.dataset
-            if dataset_dir.exists():
-                for file_path in dataset_dir.glob("*.json"):
+        if self.dataset:
+            # NEW STRUCTURE: results/{dataset}/metrics/{result_type}_{model}.json
+            new_structure_dir = self.results_dir / self.dataset / "metrics"
+            if new_structure_dir.exists():
+                pattern = f"{result_type}_*.json"
+                for file_path in new_structure_dir.glob(pattern):
+                    try:
+                        with open(file_path, 'r') as f:
+                            data = json.load(f)
+                            data['source_file'] = file_path.name
+                            results.append(data)
+                    except Exception as e:
+                        print(f"Warning: Could not load {file_path}: {e}")
+                
+                # If we found files in new structure, return them
+                if results:
+                    return results
+            
+            # LEGACY STRUCTURE: results/{result_type}/{dataset}/*.json
+            legacy_dir = self.results_dir / result_type / self.dataset
+            if legacy_dir.exists():
+                for file_path in legacy_dir.glob("*.json"):
                     try:
                         with open(file_path, 'r') as f:
                             data = json.load(f)
@@ -190,15 +198,17 @@ class AdaptivePlotter:
                     except Exception as e:
                         print(f"Warning: Could not load {file_path}: {e}")
         else:
-            # Legacy structure: results/[type]/*.json
-            for file_path in target_dir.glob("*.json"):
-                try:
-                    with open(file_path, 'r') as f:
-                        data = json.load(f)
-                        data['source_file'] = file_path.name
-                        results.append(data)
-                except Exception as e:
-                    print(f"Warning: Could not load {file_path}: {e}")
+            # No dataset specified, try legacy structure
+            target_dir = self.results_dir / result_type
+            if target_dir.exists():
+                for file_path in target_dir.glob("*.json"):
+                    try:
+                        with open(file_path, 'r') as f:
+                            data = json.load(f)
+                            data['source_file'] = file_path.name
+                            results.append(data)
+                    except Exception as e:
+                        print(f"Warning: Could not load {file_path}: {e}")
         
         return results
     

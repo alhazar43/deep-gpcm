@@ -23,10 +23,9 @@ class PathManager:
         if self.use_new_structure:
             # New structure: results/dataset/{metrics,plots,irt_plots,models}/
             self.dirs = {
-                'models': self.base_dir / 'saved_models',  # Keep models separate for now
                 'results': self.base_dir / 'results',
-                'legacy_models': self.base_dir / 'save_models',
-                # Legacy structure for fallback
+                # Legacy structure for fallback only - no 'models' key to force dataset-specific paths
+                'legacy_models': self.base_dir / 'saved_models',
                 'legacy_train': self.base_dir / 'results' / 'train',
                 'legacy_validation': self.base_dir / 'results' / 'validation', 
                 'legacy_test': self.base_dir / 'results' / 'test',
@@ -51,19 +50,18 @@ class PathManager:
             dataset_base = self.dirs['results'] / dataset
             dataset_base.mkdir(parents=True, exist_ok=True)
             
-            # Create dataset-specific subdirectories
+            # Create dataset-specific subdirectories ONLY
             (dataset_base / 'metrics').mkdir(parents=True, exist_ok=True)
             (dataset_base / 'plots').mkdir(parents=True, exist_ok=True)
             (dataset_base / 'irt_plots').mkdir(parents=True, exist_ok=True)
             (dataset_base / 'models').mkdir(parents=True, exist_ok=True)
             
-            # Still create saved_models structure for compatibility
-            (self.dirs['models'] / dataset).mkdir(parents=True, exist_ok=True)
+            # DO NOT create any legacy directories in new structure mode
             
         else:
-            # Legacy structure or no dataset specified
+            # Legacy structure - create legacy directories
             for dir_type, path in self.dirs.items():
-                if not dir_type.startswith('legacy_') and dir_type != 'legacy_models':
+                if not dir_type.startswith('legacy_'):
                     path.mkdir(parents=True, exist_ok=True)
             
             # Dataset-specific directories if provided
@@ -95,15 +93,27 @@ class PathManager:
             else:
                 return self.dirs['legacy_models'] / f"best_{model_name}_{dataset}.pth"
         
-        # New format: saved_models/dataset/modelname_fold_x.pth or best_modelname.pth
-        model_dir = self.dirs['models'] / dataset
-        
-        if fold is not None:
-            return model_dir / f"{model_name}_fold_{fold}.pth"
-        elif is_best:
-            return model_dir / f"best_{model_name}.pth"
+        if self.use_new_structure:
+            # NEW STRUCTURE: results/dataset/models/best_modelname.pth
+            model_dir = self.dirs['results'] / dataset / 'models'
+            model_dir.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
+            
+            if fold is not None:
+                return model_dir / f"{model_name}_fold_{fold}.pth"
+            elif is_best:
+                return model_dir / f"best_{model_name}.pth"
+            else:
+                return model_dir / f"{model_name}.pth"
         else:
-            return model_dir / f"{model_name}.pth"
+            # LEGACY STRUCTURE: saved_models/dataset/best_modelname.pth
+            model_dir = self.dirs['models'] / dataset
+            
+            if fold is not None:
+                return model_dir / f"{model_name}_fold_{fold}.pth"
+            elif is_best:
+                return model_dir / f"best_{model_name}.pth"
+            else:
+                return model_dir / f"{model_name}.pth"
     
     def get_result_path(self, result_type: str, model_name: str, dataset: str, 
                        fold: Optional[int] = None, suffix: str = 'json') -> Path:
@@ -163,8 +173,12 @@ class PathManager:
         """
         files = {}
         
-        # Check new structure
-        new_dir = self.dirs['models'] / dataset
+        # Check new structure: results/dataset/models/
+        if self.use_new_structure:
+            new_dir = self.dirs['results'] / dataset / 'models'
+        else:
+            new_dir = self.dirs['models'] / dataset
+            
         if new_dir.exists():
             # Best model
             best_path = new_dir / f"best_{model_name}.pth"

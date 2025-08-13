@@ -13,7 +13,7 @@ from pathlib import Path
 # Fix Intel MKL threading issue
 os.environ['MKL_SERVICE_FORCE_INTEL'] = '1'
 
-from utils.metrics import ensure_results_dirs
+# from utils.metrics import ensure_results_dirs  # No longer needed with new structure
 from utils.path_utils import get_path_manager, find_best_model, ensure_directories
 from utils.clean_res import ResultsCleaner
 from models.factory import get_all_model_types, get_model_loss_config, validate_model_type
@@ -92,10 +92,9 @@ def run_complete_pipeline(models=None, dataset='synthetic_OC',
     
     print()
     
-    # Ensure results directories exist
+    # Ensure results directories exist (new structure)
     path_manager = get_path_manager()
     ensure_directories(dataset)
-    ensure_results_dirs()
     
     results = {'training': {}, 'evaluation': {}}
     
@@ -334,7 +333,7 @@ def main():
     elif args.action == 'train':
         # Training only
         print(f"\n🚀 TRAINING ONLY")
-        ensure_results_dirs()
+        # Note: Directory creation handled by path_manager
         
         for model in args.models:
             cmd = [

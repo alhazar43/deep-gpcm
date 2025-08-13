@@ -17,9 +17,14 @@ import sys
 class ResultsCleaner:
     """Handles cleanup of dataset-specific results across all directories."""
     
-    def __init__(self, base_dir: str = '.'):
+    def __init__(self, base_dir: str = '.', use_new_structure: bool = True):
+        from utils.path_utils import get_path_manager
         self.base_dir = Path(base_dir)
-        self.result_dirs = {
+        self.use_new_structure = use_new_structure
+        self.path_manager = get_path_manager(base_dir, use_new_structure=use_new_structure)
+        
+        # Legacy directory structure
+        self.legacy_dirs = {
             'train': self.base_dir / 'results' / 'train',
             'validation': self.base_dir / 'results' / 'validation',
             'valid': self.base_dir / 'results' / 'valid',  # Support both naming conventions
@@ -30,34 +35,49 @@ class ResultsCleaner:
             'models_legacy': self.base_dir / 'save_models'  # Legacy structure
         }
         
+        # New structure base directory
+        self.results_base = self.base_dir / 'results'
+        
     def find_dataset_files(self, dataset: str) -> Dict[str, List[Path]]:
-        """Find all files related to a specific dataset."""
+        """Find all files related to a specific dataset in both new and legacy structures."""
         files_to_clean = {
-            'train': [],
-            'validation': [],
-            'test': [],
-            'plots': [],
-            'irt_plots': [],
-            'models': []
+            'metrics': [],  # New structure: results/dataset/metrics/
+            'plots': [],    # New structure: results/dataset/plots/  
+            'irt_plots': [], # New structure: results/dataset/irt_plots/
+            'models': [],   # New structure: results/dataset/models/ + saved_models/dataset/
+            'legacy_train': [],      # Legacy: results/train/dataset/
+            'legacy_validation': [], # Legacy: results/validation/dataset/
+            'legacy_test': [],       # Legacy: results/test/dataset/
+            'legacy_plots': [],      # Legacy: results/plots/dataset/
+            'legacy_irt_plots': []   # Legacy: results/irt_plots/dataset/
         }
         
-        # Find train/validation/test results (nested structure)
+        # NEW STRUCTURE: results/dataset/{metrics,plots,irt_plots,models}/
+        dataset_base = self.results_base / dataset
+        if dataset_base.exists() and dataset_base.is_dir():
+            # Check for new structure subdirectories
+            for subdir in ['metrics', 'plots', 'irt_plots', 'models']:
+                subdir_path = dataset_base / subdir
+                if subdir_path.exists() and subdir_path.is_dir():
+                    files_to_clean[subdir].append(subdir_path)
+        
+        # LEGACY STRUCTURE: results/{train,validation,test,plots,irt_plots}/dataset/
         for result_type in ['train', 'validation', 'valid', 'test']:
-            result_dir = self.result_dirs.get(result_type)
+            result_dir = self.legacy_dirs.get(result_type)
             if result_dir and result_dir.exists():
                 dataset_dir = result_dir / dataset
                 if dataset_dir.exists() and dataset_dir.is_dir():
                     # Map 'valid' to 'validation' for consistency
-                    key = 'validation' if result_type == 'valid' else result_type
+                    key = f'legacy_{"validation" if result_type == "valid" else result_type}'
                     files_to_clean[key].append(dataset_dir)
         
-        # Find plots directory and files containing dataset name
-        plots_dir = self.result_dirs['plots']
+        # Legacy plots directory
+        plots_dir = self.legacy_dirs['plots']
         if plots_dir.exists():
             # Check for dataset-specific plots directory
             dataset_plots_dir = plots_dir / dataset
             if dataset_plots_dir.exists() and dataset_plots_dir.is_dir():
-                files_to_clean['plots'].append(dataset_plots_dir)
+                files_to_clean['legacy_plots'].append(dataset_plots_dir)
             
             # Also check for individual plot files containing dataset name
             plot_files = list(plots_dir.glob(f'*_{dataset}_*.png'))
@@ -66,48 +86,65 @@ class ResultsCleaner:
             plot_files.extend(list(plots_dir.glob(f'*_{dataset}_*.pdf')))
             plot_files.extend(list(plots_dir.glob(f'*_{dataset}.pdf')))
             plot_files.extend(list(plots_dir.glob(f'{dataset}_*.pdf')))
-            files_to_clean['plots'].extend(plot_files)
+            files_to_clean['legacy_plots'].extend(plot_files)
         
-        # Find IRT plots directory
-        irt_dir = self.result_dirs['irt_plots'] / dataset
+        # Legacy IRT plots directory
+        irt_dir = self.legacy_dirs['irt_plots'] / dataset
         if irt_dir.exists() and irt_dir.is_dir():
-            files_to_clean['irt_plots'].append(irt_dir)
+            files_to_clean['legacy_irt_plots'].append(irt_dir)
         
-        # Find model files (new structure)
-        models_new_dir = self.result_dirs['models_new'] / dataset
-        if models_new_dir.exists() and models_new_dir.is_dir():
-            files_to_clean['models'].append(models_new_dir)
+        # LEGACY STRUCTURE MODELS: saved_models/dataset/
+        legacy_models_new_dir = self.legacy_dirs['models_new'] / dataset
+        if legacy_models_new_dir.exists() and legacy_models_new_dir.is_dir():
+            files_to_clean['models'].append(legacy_models_new_dir)
         
-        # Find model files (legacy structure)
-        models_legacy_dir = self.result_dirs['models_legacy']
-        if models_legacy_dir.exists():
-            model_files = list(models_legacy_dir.glob(f'*_{dataset}.pth'))
-            model_files.extend(list(models_legacy_dir.glob(f'*_{dataset}_*.pth')))
+        # LEGACY STRUCTURE MODELS: save_models/*dataset*.pth
+        legacy_models_old_dir = self.legacy_dirs['models_legacy']
+        if legacy_models_old_dir.exists():
+            model_files = list(legacy_models_old_dir.glob(f'*_{dataset}.pth'))
+            model_files.extend(list(legacy_models_old_dir.glob(f'*_{dataset}_*.pth')))
             files_to_clean['models'].extend(model_files)
         
         return files_to_clean
     
     def get_all_datasets(self) -> Set[str]:
-        """Detect all datasets present in the results."""
+        """Detect all datasets present in both new and legacy structures."""
         datasets = set()
         
-        # Check train/validation/test directories
+        # NEW STRUCTURE: Check results/ for dataset directories
+        if self.results_base.exists():
+            for item in self.results_base.iterdir():
+                if item.is_dir() and not item.name.startswith('.'):
+                    # Check if it has new structure subdirectories
+                    has_metrics = (item / 'metrics').exists()
+                    has_plots = (item / 'plots').exists()
+                    has_irt_plots = (item / 'irt_plots').exists()
+                    has_models = (item / 'models').exists()
+                    
+                    # If it has any new structure subdirectories, it's a dataset
+                    if has_metrics or has_plots or has_irt_plots or has_models:
+                        datasets.add(item.name)
+        
+        # LEGACY STRUCTURE: Check train/validation/test directories
         for result_type in ['train', 'validation', 'valid', 'test']:
-            result_dir = self.result_dirs.get(result_type)
+            result_dir = self.legacy_dirs.get(result_type)
             if result_dir and result_dir.exists():
                 for item in result_dir.iterdir():
                     if item.is_dir():
                         datasets.add(item.name)
         
-        # Check saved_models directory
-        models_new_dir = self.result_dirs['models_new']
+        # Check saved_models directory (legacy structure)
+        models_new_dir = self.legacy_dirs['models_new']
         if models_new_dir.exists():
             for item in models_new_dir.iterdir():
                 if item.is_dir():
                     datasets.add(item.name)
         
-        # Check IRT plots directory
-        irt_dir = self.result_dirs['irt_plots']
+        # Check models in new structure (already covered by new structure check above)
+        # No additional check needed since models are under results/dataset/models/
+        
+        # Check legacy IRT plots directory
+        irt_dir = self.legacy_dirs['irt_plots']
         if irt_dir.exists():
             for item in irt_dir.iterdir():
                 if item.is_dir():

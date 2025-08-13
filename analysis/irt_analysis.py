@@ -2174,8 +2174,8 @@ Examples:
     
     parser.add_argument('--dataset', default='synthetic_OC', 
                         help='Dataset name')
-    parser.add_argument('--output_dir', default='results/irt_plots', 
-                        help='Output directory for results')
+    parser.add_argument('--output_dir', default=None, 
+                        help='Output directory for results (default: auto-detect new structure)')
     parser.add_argument('--split', default='test', choices=['train', 'test'],
                         help='Which data split to analyze')
     
