@@ -37,10 +37,14 @@ from utils.path_utils import get_path_manager, find_best_model
 class UnifiedIRTAnalyzer:
     """Unified IRT analysis tool with all functionality."""
     
-    def __init__(self, dataset='synthetic_OC', output_dir='results/irt_plots'):
+    def __init__(self, dataset='synthetic_OC', output_dir=None):
+        from utils.path_utils import get_plot_path
         self.dataset = dataset
-        # Create dataset-specific output directory
-        self.output_dir = Path(output_dir) / dataset
+        # Create dataset-specific output directory using new structure
+        if output_dir is None:
+            self.output_dir = get_plot_path(dataset, 'irt')
+        else:
+            self.output_dir = Path(output_dir) / dataset
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         # Import model registry for current model names and colors

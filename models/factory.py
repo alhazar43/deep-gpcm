@@ -278,9 +278,9 @@ MODEL_REGISTRY = {
         },
         'loss_config': {
             'type': 'combined',
-            'ce_weight': 0.6,
+            'ce_weight': 0.4,
             'qwk_weight': 0.2,
-            'focal_weight': 0.2
+            'focal_weight': 0.4
         }
     },
     'stable_temporal_attn_gpcm': {

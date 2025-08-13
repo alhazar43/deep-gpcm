@@ -184,7 +184,7 @@ class IRTAnalysisConfig:
     
     # Dataset and directories
     dataset: str = 'synthetic_OC'
-    output_dir: Path = field(default_factory=lambda: Path("results/irt_plots"))
+    output_dir: Optional[Path] = None  # Will use path_utils.get_plot_path() if None
     
     # Analysis types
     analysis_types: List[str] = field(default_factory=lambda: ['recovery', 'temporal'])
