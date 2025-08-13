@@ -3,8 +3,9 @@ import torch.nn as nn
 
 from .implementations.deep_gpcm import DeepGPCM
 from .implementations.attention_gpcm import AttentionGPCM, EnhancedAttentionGPCM
-from .implementations.temporal_attention_gpcm import TemporalAttentionGPCM
-from .implementations.fixed_temporal_attention_gpcm import FixedTemporalAttentionGPCM
+# Unused temporal models moved to tmp_cleanup/phase3/
+# from .implementations.temporal_attention_gpcm import TemporalAttentionGPCM
+# from .implementations.fixed_temporal_attention_gpcm import FixedTemporalAttentionGPCM
 from .implementations.stable_temporal_attention_gpcm import StableTemporalAttentionGPCM
 # Legacy CORAL imports removed - only coral_gpcm_proper remains
 from .implementations.coral_gpcm_proper import CORALGPCM
