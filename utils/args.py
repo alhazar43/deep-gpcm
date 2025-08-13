@@ -54,12 +54,19 @@ class UnifiedArgumentParser:
         arch_group.add_argument('--dropout', type=float, default=0.1,
                               help='Dropout rate')
         
-        # Cross-validation
+        # Cross-validation - streamlined approach
         cv_group = self.parser.add_argument_group('Cross-Validation')
-        cv_group.add_argument('--folds', type=int, default=5,
-                            help='Number of CV folds')
+        cv_group.add_argument('--n_folds', type=int, default=5,
+                            help='Number of CV folds (0=no CV, 1=single run, >1=K-fold CV)')
         cv_group.add_argument('--fold', type=int, default=None,
                             help='Specific fold to run (1-based, None for all)')
+        cv_group.add_argument('--hyperopt', action='store_true',
+                            help='Enable Bayesian hyperparameter optimization')
+        cv_group.add_argument('--hyperopt_trials', type=int, default=50,
+                            help='Number of hyperparameter optimization trials')
+        cv_group.add_argument('--hyperopt_metric', type=str, default='quadratic_weighted_kappa',
+                            choices=['quadratic_weighted_kappa', 'categorical_accuracy', 'ordinal_accuracy'],
+                            help='Metric to optimize during hyperparameter search')
         
         # Output configuration
         output_group = self.parser.add_argument_group('Output Configuration')
@@ -339,12 +346,12 @@ def validate_args(args, required_fields: List[str] = None) -> None:
     if hasattr(args, 'lr') and (args.lr <= 0 or args.lr > 1):
         raise ValueError("learning_rate must be in (0, 1]")
         
-    if hasattr(args, 'folds') and args.folds != 0 and args.folds < 2:
-        raise ValueError("folds must be 0 (no CV) or >= 2")
+    if hasattr(args, 'n_folds') and args.n_folds < 0:
+        raise ValueError("n_folds must be >= 0 (0=no CV, 1=single run, >1=K-fold CV)")
         
-    if hasattr(args, 'fold') and args.fold is not None:
-        if args.fold < 1 or args.fold > args.folds:
-            raise ValueError(f"fold must be in [1, {args.folds}]")
+    if hasattr(args, 'fold') and args.fold is not None and hasattr(args, 'n_folds'):
+        if args.fold < 1 or args.fold > args.n_folds:
+            raise ValueError(f"fold must be in [1, {args.n_folds}]")
 
 
 if __name__ == "__main__":

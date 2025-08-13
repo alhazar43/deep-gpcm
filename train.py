@@ -540,21 +540,26 @@ def main():
                                 help='Single model to train (from factory registry)')
         train_group.add_argument('--models', nargs='+', choices=available_models,
                                 help='Multiple models to train sequentially')
+        train_group.add_argument('--loss', type=str, default='factory',
+                                help='Loss function type (factory=use model default, ce, focal, qwk, combined)')
+        # Legacy arguments for backward compatibility
         train_group.add_argument('--no_cv', action='store_true', 
-                                help='Disable k-fold training (deprecated, use --folds 0)')
-        train_group.add_argument('--n_folds', type=int, default=5, 
-                                help='Number of folds for k-fold training (0 = no folds)')
+                                help='Disable k-fold training (deprecated, use --n_folds 0)')
         train_group.add_argument('--cv', action='store_true', 
-                                help='Enable cross-validation with hyperparameter tuning')
+                                help='Enable basic CV (deprecated, use --hyperopt for advanced optimization)')
         
         args = parser.parse_args()
         validate_args(args, required_fields=['dataset'])
         
         # Map unified args to legacy format
-        if hasattr(args, 'learning_rate') and args.learning_rate != args.lr:
+        if hasattr(args, 'learning_rate') and hasattr(args, 'lr') and args.learning_rate != args.lr:
             args.lr = args.learning_rate
-        if hasattr(args, 'folds'):
-            args.n_folds = args.folds  # Always map folds to n_folds for compatibility
+            
+        # Handle legacy CV flags
+        if args.no_cv:
+            args.n_folds = 0
+        elif args.cv and not hasattr(args, 'hyperopt'):
+            args.n_folds = max(args.n_folds, 3)  # Ensure at least 3-fold for basic CV
             
     except Exception as e:
         print(f"Warning: Unified parser failed ({e}), falling back to legacy parser")
@@ -571,13 +576,23 @@ def main():
         parser.add_argument('--epochs', type=int, default=30, help='Number of epochs')
         parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
         parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
-        parser.add_argument('--n_folds', type=int, default=5, help='Number of folds for k-fold training (0 = no folds)')
+        parser.add_argument('--n_folds', type=int, default=5, help='Number of folds for k-fold training (0 = no CV, 1 = single run, >1 = K-fold)')
         parser.add_argument('--no_cv', action='store_true', help='Disable k-fold training (deprecated, use --n_folds 0)')
-        parser.add_argument('--cv', action='store_true', help='Enable cross-validation with hyperparameter tuning')
+        parser.add_argument('--cv', action='store_true', help='Enable basic cross-validation (deprecated)')
+        parser.add_argument('--hyperopt', action='store_true', help='Enable Bayesian hyperparameter optimization')
+        parser.add_argument('--hyperopt_trials', type=int, default=50, help='Number of hyperparameter optimization trials')
+        parser.add_argument('--hyperopt_metric', type=str, default='quadratic_weighted_kappa', help='Metric to optimize')
+        parser.add_argument('--loss', type=str, default='factory', help='Loss function override (factory=use model default)')
         parser.add_argument('--seed', type=int, default=42, help='Random seed')
         parser.add_argument('--device', default=None, help='Device (cuda/cpu)')
         
         args = parser.parse_args()
+        
+        # Handle legacy CV flags for fallback parser
+        if args.no_cv:
+            args.n_folds = 0
+        elif args.cv and not args.hyperopt:
+            args.n_folds = max(args.n_folds, 3)  # Ensure at least 3-fold for basic CV
     
     # Get available models from factory registry for validation
     available_models = get_all_model_types()
@@ -623,13 +638,21 @@ def main():
     print(f"Dataset: {args.dataset}")
     print(f"Device: {device}")
     print(f"Epochs: {args.epochs}")
-    if args.no_cv or args.n_folds == 0:
-        print(f"Training: Single run (no folds)")
+    
+    # Determine training mode
+    if hasattr(args, 'hyperopt') and args.hyperopt:
+        print(f"Hyperparameter optimization: {args.hyperopt_trials} trials with {args.n_folds}-fold CV")
+        print(f"Optimization metric: {args.hyperopt_metric}")
+    elif args.n_folds == 0:
+        print(f"Training: Single run (no cross-validation)")
+    elif args.n_folds == 1:
+        print(f"Training: Single run")
     elif args.cv:
-        print(f"Cross-validation: {args.n_folds}-fold with hyperparameter tuning")
+        print(f"Cross-validation: {args.n_folds}-fold with hyperparameter tuning (legacy)")
     else:
         print(f"K-fold training: {args.n_folds}-fold (no hyperparameter tuning)")
-    print(f"Loss configuration: Per-model factory settings")
+    
+    print(f"Loss configuration: {'Command-line override' if args.loss != 'factory' else 'Per-model factory settings'}")
     print()
     
     # Create directories
@@ -659,22 +682,139 @@ def main():
     for model_name in models_to_train:
         print(f"\n{'='*20} TRAINING {model_name.upper()} {'='*20}")
         
-        # Always use factory configuration for each model
+        # Get factory loss configuration
         from models.factory import get_model_loss_config
         loss_config = get_model_loss_config(model_name)
         
-        # Always use factory loss configuration (ignore command line for per-model config)
-        current_loss = loss_config.get('type', 'ce')
-        print(f"🔧 Using factory loss configuration: {current_loss}")
+        # Determine loss function - allow command line override
+        if hasattr(args, 'loss') and args.loss != 'factory':
+            current_loss = args.loss
+            print(f"🔧 Using command-line loss override: {current_loss}")
+            # Use factory parameters but override type
+            factory_loss_kwargs = {}
+            for param, value in loss_config.items():
+                if param != 'type':
+                    factory_loss_kwargs[param] = value
+        else:
+            # Use factory configuration
+            current_loss = loss_config.get('type', 'ce')
+            print(f"🔧 Using factory loss configuration: {current_loss}")
+            # Use all factory loss parameters
+            factory_loss_kwargs = {}
+            for param, value in loss_config.items():
+                if param != 'type':
+                    factory_loss_kwargs[param] = value
         
-        # Use factory loss parameters for this model
-        factory_loss_kwargs = {}
-        for param, value in loss_config.items():
-            if param != 'type':
-                factory_loss_kwargs[param] = value
-        
-        # Cross-validation or single training
-        if args.no_cv or args.n_folds == 0:
+        # Determine training approach
+        if hasattr(args, 'hyperopt') and args.hyperopt:
+            # Advanced Bayesian hyperparameter optimization
+            print("🔬 Bayesian hyperparameter optimization")
+            
+            from optimization.adaptive_hyperopt import create_optimizer, OptimizationConfig
+            
+            # Create optimizer configuration
+            opt_config = OptimizationConfig(
+                n_trials=args.hyperopt_trials,
+                n_initial_random=max(10, args.hyperopt_trials // 5),
+                cv_folds=max(args.n_folds, 3),  # Ensure at least 3-fold for hyperopt
+                cv_epochs=min(args.epochs // 3, 15),  # Use fewer epochs for CV
+                final_epochs=args.epochs,
+                metric_to_optimize=args.hyperopt_metric,
+                maximize=True,  # All our metrics are better when higher
+                early_stopping_patience=args.hyperopt_trials // 3,
+                save_intermediate=True
+            )
+            
+            # Create optimizer
+            optimizer = create_optimizer(
+                model_type=model_name,
+                n_questions=n_questions,
+                n_cats=n_cats,
+                device=device,
+                n_trials=args.hyperopt_trials,
+                **opt_config.__dict__
+            )
+            
+            # Combine all data for optimization
+            all_data = train_data + test_data
+            
+            # Run optimization
+            best_trial = optimizer.optimize(all_data, [])  # Use empty test for pure CV
+            optimizer.print_summary()
+            
+            # Train final model with best hyperparameters
+            best_hyperparams = best_trial.hyperparameters
+            print(f"\n🏆 Training final model with optimized hyperparameters:")
+            for param, value in best_hyperparams.items():
+                if isinstance(value, float):
+                    print(f"  {param}: {value:.6f}")
+                else:
+                    print(f"  {param}: {value}")
+            
+            # Create data loaders with optimized batch size
+            final_batch_size = best_hyperparams.get('batch_size', args.batch_size)
+            train_loader, test_loader = create_data_loaders(train_data, test_data, final_batch_size)
+            
+            # Create model with optimized parameters
+            model_params = {k: v for k, v in best_hyperparams.items() 
+                           if k not in ['lr', 'batch_size', 'weight_decay'] and not k.endswith('_weight')}
+            model = create_model(model_name, n_questions, n_cats, device, **model_params)
+            
+            # Override loss configuration with optimized weights
+            optimized_loss_kwargs = {}
+            for key in ['ce_weight', 'focal_weight', 'qwk_weight', 'coral_weight']:
+                if key in best_hyperparams:
+                    optimized_loss_kwargs[key] = best_hyperparams[key]
+            
+            # Add optimized learning rate
+            optimized_loss_kwargs['lr'] = best_hyperparams.get('lr', args.lr)
+            
+            # Train final model
+            best_model_state, best_metrics, training_history = train_single_fold(
+                model, train_loader, test_loader, device, args.epochs, model_name,
+                loss_type=current_loss, loss_kwargs=optimized_loss_kwargs
+            )
+            
+            # Save optimized model
+            model_path = path_manager.get_model_path(model_name, args.dataset, is_best=True)
+            torch.save({
+                'model_state_dict': best_model_state,
+                'config': {
+                    'model_type': model_name,
+                    'n_questions': n_questions,
+                    'n_cats': n_cats,
+                    'dataset': args.dataset,
+                    'optimized_hyperparameters': best_hyperparams,
+                    'optimization_trials': args.hyperopt_trials,
+                    'optimization_metric': args.hyperopt_metric
+                },
+                'metrics': best_metrics,
+                'hyperopt_results': {
+                    'best_score': optimizer.best_score,
+                    'total_trials': len(optimizer.trials),
+                    'convergence_rate': sum(1 for t in optimizer.trials if t.converged) / len(optimizer.trials)
+                }
+            }, model_path)
+            
+            # Save training results
+            training_results = {
+                'config': {**vars(args), 'optimized_hyperparameters': best_hyperparams},
+                'metrics': best_metrics,
+                'training_history': training_history,
+                'hyperopt_summary': {
+                    'best_trial_id': best_trial.trial_id,
+                    'best_score': optimizer.best_score,
+                    'total_trials': len(optimizer.trials),
+                    'optimization_time': sum(t.training_time for t in optimizer.trials)
+                }
+            }
+            log_path = path_manager.get_result_path('train', model_name, args.dataset)
+            save_results(training_results, str(log_path))
+            
+            print(f"💾 Optimized model saved to: {model_path}")
+            print(f"📋 Training logs saved to: {log_path}")
+            
+        elif args.n_folds <= 1:
             print("📈 Single training (no cross-validation)")
             
             # Create data loaders
@@ -853,7 +993,7 @@ def main():
             print(f"\n🏆 Best fold: {best_fold} (QWK: {cv_results[best_fold_idx]['metrics']['quadratic_weighted_kappa']:.3f})")
             print(f"💾 Best model saved to: {main_model_path}")
         
-        else:
+        elif args.n_folds > 1:
             # Standard k-fold training (no hyperparameter tuning)
             print(f"📈 {args.n_folds}-fold training (no hyperparameter tuning)")
         
@@ -955,8 +1095,13 @@ def main():
                 }
                 log_path = path_manager.get_result_path('train', model_name, args.dataset, fold=fold)
                 save_results(fold_training_results, str(log_path))
+                
+        else:
+            # n_folds == 0: No cross-validation, just single train/test split
+            print("📈 Single train/test split (no cross-validation)")
+            print("✅ Training completed successfully!")
         
-        if not args.no_cv and args.n_folds > 0 and not args.cv:
+        if not args.no_cv and args.n_folds > 1 and not args.cv:
             # Compute and display k-fold summary
             print(f"\\n{'='*20} K-FOLD SUMMARY {'='*20}")
             
