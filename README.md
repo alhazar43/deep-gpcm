@@ -8,30 +8,29 @@ Production-ready Deep Generalized Partial Credit Model for polytomous response p
 # Activate conda environment (REQUIRED)
 source ~/anaconda3/etc/profile.d/conda.sh && conda activate vrec-env
 
-# Train and evaluate the three main models
-python train.py --models deep_gpcm attn_gpcm coral_gpcm_proper --dataset synthetic_OC --epochs 30
+# Single training run (no cross-validation)
+python train.py --model deep_gpcm --dataset synthetic_500_200_4 --epochs 30 --n_folds 0
 
-# Complete pipeline with legacy dataset
-python main.py --dataset synthetic_OC --epochs 30
+# K-fold cross-validation training
+python train.py --model deep_gpcm --dataset synthetic_500_200_4 --epochs 30 --n_folds 5
 
-# Complete pipeline with new format datasets
-python main.py --dataset synthetic_4000_200_2 --epochs 30  # 2 categories
-python main.py --dataset synthetic_4000_200_3 --epochs 30  # 3 categories
-python main.py --dataset synthetic_4000_200_5 --epochs 30  # 5 categories
+# Hyperparameter optimization with Bayesian search
+python train.py --model deep_gpcm --dataset synthetic_500_200_4 --hyperopt --hyperopt_trials 50 --n_folds 5
 
-# Pipeline with pre-execution cleanup (start fresh)
-python main.py --dataset synthetic_OC --epochs 30 --clean  # Clean before training
+# Multiple models in sequence
+python train.py --models deep_gpcm attn_gpcm --dataset synthetic_500_200_4 --epochs 30
 ```
 
 ## Key Features
 
+- ✅ **Bayesian Hyperparameter Optimization**: Automated parameter tuning with Gaussian Process regression
+- ✅ **Comprehensive Training Modes**: Single training, K-fold CV, and hyperparameter optimization
+- ✅ **Advanced Loss Weight Optimization**: Automatic tuning of combined loss components (CE, focal, QWK)
+- ✅ **Intelligent Analysis & Visualization**: 9-panel optimization dashboards with parameter importance
 - ✅ **Temporal IRT Modeling**: Dynamic extraction of student abilities (θ), item discriminations (α), and thresholds (β)
 - ✅ **CORAL Ordinal Regression**: Proper IRT-CORAL separation with coral_gpcm_proper model
-- ✅ **Adaptive Blending**: Dynamic blending of GPCM and CORAL predictions based on threshold geometry
 - ✅ **Memory Networks**: DKVMN architecture with attention-based knowledge state tracking
-- ✅ **Comprehensive Analysis**: Full IRT parameter analysis with temporal visualization
-- ✅ **Extended Model Support**: 6 models including coral_gpcm_fixed, test_gpcm, and attn_gpcm_new
-- ✅ **Enhanced Visualizations**: Temporal rank-rank heatmaps and improved parameter recovery plots
+- ✅ **Production-Ready Pipeline**: Streamlined CV logic with unified argument parsing
 
 ## Main Pipeline
 
@@ -83,21 +82,53 @@ python main.py --action clean --clean-all --no-confirm  # Clean all without prom
 
 **Note**: The main.py pipeline automatically configures the optimal loss function for each model type.
 
-## Individual Component Usage
+## Training Modes
 
-### Training
+### 1. Single Training (No Cross-Validation)
 ```bash
-# Standard models with cross-validation
-python train.py --model deep_gpcm --dataset synthetic_OC --epochs 30 --n_folds 5
+# Basic single model training
+python train.py --model deep_gpcm --dataset synthetic_500_200_4 --epochs 30 --n_folds 0
 
-# Proper CORAL-GPCM with IRT-CORAL separation
-python train.py --model coral_gpcm_proper --dataset synthetic_OC --epochs 30
+# With custom loss function
+python train.py --model deep_gpcm --dataset synthetic_500_200_4 --epochs 30 --n_folds 0 --loss combined
+```
 
-# Multiple models in sequence
-python train.py --models deep_gpcm attn_gpcm coral_gpcm_proper --dataset synthetic_OC --epochs 30
+### 2. K-Fold Cross-Validation
+```bash
+# Standard k-fold training (no hyperparameter tuning)
+python train.py --model deep_gpcm --dataset synthetic_500_200_4 --epochs 30 --n_folds 5
 
-# Train all 6 models
-python train.py --models deep_gpcm attn_gpcm coral_gpcm_proper coral_gpcm_fixed test_gpcm attn_gpcm_new --dataset synthetic_OC --epochs 30
+# Multiple models with k-fold CV
+python train.py --models deep_gpcm attn_gpcm --dataset synthetic_500_200_4 --epochs 30 --n_folds 3
+```
+
+### 3. Hyperparameter Optimization
+```bash
+# Bayesian optimization with Gaussian Process
+python train.py --model deep_gpcm --dataset synthetic_500_200_4 --hyperopt --hyperopt_trials 50 --n_folds 5
+
+# Quick hyperparameter search (fewer trials)
+python train.py --model deep_gpcm --dataset synthetic_500_200_4 --hyperopt --hyperopt_trials 20 --n_folds 3
+
+# Optimize specific metric
+python train.py --model deep_gpcm --dataset synthetic_500_200_4 --hyperopt --hyperopt_trials 50 --hyperopt_metric categorical_accuracy
+```
+
+**Hyperparameter Optimization Features**:
+- **Bayesian Search**: Gaussian Process with Expected Improvement acquisition
+- **Parameter Space**: `memory_size`, `final_fc_dim`, `dropout_rate`, loss weights
+- **Loss Weight Optimization**: Automatic tuning of CE, focal, and QWK weights
+- **Comprehensive Analysis**: 9-panel visualization dashboard with parameter importance
+- **Convergence Analysis**: Tracks optimization efficiency and best parameter combinations
+- **Integration**: Seamlessly works with existing training pipeline
+
+### Generated Hyperopt Outputs
+```
+results/hyperopt/
+├── {model}_{dataset}_hyperopt_analysis.png     # 9-panel analysis dashboard
+├── {model}_{dataset}_detailed_parameters.png   # Individual parameter analysis
+├── {model}_{dataset}_hyperopt_report.md        # Comprehensive markdown report
+└── {model}_{dataset}_hyperopt_analysis.json    # Raw analysis data
 ```
 
 ### Evaluation
@@ -364,13 +395,22 @@ python utils/clean_res.py --dataset synthetic_OC --no-backup
 ## Configuration Options
 
 ### Main Arguments
-- `--models`: Model types (default: all main models)
-- `--dataset`: Dataset name (e.g., `synthetic_OC`, `synthetic_4000_200_2`)
+- `--model`: Single model to train (`deep_gpcm`, `attn_gpcm`, etc.)
+- `--models`: Multiple models to train sequentially
+- `--dataset`: Dataset name (e.g., `synthetic_500_200_4`, `synthetic_OC`)
 - `--epochs`: Training epochs (default: 30)
-- `--n_folds`: Number of folds for k-fold training (default: 5, use 0 for no folds)
-- `--cv`: Enable cross-validation with hyperparameter tuning (flag)
+- `--n_folds`: Number of folds (0=no CV, 1=single run, >1=K-fold CV, default: 5)
 - `--batch_size`: Batch size (default: 64)
 - `--device`: Device selection (`cuda`/`cpu`)
+
+### Hyperparameter Optimization Arguments
+- `--hyperopt`: Enable Bayesian hyperparameter optimization
+- `--hyperopt_trials`: Number of optimization trials (default: 50)
+- `--hyperopt_metric`: Metric to optimize (default: `quadratic_weighted_kappa`)
+
+### Legacy Arguments (Deprecated)
+- `--cv`: Enable cross-validation with hyperparameter tuning (use `--hyperopt` instead)
+- `--no_cv`: Disable cross-validation (use `--n_folds 0` instead)
 
 ### Cleanup Arguments
 - `--clean`: Clean existing results before running pipeline (start fresh)
