@@ -677,11 +677,17 @@ def find_trained_models(models_dir: str = "save_models") -> dict:
     return model_files
 
 
-def generate_evaluation_summary(results_dir: str = "results/test") -> dict:
+def generate_evaluation_summary(results_dir: Optional[str] = None) -> dict:
     """Generate summary of all evaluation results."""
     from pathlib import Path
+    from utils.path_utils import get_path_manager
     
-    results_dir = Path(results_dir)
+    if results_dir is None:
+        # Use default test results directory - for new structure this will need dataset specification
+        results_dir = Path("results/test")  # Fallback for legacy support
+    else:
+        results_dir = Path(results_dir)
+    
     if not results_dir.exists():
         return {}
     

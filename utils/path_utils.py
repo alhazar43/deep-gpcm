@@ -14,34 +14,65 @@ from datetime import datetime
 class PathManager:
     """Manages file paths for models and results with dual structure support"""
     
-    def __init__(self, base_dir: str = "."):
+    def __init__(self, base_dir: str = ".", use_new_structure: bool = True):
         self.base_dir = Path(base_dir)
         self.legacy_mode = False  # Can be toggled for backward compatibility
+        self.use_new_structure = use_new_structure  # New dataset-centric structure
         
         # Define directory structures
-        self.dirs = {
-            'models': self.base_dir / 'saved_models',
-            'results': self.base_dir / 'results',
-            'train': self.base_dir / 'results' / 'train',
-            'validation': self.base_dir / 'results' / 'validation',
-            'test': self.base_dir / 'results' / 'test',
-            'plots': self.base_dir / 'results' / 'plots',
-            'legacy_models': self.base_dir / 'save_models'
-        }
+        if self.use_new_structure:
+            # New structure: results/dataset/{metrics,plots,irt_plots,models}/
+            self.dirs = {
+                'models': self.base_dir / 'saved_models',  # Keep models separate for now
+                'results': self.base_dir / 'results',
+                'legacy_models': self.base_dir / 'save_models',
+                # Legacy structure for fallback
+                'legacy_train': self.base_dir / 'results' / 'train',
+                'legacy_validation': self.base_dir / 'results' / 'validation', 
+                'legacy_test': self.base_dir / 'results' / 'test',
+                'legacy_plots': self.base_dir / 'results' / 'plots'
+            }
+        else:
+            # Legacy structure: results/{train,validation,test,plots}/dataset/
+            self.dirs = {
+                'models': self.base_dir / 'saved_models',
+                'results': self.base_dir / 'results',
+                'train': self.base_dir / 'results' / 'train',
+                'validation': self.base_dir / 'results' / 'validation',
+                'test': self.base_dir / 'results' / 'test',
+                'plots': self.base_dir / 'results' / 'plots',
+                'legacy_models': self.base_dir / 'save_models'
+            }
     
     def ensure_directories(self, dataset: Optional[str] = None):
         """Create all necessary directories"""
-        # Base directories
-        for dir_type, path in self.dirs.items():
-            if dir_type != 'legacy_models':  # Don't create legacy dir
-                path.mkdir(parents=True, exist_ok=True)
-        
-        # Dataset-specific directories if provided
-        if dataset:
+        if self.use_new_structure and dataset:
+            # New structure: results/dataset/{metrics,plots,irt_plots,models}/
+            dataset_base = self.dirs['results'] / dataset
+            dataset_base.mkdir(parents=True, exist_ok=True)
+            
+            # Create dataset-specific subdirectories
+            (dataset_base / 'metrics').mkdir(parents=True, exist_ok=True)
+            (dataset_base / 'plots').mkdir(parents=True, exist_ok=True)
+            (dataset_base / 'irt_plots').mkdir(parents=True, exist_ok=True)
+            (dataset_base / 'models').mkdir(parents=True, exist_ok=True)
+            
+            # Still create saved_models structure for compatibility
             (self.dirs['models'] / dataset).mkdir(parents=True, exist_ok=True)
-            (self.dirs['train'] / dataset).mkdir(parents=True, exist_ok=True)
-            (self.dirs['validation'] / dataset).mkdir(parents=True, exist_ok=True)
-            (self.dirs['test'] / dataset).mkdir(parents=True, exist_ok=True)
+            
+        else:
+            # Legacy structure or no dataset specified
+            for dir_type, path in self.dirs.items():
+                if not dir_type.startswith('legacy_') and dir_type != 'legacy_models':
+                    path.mkdir(parents=True, exist_ok=True)
+            
+            # Dataset-specific directories if provided
+            if dataset:
+                (self.dirs['models'] / dataset).mkdir(parents=True, exist_ok=True)
+                if 'train' in self.dirs:
+                    (self.dirs['train'] / dataset).mkdir(parents=True, exist_ok=True)
+                    (self.dirs['validation'] / dataset).mkdir(parents=True, exist_ok=True)
+                    (self.dirs['test'] / dataset).mkdir(parents=True, exist_ok=True)
     
     def get_model_path(self, model_name: str, dataset: str, fold: Optional[int] = None, 
                       is_best: bool = True, legacy: bool = False) -> Path:
@@ -91,7 +122,12 @@ class PathManager:
         if result_type not in ['train', 'validation', 'test']:
             raise ValueError(f"Invalid result_type: {result_type}")
         
-        result_dir = self.dirs[result_type] / dataset
+        if self.use_new_structure:
+            # New structure: results/dataset/metrics/
+            result_dir = self.dirs['results'] / dataset / 'metrics'
+        else:
+            # Legacy structure: results/train|validation|test/dataset/
+            result_dir = self.dirs[result_type] / dataset
         
         if result_type == 'train':
             if fold is not None:
@@ -115,7 +151,9 @@ class PathManager:
         else:
             filename = f"train_results_{model_name}_{dataset}.json"
         
-        return self.dirs['train'] / filename
+        # Use legacy train directory or fallback
+        train_dir = self.dirs.get('legacy_train', self.dirs.get('train', self.dirs['results'] / 'train'))
+        return train_dir / filename
     
     def find_model_files(self, model_name: str, dataset: str) -> Dict[str, Path]:
         """Find all model files for a given model and dataset
@@ -151,6 +189,32 @@ class PathManager:
                 files[f'fold_{fold_num}'] = fold_file
         
         return files
+    
+    def get_plot_path(self, dataset: str, plot_type: str = 'general', filename: str = '') -> Path:
+        """Get plot file path
+        
+        Args:
+            dataset: Dataset name
+            plot_type: Type of plot ('general', 'irt', 'comparison')
+            filename: Specific filename (optional)
+            
+        Returns:
+            Path object for plot file or directory
+        """
+        if self.use_new_structure:
+            # New structure: results/dataset/plots/ or results/dataset/irt_plots/
+            if plot_type == 'irt':
+                plot_dir = self.dirs['results'] / dataset / 'irt_plots'
+            else:
+                plot_dir = self.dirs['results'] / dataset / 'plots'
+        else:
+            # Legacy structure: results/plots/dataset/ or results/irt_plots/dataset/
+            if plot_type == 'irt':
+                plot_dir = self.dirs.get('irt_plots', self.dirs['results'] / 'irt_plots') / dataset
+            else:
+                plot_dir = self.dirs.get('plots', self.dirs['results'] / 'plots') / dataset
+        
+        return plot_dir / filename if filename else plot_dir
     
     def migrate_file(self, old_path: Path, new_path: Path, copy: bool = True) -> bool:
         """Migrate a file from old to new location
@@ -313,11 +377,11 @@ class PathManager:
 _default_manager = None
 
 
-def get_path_manager(base_dir: str = ".") -> PathManager:
+def get_path_manager(base_dir: str = ".", use_new_structure: bool = True) -> PathManager:
     """Get or create the default PathManager instance"""
     global _default_manager
     if _default_manager is None:
-        _default_manager = PathManager(base_dir)
+        _default_manager = PathManager(base_dir, use_new_structure=use_new_structure)
     return _default_manager
 
 
@@ -344,3 +408,9 @@ def find_best_model(model_name: str, dataset: str) -> Optional[Path]:
     manager = get_path_manager()
     files = manager.find_model_files(model_name, dataset)
     return files.get('best')
+
+
+def get_plot_path(dataset: str, plot_type: str = 'general', filename: str = '') -> Path:
+    """Get plot path using default manager"""
+    manager = get_path_manager()
+    return manager.get_plot_path(dataset, plot_type, filename)
