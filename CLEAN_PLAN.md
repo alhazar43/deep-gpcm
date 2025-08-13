@@ -53,17 +53,22 @@ These need verification before removal:
 - `utils/monitoring.py` - Appears to be debugging tool
 - Specialized analysis modules
 
-## Phase 4: Architectural Improvements
-**Structural cleanup and consolidation**
+## Phase 4: Safe Removal of Development Tools ✅ COMPLETED
+**Remove deprecated optimized pipelines and migration/development tools**
 
-### 4.1 Directory Structure Optimization
-Current: `results/{plots,irt_plots,test,train,validation}/dataset/`
-Proposed: `results/dataset/{plots,irt_plots,metrics,models}/`
+### 4.1 Deprecated Optimized Pipeline Files ✅
+- `main_optimized.py` - Deprecated experimental pipeline version
+- `evaluate_optimized.py` - Deprecated optimized evaluation pipeline  
+- `analysis/irt_analysis_optimized.py` - Deprecated IRT analysis version
 
-### 4.2 Configuration Consolidation
-- Merge scattered config files into hierarchical system
-- Standardize import patterns (relative vs absolute)
-- Consolidate duplicate functionality
+### 4.2 Migration/Development Tools ✅
+- `integration/pipeline_integration.py` - Experimental integration testing
+- `scripts/cleanup_and_migrate.py` - One-time migration tool
+- `migrate_core_to_models.py` - Completed core directory migration
+- `utils/reorganize_irt_structure.py` - Completed IRT structure reorganization
+
+**Space Saved**: 168KB (7 files)
+**Files moved to**: `tmp_cleanup/phase4/`
 
 ## Execution Protocol
 
@@ -98,9 +103,12 @@ git branch -D cleanup-phaseN
 ```
 
 ## Current Status
-- **Phase 1**: Ready for execution - zero risk
-- **Phase 2**: Requires basic validation  
-- **Phase 3**: Requires comprehensive testing
-- **Phase 4**: Architectural planning stage
+- **Phase 1**: ✅ COMPLETED - Moved 941MB+ of backups and cache files
+- **Phase 2**: ✅ COMPLETED - Moved 564KB of experimental/development files  
+- **Phase 3**: ✅ COMPLETED - Moved 2 unused temporal model implementations
+- **Phase 4**: ✅ COMPLETED - Moved 168KB of deprecated optimized pipelines and development tools
 
-**Recommendation**: Start with Phase 1 only for maximum safety and immediate 70% cleanup benefit.
+**Total Space Recovered**: 941MB+ across all phases
+**All files safely stored in**: `tmp_cleanup/phase{1,2,3,4}/`
+
+**Next Steps**: Consider Phase 5 for architectural improvements (directory structure optimization and configuration consolidation) if desired.
