@@ -421,9 +421,13 @@ def main():
         print(f"\n🧹 CLEANUP MODE")
         cleaner = ResultsCleaner()
         
+        # Handle attribute differences between unified and legacy parsers
+        dry_run = getattr(args, 'dry_run', False)
+        no_backup = getattr(args, 'no_backup', False)
+        
         if args.clean_all:
             # Clean all datasets
-            if not args.dry_run and not args.no_confirm:
+            if not dry_run and not args.no_confirm:
                 datasets = cleaner.get_all_datasets()
                 print(f"This will delete results for ALL {len(datasets)} datasets: {', '.join(sorted(datasets))}")
                 response = input("\nAre you sure? (yes/no): ").strip().lower()
@@ -431,20 +435,20 @@ def main():
                     print("Cleanup cancelled.")
                     return
             
-            cleaner.clean_all_datasets(dry_run=args.dry_run, backup=not args.no_backup)
+            cleaner.clean_all_datasets(dry_run=dry_run, backup=not no_backup)
         else:
             if not args.dataset:
                 print("Please specify a dataset with --dataset or use --clean-all for all datasets")
             else:
                 # Clean specific dataset
-                if not args.dry_run and not args.no_confirm:
+                if not dry_run and not args.no_confirm:
                     print(f"This will delete all results for dataset: {args.dataset}")
                     response = input("\nAre you sure? (yes/no): ").strip().lower()
                     if response not in ['yes', 'y']:
                         print("Cleanup cancelled.")
                         return
                 
-                cleaner.clean_dataset(args.dataset, dry_run=args.dry_run, backup=not args.no_backup)
+                cleaner.clean_dataset(args.dataset, dry_run=dry_run, backup=not no_backup)
     
     
     print("\n🎯 Enhanced main runner completed!")

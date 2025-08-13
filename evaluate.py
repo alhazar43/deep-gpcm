@@ -882,27 +882,65 @@ def batch_evaluate_models(dataset_filter=None, model_filter=None, batch_size=32,
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Unified Deep-GPCM Model Evaluation')
-    parser.add_argument('--model_path', help='Path to trained model (required for single evaluation)')
-    parser.add_argument('--dataset', default='synthetic_OC', help='Dataset name for evaluation')
-    parser.add_argument('--batch_size', type=int, default=32, help='Batch size for evaluation')
-    parser.add_argument('--device', default=None, help='Device (cuda/cpu)')
-    
-    # Batch evaluation options
-    parser.add_argument('--all', action='store_true', help='Evaluate all available models (main models only)')
-    parser.add_argument('--models', nargs='+', help='Specific models to evaluate (for batch mode)')
-    parser.add_argument('--include_cv_folds', action='store_true', help='Include CV fold models in batch evaluation')
-    parser.add_argument('--summary_only', action='store_true', help='Only show summary of existing results')
-    parser.add_argument('--regenerate_plots', action='store_true', help='Regenerate all plots after evaluation')
-    
-    # Multi-method evaluation options
-    parser.add_argument('--use_multimethod_eval', action='store_true', help='Use multi-method evaluation system')
-    parser.add_argument('--thresholds', nargs='+', type=float, help='Custom thresholds for threshold predictions')
-    parser.add_argument('--prediction_methods', nargs='+', choices=['hard', 'soft', 'threshold'], 
-                        default=['hard', 'soft', 'threshold'], help='Which prediction methods to compute')
-    parser.add_argument('--adaptive_thresholds', action='store_true', help='Use adaptive thresholds based on data')
-    
-    args = parser.parse_args()
+    # Use unified argument parser with fallback to legacy
+    try:
+        from utils.args import create_parser, validate_args
+        parser = create_parser('evaluate')
+        
+        # Add evaluation-specific arguments
+        eval_group = parser.parser.add_argument_group('Evaluation Specific')
+        eval_group.add_argument('--all', action='store_true', 
+                               help='Evaluate all available models (main models only)')
+        eval_group.add_argument('--models', nargs='+', 
+                               help='Specific models to evaluate (for batch mode)')
+        eval_group.add_argument('--include_cv_folds', action='store_true', 
+                               help='Include CV fold models in batch evaluation')
+        eval_group.add_argument('--summary_only', action='store_true', 
+                               help='Only show summary of existing results')
+        eval_group.add_argument('--regenerate_plots', action='store_true', 
+                               help='Regenerate all plots after evaluation')
+        
+        # Multi-method evaluation options
+        multimethod_group = parser.parser.add_argument_group('Multi-Method Evaluation')
+        multimethod_group.add_argument('--use_multimethod_eval', action='store_true', 
+                                      help='Use multi-method evaluation system')
+        multimethod_group.add_argument('--thresholds', nargs='+', type=float, 
+                                      help='Custom thresholds for threshold predictions')
+        multimethod_group.add_argument('--prediction_methods', nargs='+', 
+                                      choices=['hard', 'soft', 'threshold'], 
+                                      default=['hard', 'soft', 'threshold'], 
+                                      help='Which prediction methods to compute')
+        multimethod_group.add_argument('--adaptive_thresholds', action='store_true', 
+                                      help='Use adaptive thresholds based on data')
+        
+        args = parser.parse_args()
+        validate_args(args, required_fields=['dataset'])
+        
+    except Exception as e:
+        print(f"Warning: Unified parser failed ({e}), falling back to legacy parser")
+        
+        # Legacy parser as fallback
+        parser = argparse.ArgumentParser(description='Unified Deep-GPCM Model Evaluation')
+        parser.add_argument('--model_path', help='Path to trained model (required for single evaluation)')
+        parser.add_argument('--dataset', default='synthetic_OC', help='Dataset name for evaluation')
+        parser.add_argument('--batch_size', type=int, default=32, help='Batch size for evaluation')
+        parser.add_argument('--device', default=None, help='Device (cuda/cpu)')
+        
+        # Batch evaluation options
+        parser.add_argument('--all', action='store_true', help='Evaluate all available models (main models only)')
+        parser.add_argument('--models', nargs='+', help='Specific models to evaluate (for batch mode)')
+        parser.add_argument('--include_cv_folds', action='store_true', help='Include CV fold models in batch evaluation')
+        parser.add_argument('--summary_only', action='store_true', help='Only show summary of existing results')
+        parser.add_argument('--regenerate_plots', action='store_true', help='Regenerate all plots after evaluation')
+        
+        # Multi-method evaluation options
+        parser.add_argument('--use_multimethod_eval', action='store_true', help='Use multi-method evaluation system')
+        parser.add_argument('--thresholds', nargs='+', type=float, help='Custom thresholds for threshold predictions')
+        parser.add_argument('--prediction_methods', nargs='+', choices=['hard', 'soft', 'threshold'], 
+                            default=['hard', 'soft', 'threshold'], help='Which prediction methods to compute')
+        parser.add_argument('--adaptive_thresholds', action='store_true', help='Use adaptive thresholds based on data')
+        
+        args = parser.parse_args()
     
     print("=" * 80)
     print("UNIFIED DEEP-GPCM MODEL EVALUATION")

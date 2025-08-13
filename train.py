@@ -528,37 +528,59 @@ def perform_cross_validation(model_name, all_data, n_questions, n_cats, device, 
 
 
 def main():
-    # Get available models from factory registry
+    # Use unified argument parser with fallback to legacy
+    try:
+        from utils.args import create_parser, validate_args
+        parser = create_parser('train', multi_dataset=True)
+        
+        # Add train-specific arguments
+        train_group = parser.parser.add_argument_group('Training Specific')
+        available_models = get_all_model_types()
+        train_group.add_argument('--model', choices=available_models,
+                                help='Single model to train (from factory registry)')
+        train_group.add_argument('--models', nargs='+', choices=available_models,
+                                help='Multiple models to train sequentially')
+        train_group.add_argument('--no_cv', action='store_true', 
+                                help='Disable k-fold training (deprecated, use --folds 0)')
+        train_group.add_argument('--n_folds', type=int, default=5, 
+                                help='Number of folds for k-fold training (0 = no folds)')
+        train_group.add_argument('--cv', action='store_true', 
+                                help='Enable cross-validation with hyperparameter tuning')
+        
+        args = parser.parse_args()
+        validate_args(args, required_fields=['dataset'])
+        
+        # Map unified args to legacy format
+        if hasattr(args, 'learning_rate') and args.learning_rate != args.lr:
+            args.lr = args.learning_rate
+        if hasattr(args, 'folds'):
+            args.n_folds = args.folds  # Always map folds to n_folds for compatibility
+            
+    except Exception as e:
+        print(f"Warning: Unified parser failed ({e}), falling back to legacy parser")
+        
+        # Legacy parser as fallback
+        available_models = get_all_model_types()
+        
+        parser = argparse.ArgumentParser(description='Unified Deep-GPCM Training')
+        parser.add_argument('--model', choices=available_models, 
+                            help='Single model to train (for backward compatibility)')
+        parser.add_argument('--models', nargs='+', choices=available_models,
+                            help='Multiple models to train sequentially')
+        parser.add_argument('--dataset', default='synthetic_OC', help='Dataset name')
+        parser.add_argument('--epochs', type=int, default=30, help='Number of epochs')
+        parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
+        parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
+        parser.add_argument('--n_folds', type=int, default=5, help='Number of folds for k-fold training (0 = no folds)')
+        parser.add_argument('--no_cv', action='store_true', help='Disable k-fold training (deprecated, use --n_folds 0)')
+        parser.add_argument('--cv', action='store_true', help='Enable cross-validation with hyperparameter tuning')
+        parser.add_argument('--seed', type=int, default=42, help='Random seed')
+        parser.add_argument('--device', default=None, help='Device (cuda/cpu)')
+        
+        args = parser.parse_args()
+    
+    # Get available models from factory registry for validation
     available_models = get_all_model_types()
-    
-    parser = argparse.ArgumentParser(description='Unified Deep-GPCM Training')
-    parser.add_argument('--model', choices=available_models, 
-                        help='Single model to train (for backward compatibility)')
-    parser.add_argument('--models', nargs='+', choices=available_models,
-                        help='Multiple models to train sequentially')
-    parser.add_argument('--dataset', default='synthetic_OC', help='Dataset name')
-    parser.add_argument('--epochs', type=int, default=30, help='Number of epochs')
-    parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
-    parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
-    parser.add_argument('--n_folds', type=int, default=5, help='Number of folds for k-fold training (0 = no folds)')
-    parser.add_argument('--no_cv', action='store_true', help='Disable k-fold training (deprecated, use --n_folds 0)')
-    parser.add_argument('--cv', action='store_true', help='Enable cross-validation with hyperparameter tuning')
-    parser.add_argument('--seed', type=int, default=42, help='Random seed')
-    parser.add_argument('--device', default=None, help='Device (cuda/cpu)')
-    
-    # Loss function configurations are now managed by factory - no command line overrides needed
-    
-    # Threshold coupling arguments
-    parser.add_argument('--enable_threshold_coupling', action='store_true',
-                        help='Enable threshold coupling for CORAL models')
-    parser.add_argument('--coupling_type', type=str, default='linear',
-                        choices=['linear'], help='Type of threshold coupling')
-    parser.add_argument('--threshold_gpcm_weight', type=float, default=0.7,
-                        help='Weight for GPCM thresholds in coupling')
-    parser.add_argument('--threshold_coral_weight', type=float, default=0.3,
-                        help='Weight for CORAL thresholds in coupling')
-    
-    args = parser.parse_args()
     
     # Validate model arguments
     if args.model and args.models:
