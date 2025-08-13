@@ -1,0 +1,15 @@
+{
+  "dataset": "synthetic_500_200_4",
+  "timestamp": "20250813_230616",
+  "files_backed_up": {
+    "plots": [
+      "results/plots/synthetic_500_200_4"
+    ],
+    "irt_plots": [
+      "results/irt_plots/synthetic_500_200_4"
+    ],
+    "models": [
+      "saved_models/synthetic_500_200_4"
+    ]
+  }
+}

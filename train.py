@@ -710,66 +710,66 @@ def main():
             # Advanced Bayesian hyperparameter optimization
             print("🔬 Bayesian hyperparameter optimization")
             
-            from optimization.adaptive_hyperopt import create_optimizer, OptimizationConfig
+            from optimization.adaptive_hyperopt import HyperparameterOptimizer, HyperoptConfig
             
             # Create optimizer configuration
-            opt_config = OptimizationConfig(
+            config = HyperoptConfig(
                 n_trials=args.hyperopt_trials,
-                n_initial_random=max(10, args.hyperopt_trials // 5),
-                cv_folds=max(args.n_folds, 3),  # Ensure at least 3-fold for hyperopt
-                cv_epochs=min(args.epochs // 3, 15),  # Use fewer epochs for CV
-                final_epochs=args.epochs,
-                metric_to_optimize=args.hyperopt_metric,
+                metric=args.hyperopt_metric,
                 maximize=True,  # All our metrics are better when higher
-                early_stopping_patience=args.hyperopt_trials // 3,
-                save_intermediate=True
+                n_initial_samples=max(10, args.hyperopt_trials // 5),
+                early_stopping_patience=max(10, args.hyperopt_trials // 3),
+                cv_folds=max(args.n_folds, 3),  # Ensure at least 3-fold for hyperopt
+                random_state=args.seed
             )
             
             # Create optimizer
-            optimizer = create_optimizer(
-                model_type=model_name,
-                n_questions=n_questions,
-                n_cats=n_cats,
-                device=device,
-                n_trials=args.hyperopt_trials,
-                **opt_config.__dict__
-            )
-            
-            # Combine all data for optimization
-            all_data = train_data + test_data
+            optimizer = HyperparameterOptimizer(model_name, args.dataset, config)
             
             # Run optimization
-            best_trial = optimizer.optimize(all_data, [])  # Use empty test for pure CV
-            optimizer.print_summary()
+            print(f"Starting {args.hyperopt_trials} trials with {config.cv_folds}-fold CV...")
+            optimization_results = optimizer.optimize()
             
-            # Train final model with best hyperparameters
-            best_hyperparams = best_trial.hyperparameters
-            print(f"\n🏆 Training final model with optimized hyperparameters:")
-            for param, value in best_hyperparams.items():
+            # Extract best parameters
+            best_params = optimization_results['best_params']
+            best_score = optimization_results['best_score']
+            
+            print(f"\n🏆 Optimization completed!")
+            print(f"Best {args.hyperopt_metric}: {best_score:.4f}")
+            print(f"Best parameters:")
+            for param, value in best_params.items():
                 if isinstance(value, float):
                     print(f"  {param}: {value:.6f}")
                 else:
                     print(f"  {param}: {value}")
             
             # Create data loaders with optimized batch size
-            final_batch_size = best_hyperparams.get('batch_size', args.batch_size)
+            final_batch_size = best_params.get('batch_size', args.batch_size)
             train_loader, test_loader = create_data_loaders(train_data, test_data, final_batch_size)
             
             # Create model with optimized parameters
-            model_params = {k: v for k, v in best_hyperparams.items() 
-                           if k not in ['lr', 'batch_size', 'weight_decay'] and not k.endswith('_weight')}
+            model_params = {k: v for k, v in best_params.items() 
+                           if k not in ['lr', 'batch_size', 'weight_decay'] and not k.endswith('_logit')}
             model = create_model(model_name, n_questions, n_cats, device, **model_params)
             
-            # Override loss configuration with optimized weights
-            optimized_loss_kwargs = {}
-            for key in ['ce_weight', 'focal_weight', 'qwk_weight', 'coral_weight']:
-                if key in best_hyperparams:
-                    optimized_loss_kwargs[key] = best_hyperparams[key]
+            # Handle optimized loss weights
+            optimized_loss_kwargs = factory_loss_kwargs.copy()
+            
+            # Override with optimized loss weights if present
+            from optimization.adaptive_hyperopt import LossWeightOptimizer
+            if any(k.endswith('_logit') for k in best_params):
+                loss_config = LossWeightOptimizer.params_to_loss_config(best_params)
+                if loss_config:
+                    optimized_loss_kwargs.update(loss_config)
+                    print(f"Optimized loss weights: ce={loss_config.get('ce_weight', 0.33):.3f}, "
+                          f"focal={loss_config.get('focal_weight', 0.33):.3f}, "
+                          f"qwk={loss_config.get('qwk_weight', 0.34):.3f}")
             
             # Add optimized learning rate
-            optimized_loss_kwargs['lr'] = best_hyperparams.get('lr', args.lr)
+            optimized_loss_kwargs['lr'] = best_params.get('lr', args.lr)
             
             # Train final model
+            print(f"\n🚀 Training final model with optimized hyperparameters...")
             best_model_state, best_metrics, training_history = train_single_fold(
                 model, train_loader, test_loader, device, args.epochs, model_name,
                 loss_type=current_loss, loss_kwargs=optimized_loss_kwargs
@@ -784,29 +784,25 @@ def main():
                     'n_questions': n_questions,
                     'n_cats': n_cats,
                     'dataset': args.dataset,
-                    'optimized_hyperparameters': best_hyperparams,
+                    'optimized_hyperparameters': best_params,
                     'optimization_trials': args.hyperopt_trials,
                     'optimization_metric': args.hyperopt_metric
                 },
                 'metrics': best_metrics,
                 'hyperopt_results': {
-                    'best_score': optimizer.best_score,
-                    'total_trials': len(optimizer.trials),
-                    'convergence_rate': sum(1 for t in optimizer.trials if t.converged) / len(optimizer.trials)
+                    'best_score': best_score,
+                    'total_trials': optimization_results['total_trials'],
+                    'successful_trials': optimization_results['successful_trials'],
+                    'total_optimization_time': optimization_results['total_time']
                 }
             }, model_path)
             
-            # Save training results
+            # Save training results with optimization summary
             training_results = {
-                'config': {**vars(args), 'optimized_hyperparameters': best_hyperparams},
+                'config': {**vars(args), 'optimized_hyperparameters': best_params},
                 'metrics': best_metrics,
                 'training_history': training_history,
-                'hyperopt_summary': {
-                    'best_trial_id': best_trial.trial_id,
-                    'best_score': optimizer.best_score,
-                    'total_trials': len(optimizer.trials),
-                    'optimization_time': sum(t.training_time for t in optimizer.trials)
-                }
+                'hyperopt_summary': optimization_results
             }
             log_path = path_manager.get_result_path('train', model_name, args.dataset)
             save_results(training_results, str(log_path))

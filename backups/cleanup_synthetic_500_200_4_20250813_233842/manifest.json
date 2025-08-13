@@ -1,0 +1,9 @@
+{
+  "dataset": "synthetic_500_200_4",
+  "timestamp": "20250813_233842",
+  "files_backed_up": {
+    "models": [
+      "saved_models/synthetic_500_200_4"
+    ]
+  }
+}

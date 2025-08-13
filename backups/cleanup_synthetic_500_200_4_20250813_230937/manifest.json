@@ -1,0 +1,25 @@
+{
+  "dataset": "synthetic_500_200_4",
+  "timestamp": "20250813_230937",
+  "files_backed_up": {
+    "metrics": [
+      "results/synthetic_500_200_4/metrics"
+    ],
+    "plots": [
+      "results/synthetic_500_200_4/plots"
+    ],
+    "irt_plots": [
+      "results/synthetic_500_200_4/irt_plots"
+    ],
+    "models": [
+      "results/synthetic_500_200_4/models",
+      "saved_models/synthetic_500_200_4"
+    ],
+    "legacy_plots": [
+      "results/plots/synthetic_500_200_4"
+    ],
+    "legacy_irt_plots": [
+      "results/irt_plots/synthetic_500_200_4"
+    ]
+  }
+}
