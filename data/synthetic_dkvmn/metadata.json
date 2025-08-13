@@ -1,0 +1,15 @@
+{
+  "dataset_name": "synthetic_dkvmn",
+  "n_students": 79908,
+  "n_questions": 50,
+  "n_cats": 2,
+  "response_type": "ordered_categorical",
+  "format": "new_format",
+  "description": "DKVMN-Torch synthetic data: 79908 students, 50 questions, binary responses (combined from 20 CV folds)",
+  "train_students": 63919,
+  "test_students": 15989,
+  "seq_len_range": [
+    50,
+    50
+  ]
+}

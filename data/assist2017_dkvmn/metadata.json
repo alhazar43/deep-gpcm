@@ -1,0 +1,15 @@
+{
+  "dataset_name": "assist2017_dkvmn",
+  "n_students": 1709,
+  "n_questions": 102,
+  "n_cats": 2,
+  "response_type": "ordered_categorical",
+  "format": "new_format",
+  "description": "ASSIST2017 data: 1709 students, 102 questions, 2 categories",
+  "train_students": 1368,
+  "test_students": 341,
+  "seq_len_range": [
+    2,
+    3057
+  ]
+}

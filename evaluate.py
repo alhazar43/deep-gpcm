@@ -641,8 +641,8 @@ def find_trained_models(models_dir: str = "save_models") -> dict:
                 'coral_gpcm_fixed': 'coral_thresh'
             }
             
-            # Try to detect model type using factory registry
-            for model_type in available_models:
+            # Try to detect model type using factory registry - sort by length to match longest first
+            for model_type in sorted(available_models, key=len, reverse=True):
                 if model_type in model_name:
                     detected_type = model_type
                     # Extract dataset: check if dataset is in filename or use parent directory name

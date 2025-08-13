@@ -1,0 +1,15 @@
+{
+  "dataset_name": "static2011_dkvmn",
+  "n_students": 333,
+  "n_questions": 1224,
+  "n_cats": 2,
+  "response_type": "ordered_categorical",
+  "format": "new_format",
+  "description": "STATIC2011 data: 333 students, 1224 questions, 2 categories",
+  "train_students": 267,
+  "test_students": 66,
+  "seq_len_range": [
+    5,
+    2185
+  ]
+}

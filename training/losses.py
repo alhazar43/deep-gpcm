@@ -157,10 +157,18 @@ class QWKLoss(nn.Module):
         Po = (qwk_weights * confusion_matrix).sum()  # Observed agreement
         Pe = (qwk_weights * expected_matrix).sum()   # Expected agreement
         
-        if Pe >= 1.0:
+        # Add numerical stability with epsilon
+        eps = 1e-7
+        Pe = torch.clamp(Pe, 0.0, 1.0 - eps)  # Prevent Pe from being too close to 1.0
+        
+        # Additional safety check
+        if Pe >= (1.0 - eps):
             return torch.tensor(0.0, device=y_true.device, requires_grad=True)
         
-        qwk = (Po - Pe) / (1.0 - Pe)
+        qwk = (Po - Pe) / (1.0 - Pe + eps)  # Add epsilon for numerical stability
+        
+        # Clamp QWK to reasonable range to prevent gradient explosion
+        qwk = torch.clamp(qwk, -1.0, 1.0)
         return qwk
 
 

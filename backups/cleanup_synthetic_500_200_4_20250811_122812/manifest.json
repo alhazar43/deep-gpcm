@@ -1,0 +1,18 @@
+{
+  "dataset": "synthetic_500_200_4",
+  "timestamp": "20250811_122812",
+  "files_backed_up": {
+    "train": [
+      "results/train/synthetic_500_200_4"
+    ],
+    "validation": [
+      "results/validation/synthetic_500_200_4"
+    ],
+    "test": [
+      "results/test/synthetic_500_200_4"
+    ],
+    "models": [
+      "saved_models/synthetic_500_200_4"
+    ]
+  }
+}

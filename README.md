@@ -170,25 +170,39 @@ python main.py --action clean --dataset synthetic_OC --dry-run  # Preview what w
 
 #### New Format (Recommended)
 ```bash
-# Generate datasets with explicit configuration
+# Generate datasets with explicit configuration (OC format only)
 python utils/data_gen.py --name synthetic_4000_200_2   # 2 categories
 python utils/data_gen.py --name synthetic_4000_200_3   # 3 categories
 python utils/data_gen.py --name synthetic_4000_200_5   # 5 categories
 
+# Custom sequence lengths (override automatic 1/4 ratio)
+python utils/data_gen.py --name synthetic_4000_200_2 --min_seq 20 --max_seq 100
+python utils/data_gen.py --name synthetic_1000_120_3 --min_seq 30   # Custom min only
+
 # Format: synthetic_<students>_<max_questions>_<categories>
 # - students: Number of student sequences
-# - max_questions: Maximum question pool size
+# - max_questions: Maximum question pool size  
 # - categories: Number of response categories (n_cats)
+# - min_seq: Defaults to max_seq/4 (minimum 10)
+# - max_seq: Defaults to min(max_questions, 200)
 ```
 
-#### Legacy Format
+#### Legacy Format  
 ```bash
-# Standard synthetic dataset (current default)
-python utils/data_gen.py --format OC --categories 4 --students 800 --questions 50 --seed 42
+# Standard synthetic dataset (OC format only)
+python utils/data_gen.py --categories 4 --students 800 --questions 50 --seed 42
 
-# Custom dataset sizes
-python data_gen.py --format OC --categories 4 --students 1000 --questions 200 --min_seq 50 --max_seq 200
+# Custom dataset sizes with explicit sequence control
+python utils/data_gen.py --categories 3 --students 1000 --questions 200 --min_seq 50 --max_seq 200
 ```
+
+#### Sequence Length Logic
+- **Automatic**: `min_seq = max(10, max_seq // 4)` - 1/4 ratio with minimum of 10
+- **Override**: Command-line `--min_seq` and `--max_seq` take precedence when provided  
+- **Examples**:
+  - `synthetic_4000_200_2` → min_seq=50, max_seq=200 (200÷4=50)
+  - `synthetic_1000_80_3` → min_seq=20, max_seq=80 (80÷4=20)
+  - `synthetic_500_30_4` → min_seq=10, max_seq=30 (30÷4=7.5→10 minimum)
 
 ## Performance Results
 

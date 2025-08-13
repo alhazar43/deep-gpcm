@@ -179,8 +179,13 @@ class EnhancedAttentionGPCM(AttentionGPCM):
         # Override model name to match evaluation expectations
         self.model_name = "enhanced_akvmn_gpcm"
         
-        # Make ability_scale learnable (like old AKVMN)
-        self.learnable_ability_scale = nn.Parameter(torch.tensor(ability_scale))
+        # Only make ability_scale learnable when using learnable embeddings
+        if embedding_strategy == "linear_decay" and use_learnable_embedding:
+            self.learnable_ability_scale = nn.Parameter(torch.tensor(ability_scale))
+            self.use_learnable_scale = True
+        else:
+            self.use_learnable_scale = False
+            self.fixed_ability_scale = ability_scale
         
         # Replace the IRT parameter extractor to use learnable scale
         from ..components.irt_layers import IRTParameterExtractor
@@ -225,16 +230,42 @@ class EnhancedAttentionGPCM(AttentionGPCM):
             # No need for projection since it's already embed_dim
             return gpcm_embeds
         else:
-            # Fall back to parent implementation
-            return super().create_embeddings(questions, responses)
+            # For linear embeddings, create embeddings directly at embed_dim like learnable path
+            # Get question one-hot vectors
+            q_one_hot = F.one_hot(questions, num_classes=self.n_questions + 1).float()
+            q_one_hot = q_one_hot[:, :, 1:]  # Remove padding dimension
+            
+            batch_size, seq_len = questions.shape
+            embeddings = []
+            
+            for t in range(seq_len):
+                q_one_hot_t = q_one_hot[:, t:t+1, :]  # (batch_size, 1, Q)
+                r_t_unsqueezed = responses[:, t].unsqueeze(1)  # (batch_size, 1)
+                
+                # Use standard embedding strategy to get base embedding
+                base_embed_t = self.embedding.embed(
+                    q_one_hot_t, r_t_unsqueezed, self.n_questions, self.n_cats
+                )  # (batch_size, 1, 800)
+                base_embed_t = base_embed_t.squeeze(1)  # (batch_size, 800)
+                
+                # Project to target dimension directly (skip the AttentionGPCM projection layer)
+                projected_embed_t = self.embedding_projection.projection(base_embed_t)  # (batch_size, 64)
+                embeddings.append(projected_embed_t)
+            
+            # Stack embeddings
+            gpcm_embeds = torch.stack(embeddings, dim=1)  # (batch_size, seq_len, 64)
+            return gpcm_embeds
     
     def extract_irt_params(self, features: torch.Tensor, question_embeds: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Extract IRT parameters with learnable ability scale."""
+        """Extract IRT parameters with conditional ability scale."""
         # Extract base parameters
         student_ability, item_thresholds, discrimination_param = self.irt_extractor(features, question_embeds)
         
-        # Apply learnable ability scale
-        student_ability = student_ability * self.learnable_ability_scale
+        # Apply appropriate ability scale
+        if self.use_learnable_scale:
+            student_ability = student_ability * self.learnable_ability_scale
+        else:
+            student_ability = student_ability * self.fixed_ability_scale
         
         return student_ability, item_thresholds, discrimination_param
     
@@ -246,7 +277,11 @@ class EnhancedAttentionGPCM(AttentionGPCM):
     def get_model_info(self):
         """Get model information."""
         info = super().get_model_info()
-        info['learnable_ability_scale'] = self.learnable_ability_scale.item()
+        if self.use_learnable_scale:
+            info['learnable_ability_scale'] = self.learnable_ability_scale.item()
+        else:
+            info['fixed_ability_scale'] = self.fixed_ability_scale
+        info['use_learnable_scale'] = self.use_learnable_scale
         info['has_learnable_embedding'] = hasattr(self, 'learnable_embedding')
         return info
 

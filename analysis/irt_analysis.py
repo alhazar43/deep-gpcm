@@ -101,13 +101,20 @@ class UnifiedIRTAnalyzer:
         """Automatically find all trained models for the dataset."""
         path_manager = get_path_manager()
         
-        # Find models using current model registry
+        # Find models using both current factory registry and legacy models
         model_files = []
+        
         # Use current model types from factory registry
         from models.factory import get_all_model_types
-        model_names = get_all_model_types()
+        current_models = get_all_model_types()
         
-        for model_name in model_names:
+        # Add legacy model types that might exist in saved models
+        legacy_models = ['coral_gpcm_proper', 'coral_gpcm_fixed', 'test_gpcm', 
+                        'attn_gpcm_new', 'modular_attn_gpcm', 'attention', 'ordinal_attn_gpcm']
+        
+        all_model_names = current_models + legacy_models
+        
+        for model_name in all_model_names:
             model_path = find_best_model(model_name, self.dataset)
             if model_path:
                 model_files.append(str(model_path))
@@ -128,6 +135,9 @@ class UnifiedIRTAnalyzer:
     def load_model(self, model_path):
         """Load a model with proper handling for different architectures."""
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        # Import factory functions at the top for consistent access
+        from models.factory import get_all_model_types, create_model, get_model_default_params
         
         # Load checkpoint
         checkpoint = torch.load(model_path, map_location=device, weights_only=False)
@@ -171,88 +181,321 @@ class UnifiedIRTAnalyzer:
         if model_type == 'coral':
             raise ValueError(f"Deprecated coral model - skipping")
         
-        # Create model
+        # Create model using factory system for consistency
         if has_learnable_params or ('attn_gpcm' in str(model_path) and 'modular_attn_gpcm' not in str(model_path)):
-            # Use EnhancedAttentionGPCM for models with learnable parameters
-            model = EnhancedAttentionGPCM(
-                n_questions=self.n_questions, 
-                n_cats=self.n_cats,
-                memory_size=50,
-                key_dim=50,
-                value_dim=200,
-                final_fc_dim=50,
-                n_heads=4,
-                n_cycles=2,
-                embedding_strategy="linear_decay",
-                ability_scale=2.0
-            )
-            model_type = 'attn_gpcm'
+            # Try to detect specific attn_gpcm model type from filename
+            
+            # Get available models and sort by length to match longest first
+            available_models = get_all_model_types()
+            detected_type = None
+            filename = os.path.basename(model_path)
+            
+            # Try to detect model type using factory registry
+            for model_type_candidate in sorted(available_models, key=len, reverse=True):
+                if model_type_candidate in filename:
+                    detected_type = model_type_candidate
+                    break
+            
+            if detected_type is None:
+                # Fallback to generic attn_gpcm for backward compatibility
+                detected_type = 'attn_gpcm'
+            
+            # Use factory to create model with proper configuration
+            try:
+                # Get saved configuration if available
+                saved_config = checkpoint.get('config', {})
+                factory_params = get_model_default_params(detected_type)
+                
+                # Create model_kwargs from saved config and factory defaults
+                model_kwargs = {
+                    'memory_size': saved_config.get('memory_size', 50),
+                    'key_dim': saved_config.get('key_dim', 50), 
+                    'value_dim': saved_config.get('value_dim', 200),
+                    'final_fc_dim': saved_config.get('final_fc_dim', 50),
+                }
+                
+                # Apply factory defaults
+                model_kwargs.update(factory_params)
+                
+                # Override with saved config (highest priority)
+                for key, value in saved_config.items():
+                    if key in factory_params:
+                        model_kwargs[key] = value
+                
+                model = create_model(detected_type, self.n_questions, self.n_cats, **model_kwargs)
+                model_type = detected_type
+                print(f"📍 IRT Analysis using factory model: {detected_type}")
+                
+            except Exception as e:
+                print(f"⚠️ Factory creation failed for {detected_type}, falling back to hardcoded config: {e}")
+                # Fallback to original hardcoded approach
+                use_learnable_embedding = 'attn_gpcm_fixed' not in str(model_path) and 'attn_gpcm_linear' not in str(model_path)
+                model = EnhancedAttentionGPCM(
+                    n_questions=self.n_questions, 
+                    n_cats=self.n_cats,
+                    memory_size=50,
+                    key_dim=50,
+                    value_dim=200,
+                    final_fc_dim=50,
+                    n_heads=4,
+                    n_cycles=2,
+                    embedding_strategy="linear_decay",
+                    ability_scale=2.0,
+                    use_learnable_embedding=use_learnable_embedding
+                )
+                model_type = 'attn_gpcm'
         elif model_type == 'coral_gpcm_proper':
-            model = CORALGPCM(
-                n_questions=self.n_questions,
-                n_cats=self.n_cats,
-                memory_size=50,
-                key_dim=50,
-                value_dim=200,
-                final_fc_dim=50,
-                use_adaptive_blending=True
-            )
+            # Use factory system for coral_gpcm_proper
+            try:
+                # Get saved configuration if available
+                saved_config = checkpoint.get('config', {})
+                factory_params = get_model_default_params(model_type)
+                
+                # Create model_kwargs from saved config and factory defaults
+                model_kwargs = {
+                    'memory_size': saved_config.get('memory_size', 50),
+                    'key_dim': saved_config.get('key_dim', 50), 
+                    'value_dim': saved_config.get('value_dim', 200),
+                    'final_fc_dim': saved_config.get('final_fc_dim', 50),
+                }
+                
+                # Apply factory defaults
+                model_kwargs.update(factory_params)
+                
+                # Override with saved config (highest priority)
+                for key, value in saved_config.items():
+                    if key in factory_params:
+                        model_kwargs[key] = value
+                
+                model = create_model(model_type, self.n_questions, self.n_cats, **model_kwargs)
+                print(f"📍 IRT Analysis using factory model: {model_type}")
+                
+            except Exception as e:
+                print(f"⚠️ Factory creation failed for {model_type}, falling back to hardcoded config: {e}")
+                # Fallback to original hardcoded approach
+                model = CORALGPCM(
+                    n_questions=self.n_questions,
+                    n_cats=self.n_cats,
+                    memory_size=50,
+                    key_dim=50,
+                    value_dim=200,
+                    final_fc_dim=50,
+                    use_adaptive_blending=True
+                )
         elif model_type == 'coral_gpcm_fixed':
-            model = CORALGPCMFixed(
-                n_questions=self.n_questions,
-                n_cats=self.n_cats,
-                memory_size=50,
-                key_dim=50,
-                value_dim=200,
-                final_fc_dim=50
-            )
-        elif model_type == 'test_gpcm':
-            model = TestGPCM(
-                n_questions=self.n_questions,
-                n_cats=self.n_cats,
-                memory_size=50,
-                key_dim=50,
-                value_dim=200,
-                final_fc_dim=50
-            )
-        elif model_type == 'attn_gpcm_new':
-            model = AttentionGPCMNew(
-                n_questions=self.n_questions,
-                n_cats=self.n_cats,
-                embed_dim=64,
-                memory_size=50,
-                key_dim=50,
-                value_dim=200,
-                final_fc_dim=50,
-                n_heads=4,
-                n_cycles=2,
-                ability_scale=2.0
-            )
-        elif model_type == 'modular_attn_gpcm':
-            # Use same configuration as factory.py default
-            from models.components.attention_mechanisms import AttentionConfig
-            attention_config = AttentionConfig(
-                embed_dim=64,
-                n_heads=4,
-                n_cats=self.n_cats,
-                dropout=0.1
-            )
-            model = ModularAttentionGPCM(
-                n_questions=self.n_questions,
-                n_cats=self.n_cats,
-                embed_dim=64,
-                memory_size=50,
-                key_dim=50,
-                value_dim=200,
-                final_fc_dim=50,
-                attention_config=attention_config,
-                attention_mechanisms=['ordinal_aware', 'response_conditioned', 'qwk_aligned'],
-                fusion_method='concat'
-            )
+            # Use factory system for coral_gpcm_fixed
+            try:
+                # Get saved configuration if available
+                saved_config = checkpoint.get('config', {})
+                factory_params = get_model_default_params(model_type)
+                
+                # Create model_kwargs from saved config and factory defaults
+                model_kwargs = {
+                    'memory_size': saved_config.get('memory_size', 50),
+                    'key_dim': saved_config.get('key_dim', 50), 
+                    'value_dim': saved_config.get('value_dim', 200),
+                    'final_fc_dim': saved_config.get('final_fc_dim', 50),
+                }
+                
+                # Apply factory defaults
+                model_kwargs.update(factory_params)
+                
+                # Override with saved config (highest priority)
+                for key, value in saved_config.items():
+                    if key in factory_params:
+                        model_kwargs[key] = value
+                
+                model = create_model(model_type, self.n_questions, self.n_cats, **model_kwargs)
+                print(f"📍 IRT Analysis using factory model: {model_type}")
+                
+            except Exception as e:
+                print(f"⚠️ Factory creation failed for {model_type}, falling back to hardcoded config: {e}")
+                # Fallback to original hardcoded approach
+                model = CORALGPCMFixed(
+                    n_questions=self.n_questions,
+                    n_cats=self.n_cats,
+                    memory_size=50,
+                    key_dim=50,
+                    value_dim=200,
+                    final_fc_dim=50
+                )
+        elif model_type == 'test_gpcm' and False:  # Disabled - TestGPCM not imported
+            # Use factory system for test_gpcm
+            try:
+                # Get saved configuration if available
+                saved_config = checkpoint.get('config', {})
+                factory_params = get_model_default_params(model_type)
+                
+                # Create model_kwargs from saved config and factory defaults
+                model_kwargs = {
+                    'memory_size': saved_config.get('memory_size', 50),
+                    'key_dim': saved_config.get('key_dim', 50), 
+                    'value_dim': saved_config.get('value_dim', 200),
+                    'final_fc_dim': saved_config.get('final_fc_dim', 50),
+                }
+                
+                # Apply factory defaults
+                model_kwargs.update(factory_params)
+                
+                # Override with saved config (highest priority)
+                for key, value in saved_config.items():
+                    if key in factory_params:
+                        model_kwargs[key] = value
+                
+                model = create_model(model_type, self.n_questions, self.n_cats, **model_kwargs)
+                print(f"📍 IRT Analysis using factory model: {model_type}")
+                
+            except Exception as e:
+                print(f"⚠️ Factory creation failed for {model_type}, falling back: {e}")
+                # Skip if no fallback available
+                raise ValueError(f"Cannot create model {model_type} - no factory implementation")
+        elif model_type == 'attn_gpcm_new' and False:  # Disabled - AttentionGPCMNew not imported
+            # Use factory system for attn_gpcm_new
+            try:
+                # Get saved configuration if available
+                saved_config = checkpoint.get('config', {})
+                factory_params = get_model_default_params(model_type)
+                
+                # Create model_kwargs from saved config and factory defaults
+                model_kwargs = {
+                    'memory_size': saved_config.get('memory_size', 50),
+                    'key_dim': saved_config.get('key_dim', 50), 
+                    'value_dim': saved_config.get('value_dim', 200),
+                    'final_fc_dim': saved_config.get('final_fc_dim', 50),
+                    'embed_dim': saved_config.get('embed_dim', 64),
+                    'n_heads': saved_config.get('n_heads', 4),
+                    'n_cycles': saved_config.get('n_cycles', 2),
+                    'ability_scale': saved_config.get('ability_scale', 2.0),
+                }
+                
+                # Apply factory defaults
+                model_kwargs.update(factory_params)
+                
+                # Override with saved config (highest priority)
+                for key, value in saved_config.items():
+                    if key in factory_params:
+                        model_kwargs[key] = value
+                
+                model = create_model(model_type, self.n_questions, self.n_cats, **model_kwargs)
+                print(f"📍 IRT Analysis using factory model: {model_type}")
+                
+            except Exception as e:
+                print(f"⚠️ Factory creation failed for {model_type}, falling back: {e}")
+                # Skip if no fallback available
+                raise ValueError(f"Cannot create model {model_type} - no factory implementation")
+        elif model_type == 'modular_attn_gpcm' and False:  # Disabled - ModularAttentionGPCM not imported
+            # Use factory system for modular_attn_gpcm
+            try:
+                # Get saved configuration if available
+                saved_config = checkpoint.get('config', {})
+                factory_params = get_model_default_params(model_type)
+                
+                # Create model_kwargs from saved config and factory defaults
+                model_kwargs = {
+                    'memory_size': saved_config.get('memory_size', 50),
+                    'key_dim': saved_config.get('key_dim', 50), 
+                    'value_dim': saved_config.get('value_dim', 200),
+                    'final_fc_dim': saved_config.get('final_fc_dim', 50),
+                    'embed_dim': saved_config.get('embed_dim', 64),
+                }
+                
+                # Apply factory defaults
+                model_kwargs.update(factory_params)
+                
+                # Override with saved config (highest priority)
+                for key, value in saved_config.items():
+                    if key in factory_params:
+                        model_kwargs[key] = value
+                
+                model = create_model(model_type, self.n_questions, self.n_cats, **model_kwargs)
+                print(f"📍 IRT Analysis using factory model: {model_type}")
+                
+            except Exception as e:
+                print(f"⚠️ Factory creation failed for {model_type}, falling back to hardcoded config: {e}")
+                # Fallback to original hardcoded approach
+                from models.components.attention_mechanisms import AttentionConfig
+                attention_config = AttentionConfig(
+                    embed_dim=64,
+                    n_heads=4,
+                    n_cats=self.n_cats,
+                    dropout=0.1
+                )
+                model = ModularAttentionGPCM(
+                    n_questions=self.n_questions,
+                    n_cats=self.n_cats,
+                    embed_dim=64,
+                    memory_size=50,
+                    key_dim=50,
+                    value_dim=200,
+                    final_fc_dim=50,
+                    attention_config=attention_config,
+                    attention_mechanisms=['ordinal_aware', 'response_conditioned', 'qwk_aligned'],
+                    fusion_method='concat'
+                )
         elif model_type == 'attention' or 'attention' in str(checkpoint['model_state_dict'].keys()):
-            model = AttentionGPCM(n_questions=self.n_questions, n_cats=self.n_cats)
+            # Use factory system for attention models
+            try:
+                # Get saved configuration if available
+                saved_config = checkpoint.get('config', {})
+                factory_params = get_model_default_params('attn_gpcm')  # Use attn_gpcm as default for attention
+                
+                # Create model_kwargs from saved config and factory defaults
+                model_kwargs = {
+                    'memory_size': saved_config.get('memory_size', 50),
+                    'key_dim': saved_config.get('key_dim', 50), 
+                    'value_dim': saved_config.get('value_dim', 200),
+                    'final_fc_dim': saved_config.get('final_fc_dim', 50),
+                }
+                
+                # Apply factory defaults
+                model_kwargs.update(factory_params)
+                
+                # Override with saved config (highest priority)
+                for key, value in saved_config.items():
+                    if key in factory_params:
+                        model_kwargs[key] = value
+                
+                model = create_model('attn_gpcm', self.n_questions, self.n_cats, **model_kwargs)
+                model_type = 'attn_gpcm'
+                print(f"📍 IRT Analysis using factory model: {model_type}")
+                
+            except Exception as e:
+                print(f"⚠️ Factory creation failed for attention model, falling back to hardcoded config: {e}")
+                # Fallback to original hardcoded approach
+                model = AttentionGPCM(n_questions=self.n_questions, n_cats=self.n_cats)
         else:
-            model = DeepGPCM(n_questions=self.n_questions, n_cats=self.n_cats)
+            # Use factory system for all other model types
+            try:
+                # Get saved configuration if available
+                saved_config = checkpoint.get('config', {})
+                # Try to use detected model type or fallback to deep_gpcm
+                fallback_type = model_type if model_type in get_all_model_types() else 'deep_gpcm'
+                factory_params = get_model_default_params(fallback_type)
+                
+                # Create model_kwargs from saved config and factory defaults
+                model_kwargs = {
+                    'memory_size': saved_config.get('memory_size', 50),
+                    'key_dim': saved_config.get('key_dim', 50), 
+                    'value_dim': saved_config.get('value_dim', 200),
+                    'final_fc_dim': saved_config.get('final_fc_dim', 50),
+                }
+                
+                # Apply factory defaults
+                model_kwargs.update(factory_params)
+                
+                # Override with saved config (highest priority)
+                for key, value in saved_config.items():
+                    if key in factory_params:
+                        model_kwargs[key] = value
+                
+                model = create_model(fallback_type, self.n_questions, self.n_cats, **model_kwargs)
+                model_type = fallback_type
+                print(f"📍 IRT Analysis using factory model: {model_type}")
+                
+            except Exception as e:
+                print(f"⚠️ Factory creation failed for {model_type}, falling back to DeepGPCM: {e}")
+                # Fallback to original hardcoded approach
+                model = DeepGPCM(n_questions=self.n_questions, n_cats=self.n_cats)
         
         # Load weights with proper handling for wrapped models and compatibility
         try:

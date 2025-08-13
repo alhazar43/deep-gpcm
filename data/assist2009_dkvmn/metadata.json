@@ -1,0 +1,15 @@
+{
+  "dataset_name": "assist2009_dkvmn",
+  "n_students": 4217,
+  "n_questions": 123,
+  "n_cats": 2,
+  "response_type": "ordered_categorical",
+  "format": "new_format",
+  "description": "ASSISTments 2009 data: 4217 students, 123 questions, 2 categories",
+  "train_students": 3361,
+  "test_students": 856,
+  "seq_len_range": [
+    1,
+    8214
+  ]
+}

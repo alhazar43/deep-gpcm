@@ -9,7 +9,7 @@
   "train_students": 3200,
   "test_students": 800,
   "seq_len_range": [
-    20,
+    50,
     200
   ]
 }

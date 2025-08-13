@@ -1,0 +1,15 @@
+{
+  "dataset_name": "synthetic_yeung",
+  "n_students": 2000,
+  "n_questions": 50,
+  "n_cats": 2,
+  "response_type": "ordered_categorical",
+  "format": "new_format",
+  "description": "Deep-Yeung synthetic data: 2000 students, 50 questions, binary responses (indexes converted from 1-50 to 0-49)",
+  "train_students": 1400,
+  "test_students": 600,
+  "seq_len_range": [
+    50,
+    50
+  ]
+}

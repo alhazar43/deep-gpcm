@@ -303,7 +303,8 @@ class AdaptivePlotter:
     
     def plot_training_metrics(self, results: List[Dict[str, Any]], 
                             metrics_to_plot: Optional[List[str]] = None,
-                            save_path: Optional[str] = None) -> str:
+                            save_path: Optional[str] = None,
+                            zoom_in: bool = False) -> str:
         """Plot training metrics over epochs with adaptive layout."""
         available_metrics, df = self.extract_metrics_from_results(results, "training")
         
@@ -480,28 +481,73 @@ class AdaptivePlotter:
             title_with_arrow = f"{metric.replace('_', ' ').title()} {arrow}"
             ax.set_title(title_with_arrow)
             ax.grid(True, alpha=0.3)
+            
+            # Apply zoom if requested
+            if zoom_in:
+                # Get all y-values from the plot to determine range
+                all_y_values = []
+                for line in ax.get_lines():
+                    all_y_values.extend(line.get_ydata())
+                
+                valid_values = [v for v in all_y_values if np.isfinite(v)]
+                if valid_values:
+                    data_min = min(valid_values)
+                    data_max = max(valid_values)
+                    data_range = data_max - data_min
+                    
+                    # Add padding (10% on each side)
+                    padding = max(data_range * 0.1, 0.001)
+                    ax.set_ylim(max(0, data_min - padding), data_max + padding)
+            
             # Figure-level legend will be added below
         
         # Hide empty subplots
         for idx in range(n_metrics, len(axes)):
             axes[idx].set_visible(False)
         
-        # Create figure-level legend
+        # Create figure-level legend with adaptive positioning
         unique_models = sorted([m for m in models if m is not None])
         legend_elements = [plt.Line2D([0], [0], color=self.get_model_color(model), 
                                      linewidth=3, label=model) for model in unique_models]
-        fig.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 0.92), 
+        
+        # Adaptive legend positioning based on layout
+        if rows <= 1:
+            # For single row, place legend closer to title - reduced spacing
+            legend_y = 0.93
+            title_y = 0.97
+        elif rows <= 2:
+            # For 2 rows, moderate space between title and legend - reduced spacing
+            legend_y = 0.91
+            title_y = 0.96
+        else:
+            # For 3+ rows, more space but still reduced - reduced spacing
+            legend_y = 0.89
+            title_y = 0.95
+            
+        fig.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, legend_y), 
                   ncol=len(unique_models), fontsize=10, frameon=True, fancybox=True, shadow=True)
         
-        fig.suptitle('Training Metrics Over Epochs', 
-                    fontsize=18, weight='bold')
-        plt.tight_layout(rect=[0, 0, 1, 0.88], h_pad=1.0, w_pad=1.0)
+        title = 'Training Metrics Over Epochs'
+        if zoom_in:
+            title += ' - Zoomed View'
+        fig.suptitle(title, fontsize=18, weight='bold', y=title_y)
+        
+        # Adaptive tight_layout rect based on legend position with reduced spacing
+        if rows <= 1:
+            plt.tight_layout(rect=[0, 0, 1, 0.88], h_pad=1.2, w_pad=1.0)
+        elif rows <= 2:
+            plt.tight_layout(rect=[0, 0, 1, 0.86], h_pad=1.5, w_pad=1.2)
+        else:
+            plt.tight_layout(rect=[0, 0, 1, 0.84], h_pad=1.8, w_pad=1.4)
         
         # Save plot
         if save_path is None:
-            save_path = self.plots_dir / "train.png"
+            filename = "train_zoomed.png" if zoom_in else "train.png"
+            save_path = self.plots_dir / filename
         else:
             save_path = Path(save_path)
+            if zoom_in and not str(save_path).endswith('_zoomed.png'):
+                save_path = save_path.parent / (save_path.stem + '_zoomed' + save_path.suffix)
         
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.close()
@@ -512,7 +558,8 @@ class AdaptivePlotter:
     def plot_evaluation_metrics(self, results: List[Dict[str, Any]], 
                               result_type: str = "test",
                               metrics_to_plot: Optional[List[str]] = None,
-                              save_path: Optional[str] = None) -> str:
+                              save_path: Optional[str] = None,
+                              zoom_in: bool = False) -> str:
         """Plot evaluation metrics (final performance) with adaptive layout."""
         available_metrics, df = self.extract_metrics_from_results(results, "evaluation")
         
@@ -536,9 +583,13 @@ class AdaptivePlotter:
         n_metrics = len(metrics_to_plot)
         rows, cols = self.calculate_subplot_layout(n_metrics)
         
-        # Create figure
+        # Create figure with adaptive sizing for zoom
         fig_width = cols * self.figsize_base[0]
-        fig_height = rows * self.figsize_base[1]
+        if zoom_in:
+            # Increase figure height and add extra space for zoomed plots
+            fig_height = rows * (self.figsize_base[1] + 0.8)  # Add 0.8 inches per row
+        else:
+            fig_height = rows * self.figsize_base[1]
         fig, axes = plt.subplots(rows, cols, figsize=(fig_width, fig_height))
         
         if n_metrics == 1:
@@ -643,18 +694,75 @@ class AdaptivePlotter:
             ax.set_title(metric.replace('_', ' ').title())
             ax.grid(True, alpha=0.3, axis='y')
             
-            # Add best value annotation before adjusting y-limits
+            # Set y-axis limits with zoom support FIRST
+            y_min, y_max = ax.get_ylim()
+            
+            if zoom_in:
+                # Get actual data range for zoom
+                if 'model_values' in locals():
+                    # Single evaluation case
+                    data_values = model_values.values
+                elif 'means' in locals():
+                    # CV case
+                    data_values = means.values
+                else:
+                    data_values = []
+                
+                valid_values = [v for v in data_values if np.isfinite(v) and v > 0]
+                if valid_values:
+                    data_min = min(valid_values)
+                    data_max = max(valid_values)
+                    data_range = data_max - data_min
+                    
+                    # Add padding (10% on each side)
+                    padding = max(data_range * 0.1, 0.001)
+                    y_min = max(0, data_min - padding)
+                    y_max = data_max + padding
+                    y_range = y_max - y_min
+                else:
+                    y_range = y_max - y_min
+            else:
+                y_range = y_max - y_min
+            
+            # For test results, add significant top padding to prevent annotation collision with suptitle
+            if result_type == "test":
+                # Add 25% extra space at top for annotations to not touch suptitle
+                extra_top_space = y_range * 0.25
+            else:
+                extra_top_space = y_range * 0.1
+            
+            # Ensure enough space for text annotations
             if best_value_info is not None:
+                annotation_offset = y_range * 0.05  # Use relative offset
+                if len(best_value_info) == 3:
+                    idx, mean, std = best_value_info
+                    text_top = mean + std + annotation_offset
+                else:
+                    idx, value = best_value_info
+                    text_top = value + annotation_offset
+                
+                # Adjust y_max if text would be clipped
+                if text_top > y_max:
+                    extra_top_space = max(extra_top_space, text_top - y_max + y_range * 0.1)
+            
+            ax.set_ylim(y_min - y_range * 0.05, y_max + extra_top_space)
+            
+            # Add best value annotation AFTER adjusting y-limits for proper positioning
+            if best_value_info is not None:
+                # Get current y-limits after zoom adjustment
+                final_y_min, final_y_max = ax.get_ylim()
+                final_y_range = final_y_max - final_y_min
+                
                 if len(best_value_info) == 3:  # CV case with std
                     idx, mean, std = best_value_info
                     # Handle NaN/invalid std values
                     if pd.isna(std) or np.isinf(std) or std <= 0:
                         std = 0.0
-                    # Get best model color from model_values index
-                    best_model = model_values.index[idx]
+                    # Get best model color
+                    best_model = means.index[idx]  # Use means for CV case
                     best_model_color = self.get_model_color(best_model)
-                    # Position text above error bar
-                    text_y = mean + std + (std * 0.5 if std > 0 else mean * 0.1)
+                    # Position text above error bar with proper offset
+                    text_y = mean + std + final_y_range * 0.05
                     # For test results, don't show std
                     if result_type == "test":
                         annotation_text = f'{mean:.2f} ★'
@@ -667,42 +775,16 @@ class AdaptivePlotter:
                                    edgecolor=best_model_color, linewidth=1.5, alpha=0.9))
                 else:  # Single evaluation case
                     idx, value = best_value_info
-                    # Get best model color from model_values index
+                    # Get best model color
                     best_model = model_values.index[idx]
                     best_model_color = self.get_model_color(best_model)
-                    # Position text above bar
-                    text_y = value + abs(value) * 0.05
+                    # Use proper relative positioning based on final y-range
+                    text_y = value + final_y_range * 0.05
                     ax.text(idx, text_y, 
                            f'{value:.2f} ★', ha='center', va='bottom', 
                            fontsize=10, fontweight='bold', color=best_model_color,
                            bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
                                    edgecolor=best_model_color, linewidth=1.5, alpha=0.9))
-            
-            # Add extra padding to y-axis to show values and prevent suptitle collision
-            y_min, y_max = ax.get_ylim()
-            y_range = y_max - y_min
-            
-            # For test results, add significant top padding to prevent annotation collision with suptitle
-            if result_type == "test":
-                # Add 25% extra space at top for annotations to not touch suptitle
-                extra_top_space = y_range * 0.25
-            else:
-                extra_top_space = y_range * 0.1
-            
-            # Ensure enough space for text
-            if best_value_info is not None:
-                if len(best_value_info) == 3:
-                    idx, mean, std = best_value_info
-                    text_top = mean + std + abs(mean + std) * 0.1
-                else:
-                    idx, value = best_value_info
-                    text_top = value + abs(value) * 0.1
-                
-                # Adjust y_max if text would be clipped
-                if text_top > y_max:
-                    extra_top_space = max(extra_top_space, text_top - y_max + y_range * 0.1)
-            
-            ax.set_ylim(y_min - y_range * 0.05, y_max + extra_top_space)
         
         # Hide empty subplots
         for idx in range(n_metrics, len(axes)):
@@ -714,20 +796,68 @@ class AdaptivePlotter:
             legend_elements = [Patch(facecolor=self.get_model_color(model), 
                                    edgecolor='black', linewidth=1, 
                                    label=model) for model in models]
+            
+            # Adaptive legend positioning based on layout
+            if rows <= 1:
+                # For single row, place legend closer to title - reduced spacing
+                legend_y = 0.93
+                title_y = 0.97
+                rect_top = 0.88
+            elif rows <= 2:
+                # For 2 rows, moderate space between title and legend - reduced spacing
+                legend_y = 0.91
+                title_y = 0.96
+                rect_top = 0.86
+            else:
+                # For 3+ rows, more space but still reduced - reduced spacing
+                legend_y = 0.89
+                title_y = 0.95
+                rect_top = 0.84
+                
             # Place legend outside the plot area
-            fig.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 0.95), 
+            fig.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, legend_y), 
                       ncol=len(models), fontsize=10, frameon=True, fancybox=True, shadow=True)
         
-        plt.suptitle(f'{result_type.title()} Results Comparison', 
-                    fontsize=14, fontweight='bold', y=0.98)
-        # Standard layout - whitespace handled within individual subplots via y-axis padding
-        plt.tight_layout(rect=[0, 0, 1, 0.92])  # Leave space for legend and title
+        title = f'{result_type.title()} Results Comparison'
+        if zoom_in:
+            title += ' - Zoomed View'
+            
+        # Use adaptive positioning if we have variables from legend setup
+        if 'title_y' in locals() and 'rect_top' in locals():
+            plt.suptitle(title, fontsize=14, fontweight='bold', y=title_y)
+            if zoom_in:
+                # Reduced spacing for zoomed plots
+                if rows <= 1:
+                    plt.tight_layout(rect=[0, 0, 1, rect_top], h_pad=1.5, w_pad=1.2)
+                elif rows <= 2:
+                    plt.tight_layout(rect=[0, 0, 1, rect_top], h_pad=1.8, w_pad=1.4)
+                else:
+                    plt.tight_layout(rect=[0, 0, 1, rect_top], h_pad=2.0, w_pad=1.5)
+            else:
+                # Reduced spacing for normal plots
+                if rows <= 1:
+                    plt.tight_layout(rect=[0, 0, 1, rect_top], h_pad=1.2, w_pad=1.0)
+                elif rows <= 2:
+                    plt.tight_layout(rect=[0, 0, 1, rect_top], h_pad=1.4, w_pad=1.2)
+                else:
+                    plt.tight_layout(rect=[0, 0, 1, rect_top], h_pad=1.6, w_pad=1.3)
+        else:
+            # Fallback to default positioning with reduced spacing
+            plt.suptitle(title, fontsize=14, fontweight='bold', y=0.96)
+            if zoom_in:
+                # Reduced spacing for zoomed plots
+                plt.tight_layout(rect=[0, 0, 1, 0.86], h_pad=1.8, w_pad=1.4)
+            else:
+                plt.tight_layout(rect=[0, 0, 1, 0.88], h_pad=1.4, w_pad=1.2)
         
         # Save plot
         if save_path is None:
-            save_path = self.plots_dir / f"{result_type}.png"
+            filename = f"{result_type}_zoomed.png" if zoom_in else f"{result_type}.png"
+            save_path = self.plots_dir / filename
         else:
             save_path = Path(save_path)
+            if zoom_in and not str(save_path).endswith('_zoomed.png'):
+                save_path = save_path.parent / (save_path.stem + '_zoomed' + save_path.suffix)
         
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.close()
@@ -738,8 +868,14 @@ class AdaptivePlotter:
     def plot_metric_comparison(self, train_results: List[Dict[str, Any]], 
                              test_results: List[Dict[str, Any]],
                              validation_results: Optional[List[Dict[str, Any]]] = None,
-                             save_path: Optional[str] = None) -> str:
-        """Create side-by-side comparison of training and test metrics with highlighting."""
+                             save_path: Optional[str] = None,
+                             zoom_in: bool = False) -> str:
+        """Create side-by-side comparison of training and test metrics with highlighting.
+        
+        Args:
+            zoom_in: If True, zoom in on actual data range to highlight small differences.
+                    If False, use standard 0-1 range for most metrics.
+        """
         # All available metrics
         ALL_METRICS = [
             'categorical_accuracy',
@@ -914,30 +1050,23 @@ class AdaptivePlotter:
                 train_best_idx = np.argmax(train_values) if any(v > 0 for v in train_values) else None
                 test_best_idx = np.argmax(test_values) if any(v > 0 for v in test_values) else None
             
-            # Add boxed annotations for best performers with model-specific colors
+            # Store best performer info for later annotation (after y-limits are set)
+            train_best_info = None
+            test_best_info = None
+            
             if train_best_idx is not None:
                 train_best_val = train_values[train_best_idx]
                 train_best_model = models[train_best_idx]
                 train_model_color = self.get_model_color(train_best_model)
                 train_x_pos = (train_best_idx - n_models/2 + 0.5) * width
-                ax.text(train_x_pos, train_best_val + abs(train_best_val) * 0.1,
-                       f'{train_best_val:.2f} ★',
-                       ha='center', va='bottom', fontsize=9, fontweight='bold',
-                       color=train_model_color,
-                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
-                               edgecolor=train_model_color, linewidth=1.5, alpha=0.9))
+                train_best_info = (train_x_pos, train_best_val, train_model_color, train_best_model)
             
             if test_best_idx is not None:
                 test_best_val = test_values[test_best_idx]
                 test_best_model = models[test_best_idx]
                 test_model_color = self.get_model_color(test_best_model)
                 test_x_pos = 1 + (test_best_idx - n_models/2 + 0.5) * width
-                ax.text(test_x_pos, test_best_val + abs(test_best_val) * 0.1,
-                       f'{test_best_val:.2f} ★',
-                       ha='center', va='bottom', fontsize=9, fontweight='bold',
-                       color=test_model_color,
-                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
-                               edgecolor=test_model_color, linewidth=1.5, alpha=0.9))
+                test_best_info = (test_x_pos, test_best_val, test_model_color, test_best_model)
             
             # Highlight best performers on both training AND test data
             # Collect bars in the correct order by sorting by x position
@@ -967,16 +1096,55 @@ class AdaptivePlotter:
             ax.set_ylabel('Score', fontsize=9)
             
             # Set y-axis limits based on metric with NaN/Inf handling
-            if metric in ['mean_absolute_error', 'cross_entropy']:
-                all_values = train_values + test_values
-                # Filter out NaN and Inf values
-                valid_values = [v for v in all_values if np.isfinite(v)]
-                max_val = max(valid_values) if valid_values else 1
-                ax.set_ylim(0, max_val * 1.2)
+            all_values = train_values + test_values
+            # Filter out NaN and Inf values
+            valid_values = [v for v in all_values if np.isfinite(v) and v > 0]
+            
+            if zoom_in and valid_values:
+                # Zoom-in mode: tight range around actual values
+                min_val = min(valid_values)
+                max_val = max(valid_values)
+                value_range = max_val - min_val
+                
+                # Add padding (10% on each side) + extra space for annotations
+                padding = max(value_range * 0.1, 0.001)  # minimum padding
+                # Reserve extra space at top for annotations to avoid touching suptitle
+                annotation_space = value_range * 0.15  # 15% extra space for annotations
+                ax.set_ylim(max(0, min_val - padding), max_val + padding + annotation_space)
             else:
-                ax.set_ylim(0, 1.05)
+                # Normal mode: standard range with space for annotations
+                if metric in ['mean_absolute_error', 'cross_entropy']:
+                    max_val = max(valid_values) if valid_values else 1
+                    ax.set_ylim(0, max_val * 1.3)  # Increased from 1.2 to 1.3 for annotation space
+                else:
+                    ax.set_ylim(0, 1.15)  # Increased from 1.05 to 1.15 for annotation space
             
             ax.grid(axis='y', alpha=0.3)
+            
+            # Add annotations AFTER y-limits are set for proper positioning
+            if train_best_info is not None or test_best_info is not None:
+                # Get final y-limits after zoom adjustment
+                final_y_min, final_y_max = ax.get_ylim()
+                final_y_range = final_y_max - final_y_min
+                annotation_offset = final_y_range * 0.05  # 5% of final y-axis range
+                
+                if train_best_info is not None:
+                    train_x_pos, train_best_val, train_model_color, train_best_model = train_best_info
+                    ax.text(train_x_pos, train_best_val + annotation_offset,
+                           f'{train_best_val:.3f} ★',
+                           ha='center', va='bottom', fontsize=9, fontweight='bold',
+                           color=train_model_color,
+                           bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
+                                   edgecolor=train_model_color, linewidth=1.5, alpha=0.9))
+                
+                if test_best_info is not None:
+                    test_x_pos, test_best_val, test_model_color, test_best_model = test_best_info
+                    ax.text(test_x_pos, test_best_val + annotation_offset,
+                           f'{test_best_val:.3f} ★',
+                           ha='center', va='bottom', fontsize=9, fontweight='bold',
+                           color=test_model_color,
+                           bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
+                                   edgecolor=test_model_color, linewidth=1.5, alpha=0.9))
             
             # Legend will be added at figure level instead of subplot level
         
@@ -984,29 +1152,73 @@ class AdaptivePlotter:
         for idx in range(len(ALL_METRICS), len(axes)):
             axes[idx].set_visible(False)
         
-        # Overall title
-        fig.suptitle('Training vs Test Performance Comparison (★ = Best)', fontsize=18, weight='bold')
+        # Adaptive legend positioning for comparison plot  
+        # Calculate layout dimensions from figure setup
+        n_metrics = len(ALL_METRICS)
+        cols = 4
+        rows = (n_metrics + cols - 1) // cols
         
-        # Add figure-level legend under title
+        if rows <= 1:
+            # For single row, place legend closer to title - reduced spacing
+            legend_y = 0.93
+            title_y = 0.97
+            rect_top = 0.88
+        elif rows <= 2:
+            # For 2 rows, moderate space between title and legend - reduced spacing
+            legend_y = 0.91
+            title_y = 0.96
+            rect_top = 0.86
+        else:
+            # For 3+ rows, more space but still reduced - reduced spacing
+            legend_y = 0.89
+            title_y = 0.95
+            rect_top = 0.84
+        
+        # Overall title with adaptive positioning
+        title = 'Training vs Test Performance Comparison (★ = Best)'
+        if zoom_in:
+            title += ' - Zoomed View'
+        fig.suptitle(title, fontsize=18, weight='bold', y=title_y)
+        
+        # Add figure-level legend with adaptive positioning
         from matplotlib.patches import Patch
         legend_elements = [Patch(facecolor=self.get_model_color(model), 
                                edgecolor='black', linewidth=1, 
                                label=model.replace('_', ' ').title()) for model in models]
-        fig.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 0.92), 
+        fig.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, legend_y), 
                   ncol=len(models), fontsize=10, frameon=True, fancybox=True, shadow=True)
         
-        plt.tight_layout(rect=[0, 0, 1, 0.88])  # Leave space for title and legend
+        if zoom_in:
+            # Reduced spacing for zoomed comparison plots
+            if rows <= 1:
+                plt.tight_layout(rect=[0, 0, 1, rect_top], h_pad=1.8, w_pad=1.4)
+            elif rows <= 2:
+                plt.tight_layout(rect=[0, 0, 1, rect_top], h_pad=2.0, w_pad=1.6)
+            else:
+                plt.tight_layout(rect=[0, 0, 1, rect_top], h_pad=2.2, w_pad=1.8)
+        else:
+            # Reduced spacing for normal comparison plots
+            if rows <= 1:
+                plt.tight_layout(rect=[0, 0, 1, rect_top], h_pad=1.4, w_pad=1.2)
+            elif rows <= 2:
+                plt.tight_layout(rect=[0, 0, 1, rect_top], h_pad=1.6, w_pad=1.3)
+            else:
+                plt.tight_layout(rect=[0, 0, 1, rect_top], h_pad=1.8, w_pad=1.4)
         
         # Save plot
         if save_path is None:
-            save_path = self.plots_dir / "train_v_test.png"
+            filename = "train_v_test_zoomed.png" if zoom_in else "train_v_test.png"
+            save_path = self.plots_dir / filename
         else:
             save_path = Path(save_path)
+            if zoom_in and not str(save_path).endswith('_zoomed.png'):
+                save_path = save_path.parent / (save_path.stem + '_zoomed' + save_path.suffix)
         
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.close()
         
-        print(f"Training vs test comparison plot saved: {save_path}")
+        view_type = "zoomed " if zoom_in else ""
+        print(f"Training vs test {view_type}comparison plot saved: {save_path}")
         return str(save_path)
 
     def plot_categorical_breakdown(self, results: List[Dict[str, Any]], 
@@ -2248,7 +2460,10 @@ class AdaptivePlotter:
 
 
 def plot_all_results(results_dir: str = "results", dataset: Optional[str] = None):
-    """Convenience function to plot all available results."""
+    """Convenience function to plot all available results.
+    
+    Generates both normal and zoomed plots automatically.
+    """
     plotter = AdaptivePlotter(results_dir, dataset=dataset)
     
     # Load all results
@@ -2263,7 +2478,12 @@ def plot_all_results(results_dir: str = "results", dataset: Optional[str] = None
     
     # Plot training metrics if available
     if train_results:
+        # Normal view
         plot_path = plotter.plot_training_metrics(train_results)
+        if plot_path:
+            generated_plots.append(plot_path)
+        # Zoomed view
+        plot_path = plotter.plot_training_metrics(train_results, zoom_in=True)
         if plot_path:
             generated_plots.append(plot_path)
     
@@ -2279,19 +2499,34 @@ def plot_all_results(results_dir: str = "results", dataset: Optional[str] = None
             'spearman_correlation',
             'cohen_kappa'
         ]
+        # Normal view
         plot_path = plotter.plot_evaluation_metrics(test_results, "test", metrics_to_plot)
+        if plot_path:
+            generated_plots.append(plot_path)
+        # Zoomed view
+        plot_path = plotter.plot_evaluation_metrics(test_results, "test", metrics_to_plot, zoom_in=True)
         if plot_path:
             generated_plots.append(plot_path)
     
     # Plot validation metrics if available
     if valid_results:
+        # Normal view
         plot_path = plotter.plot_evaluation_metrics(valid_results, "valid")
+        if plot_path:
+            generated_plots.append(plot_path)
+        # Zoomed view
+        plot_path = plotter.plot_evaluation_metrics(valid_results, "valid", zoom_in=True)
         if plot_path:
             generated_plots.append(plot_path)
     
     # Plot comparison if both training and test results available
     if (train_results or validation_results) and test_results:
+        # Normal view
         plot_path = plotter.plot_metric_comparison(train_results, test_results, validation_results)
+        if plot_path:
+            generated_plots.append(plot_path)
+        # Zoomed view
+        plot_path = plotter.plot_metric_comparison(train_results, test_results, validation_results, zoom_in=True)
         if plot_path:
             generated_plots.append(plot_path)
     

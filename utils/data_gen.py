@@ -2,18 +2,18 @@
 """
 GPCM Synthetic Data Generator
 
-Supports both legacy and new naming formats:
-    Legacy: synthetic_OC, synthetic_PC
+Supports both legacy and new naming formats (OC format only):
+    Legacy: synthetic_OC
     New: synthetic_<students>_<max_questions>_<categories>
 
 Usage:
-    # Legacy format
-    python data_gen.py --format PC --categories 4
-    python data_gen.py --format OC --categories 3
+    # Legacy format (OC only)
+    python data_gen.py --format OC --categories 4
+    python data_gen.py --categories 3
     
-    # New format
+    # New format (recommended)
     python data_gen.py --name synthetic_4000_200_2
-    python data_gen.py --name synthetic_4000_200_3
+    python data_gen.py --name synthetic_4000_200_3 --min_seq 20 --max_seq 80
     python data_gen.py --name synthetic_4000_200_5
 """
 
@@ -124,52 +124,52 @@ class GpcmGen:
         print(f"   {self.n_cats} categories: {list(range(self.n_cats))}")
         print(f"   Train: {n_train} students, Test: {len(sequences) - n_train} students")
     
-    def save_pc_format(self, sequences, data_dir, split_ratio=0.8):
-        # Save partial credit format  
-        data_dir = Path(data_dir)
-        data_dir.mkdir(parents=True, exist_ok=True)
-        
-        n_train = int(len(sequences) * split_ratio)
-        train_seqs = sequences[:n_train]
-        test_seqs = sequences[n_train:]
-        
-        def cat_to_pc(response, n_cats):
-            return response / (n_cats - 1)
-        
-        for split_name, split_seqs in [('train', train_seqs), ('test', test_seqs)]:
-            filename = data_dir / f"synthetic_pc_{split_name}.txt"
-            
-            with open(filename, 'w') as f:
-                for seq in split_seqs:
-                    f.write(f"{seq['seq_len']}\n")
-                    
-                    q_str = ','.join(map(str, seq['questions']))
-                    f.write(f"{q_str}\n")
-                    
-                    pc_scores = [cat_to_pc(r, self.n_cats) for r in seq['responses']]
-                    r_str = ','.join(f"{score:.3f}" for score in pc_scores)
-                    f.write(f"{r_str}\n")
-        
-        metadata = {
-            'n_students': self.n_students,
-            'n_questions': self.n_questions,
-            'n_cats': self.n_cats,
-            'response_type': 'partial_credit',
-            'format': 'PC',
-            'description': f'Synthetic GPCM data with partial credit scores in [0,1]',
-            'score_range': [0.0, 1.0],
-            'discretization': f'{self.n_cats} levels: {[round(k/(self.n_cats-1), 3) for k in range(self.n_cats)]}',
-            'train_students': n_train,
-            'test_students': len(sequences) - n_train,
-            'seq_len_range': self.seq_len_range
-        }
-        
-        with open(data_dir / 'metadata.json', 'w') as f:
-            json.dump(metadata, f, indent=2)
-        
-        print(f"Saved Partial Credit format to {data_dir}")
-        print(f"   {self.n_cats} levels: {[round(k/(self.n_cats-1), 3) for k in range(self.n_cats)]}")
-        print(f"   Train: {n_train} students, Test: {len(sequences) - n_train} students")
+    # def save_pc_format(self, sequences, data_dir, split_ratio=0.8):
+    #     # Save partial credit format - COMMENTED OUT: Only using OC format now
+    #     data_dir = Path(data_dir)
+    #     data_dir.mkdir(parents=True, exist_ok=True)
+    #     
+    #     n_train = int(len(sequences) * split_ratio)
+    #     train_seqs = sequences[:n_train]
+    #     test_seqs = sequences[n_train:]
+    #     
+    #     def cat_to_pc(response, n_cats):
+    #         return response / (n_cats - 1)
+    #     
+    #     for split_name, split_seqs in [('train', train_seqs), ('test', test_seqs)]:
+    #         filename = data_dir / f"synthetic_pc_{split_name}.txt"
+    #         
+    #         with open(filename, 'w') as f:
+    #             for seq in split_seqs:
+    #                 f.write(f"{seq['seq_len']}\n")
+    #                 
+    #                 q_str = ','.join(map(str, seq['questions']))
+    #                 f.write(f"{q_str}\n")
+    #                 
+    #                 pc_scores = [cat_to_pc(r, self.n_cats) for r in seq['responses']]
+    #                 r_str = ','.join(f"{score:.3f}" for score in pc_scores)
+    #                 f.write(f"{r_str}\n")
+    #     
+    #     metadata = {
+    #         'n_students': self.n_students,
+    #         'n_questions': self.n_questions,
+    #         'n_cats': self.n_cats,
+    #         'response_type': 'partial_credit',
+    #         'format': 'PC',
+    #         'description': f'Synthetic GPCM data with partial credit scores in [0,1]',
+    #         'score_range': [0.0, 1.0],
+    #         'discretization': f'{self.n_cats} levels: {[round(k/(self.n_cats-1), 3) for k in range(self.n_cats)]}',
+    #         'train_students': n_train,
+    #         'test_students': len(sequences) - n_train,
+    #         'seq_len_range': self.seq_len_range
+    #     }
+    #     
+    #     with open(data_dir / 'metadata.json', 'w') as f:
+    #         json.dump(metadata, f, indent=2)
+    #     
+    #     print(f"Saved Partial Credit format to {data_dir}")
+    #     print(f"   {self.n_cats} levels: {[round(k/(self.n_cats-1), 3) for k in range(self.n_cats)]}")
+    #     print(f"   Train: {n_train} students, Test: {len(sequences) - n_train} students")
     
     def save_irt_params(self, data_dir):
         data_dir = Path(data_dir)
@@ -251,7 +251,7 @@ class GpcmGen:
         print(f"   {self.n_cats} categories: {list(range(self.n_cats))}")
         print(f"   Train: {n_train} students, Test: {len(sequences) - n_train} students")
     
-    def gen_and_save(self, base_data_dir="./data", formats=["OC", "PC"], dataset_name=None):
+    def gen_and_save(self, base_data_dir="./data", formats=["OC"], dataset_name=None):
         print(f"Generating GPCM synthetic data...")
         print(f"   Students: {self.n_students}")
         print(f"   Questions: {self.n_questions}")  
@@ -266,16 +266,17 @@ class GpcmGen:
             self.save_new_format(sequences, data_dir, dataset_name)
             self.save_irt_params(data_dir)
         else:
-            # Legacy format
+            # Legacy format - only OC format supported now
             if "OC" in formats:
                 oc_dir = Path(base_data_dir) / "synthetic_OC"
                 self.save_oc_format(sequences, oc_dir)
                 self.save_irt_params(oc_dir)
                 
-            if "PC" in formats:
-                pc_dir = Path(base_data_dir) / "synthetic_PC"
-                self.save_pc_format(sequences, pc_dir)
-                self.save_irt_params(pc_dir)
+            # PC format commented out - only using OC format
+            # if "PC" in formats:
+            #     pc_dir = Path(base_data_dir) / "synthetic_PC"
+            #     self.save_pc_format(sequences, pc_dir)
+            #     self.save_irt_params(pc_dir)
         
         print(f"Generation complete!")
 
@@ -287,9 +288,9 @@ def main():
     parser.add_argument('--name', type=str, default=None,
                        help='Dataset name in new format: synthetic_<students>_<max_questions>_<categories>')
     
-    # Legacy format options
-    parser.add_argument('--format', choices=['PC', 'OC', 'both'], default='both',
-                       help='Legacy format: PC (Partial Credit), OC (Ordered Categories), or both')
+    # Legacy format options - simplified to OC only
+    parser.add_argument('--format', choices=['OC'], default='OC',
+                       help='Legacy format: OC (Ordered Categories) - PC format disabled')
     parser.add_argument('--categories', type=int, default=4,
                        help='Number of response categories (K)')
     parser.add_argument('--students', type=int, default=800,
@@ -327,8 +328,16 @@ def main():
         min_questions = min(100, max_questions)
         
         # For new format, generate variable sequence lengths
-        min_seq = max(10, min_questions // 5)  # At least 20% of min questions
-        max_seq = min(max_questions, 200)  # Cap at max_questions or 200
+        # Use command-line args if provided, otherwise calculate defaults
+        if args.max_seq != 50:  # 50 is the default, so user provided custom value
+            max_seq = args.max_seq
+        else:
+            max_seq = min(max_questions, 200)  # Cap at max_questions or 200
+            
+        if args.min_seq != 10:  # 10 is the default, so user provided custom value
+            min_seq = args.min_seq
+        else:
+            min_seq = max(10, max_seq // 4)  # At least 1/4 of max sequence length
         
         gen = GpcmGen(
             n_students=n_students,
@@ -339,11 +348,8 @@ def main():
         
         gen.gen_and_save(base_data_dir=args.output_dir, dataset_name=args.name)
     else:
-        # Legacy format
-        if args.format == 'both':
-            formats = ['PC', 'OC']
-        else:
-            formats = [args.format]
+        # Legacy format - only OC supported
+        formats = ['OC']  # Simplified: always use OC format
         
         gen = GpcmGen(
             n_students=args.students,

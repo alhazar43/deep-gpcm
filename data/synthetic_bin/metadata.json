@@ -1,0 +1,15 @@
+{
+  "dataset_name": "synthetic_bin",
+  "n_students": 2000,
+  "n_questions": 50,
+  "n_cats": 2,
+  "response_type": "ordered_categorical",
+  "format": "new_format",
+  "description": "Synthetic binary data: 2000 students, 50 questions, 2 categories",
+  "train_students": 1400,
+  "test_students": 600,
+  "seq_len_range": [
+    50,
+    50
+  ]
+}
