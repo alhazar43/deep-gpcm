@@ -100,8 +100,8 @@ class UnifiedArgumentParser:
     def add_evaluation_args(self):
         """Add evaluation-specific arguments."""
         eval_group = self.parser.add_argument_group('Evaluation Options')
-        eval_group.add_argument('--model_path', type=str, required=True,
-                              help='Path to trained model')
+        eval_group.add_argument('--model_path', type=str,
+                              help='Path to trained model (required for single evaluation)')
         eval_group.add_argument('--metrics', nargs='+', 
                               default=['auc', 'acc', 'rmse'],
                               help='Metrics to compute')

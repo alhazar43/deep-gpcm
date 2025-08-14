@@ -14,57 +14,43 @@ python train.py --model deep_gpcm --dataset synthetic_500_200_4 --epochs 30 --n_
 # K-fold cross-validation training
 python train.py --model deep_gpcm --dataset synthetic_500_200_4 --epochs 30 --n_folds 5
 
-# Hyperparameter optimization with Bayesian search
-python train.py --model deep_gpcm --dataset synthetic_500_200_4 --hyperopt --hyperopt_trials 50 --n_folds 5
+# ⭐ Adaptive hyperparameter optimization (RECOMMENDED)
+python train.py --model deep_gpcm --dataset synthetic_500_200_4 --hyperopt --hyperopt_trials 50
 
-# Multiple models in sequence
-python train.py --models deep_gpcm attn_gpcm --dataset synthetic_500_200_4 --epochs 30
+# Complete pipeline with adaptive optimization
+python main.py --models deep_gpcm attn_gpcm_learn --dataset synthetic_500_200_4 --hyperopt --hyperopt_trials 30
 ```
-
-## Key Features
-
-- ✅ **Bayesian Hyperparameter Optimization**: Automated parameter tuning with Gaussian Process regression
-- ✅ **Comprehensive Training Modes**: Single training, K-fold CV, and hyperparameter optimization
-- ✅ **Advanced Loss Weight Optimization**: Automatic tuning of combined loss components (CE, focal, QWK)
-- ✅ **Intelligent Analysis & Visualization**: 9-panel optimization dashboards with parameter importance
-- ✅ **Temporal IRT Modeling**: Dynamic extraction of student abilities (θ), item discriminations (α), and thresholds (β)
-- ✅ **CORAL Ordinal Regression**: Proper IRT-CORAL separation with coral_gpcm_proper model
-- ✅ **Memory Networks**: DKVMN architecture with attention-based knowledge state tracking
-- ✅ **Production-Ready Pipeline**: Streamlined CV logic with unified argument parsing
 
 ## Main Pipeline
 
 ### Core Command
 ```bash
-# All models with 5-fold training (no hyperparameter tuning)
-python main.py --dataset synthetic_OC --epochs 30 --n_folds 5
+# Complete pipeline with adaptive optimization (RECOMMENDED)
+python main.py --dataset synthetic_500_200_4 --epochs 30 --hyperopt --hyperopt_trials 50
 
-# With cross-validation and hyperparameter tuning
-python main.py --dataset synthetic_OC --epochs 30 --n_folds 5 --cv
+# All models with standard training
+python main.py --dataset synthetic_500_200_4 --epochs 30 --n_folds 5
+
+# Advanced adaptive configuration
+python main.py --dataset synthetic_500_200_4 --hyperopt --adaptive_epochs 5,15,40 --adaptive_arch --adaptive_learning
 ```
-
-**Includes**:
-- Training with 5-fold cross-validation
-- Model evaluation with comprehensive metrics
-- Visualization generation (7 plots)
-- IRT parameter analysis with temporal heatmaps
 
 ### Pipeline Phases
 ```bash
-# Training only
-python main.py --action train --dataset synthetic_OC --epochs 30
+# Training only with adaptive optimization
+python main.py --action train --dataset synthetic_500_200_4 --epochs 30 --hyperopt
 
 # Evaluation only  
-python main.py --action evaluate --dataset synthetic_OC
+python main.py --action evaluate --dataset synthetic_500_200_4
 
 # Plotting only
-python main.py --action plot --dataset synthetic_OC
+python main.py --action plot --dataset synthetic_500_200_4
 
 # IRT analysis only
-python main.py --action irt --dataset synthetic_OC
+python main.py --action irt --dataset synthetic_500_200_4
 
 # Cleanup only
-python main.py --action clean --dataset synthetic_OC
+python main.py --action clean --dataset synthetic_500_200_4
 python main.py --action clean --clean-all --no-confirm  # Clean all without prompts
 ```
 
@@ -73,63 +59,89 @@ python main.py --action clean --clean-all --no-confirm  # Clean all without prom
 ### Available Models
 | Model | Description | Parameters | Loss Function |
 |-------|-------------|------------|---------------|
-| `deep_gpcm` | Core DKVMN + IRT + GPCM | ~279K | Focal loss (γ=2.0) |
-| `attn_gpcm` | Attention-enhanced with refinement | ~194K | Cross-entropy |
-| `coral_gpcm_proper` | Proper IRT-CORAL separation | ~274K | Combined (Focal: 0.4, QWK: 0.2, CORAL: 0.4) |
-| `coral_gpcm_fixed` | CORAL with combined β+τ thresholds | ~274K | Combined (Focal: 0.4, QWK: 0.2, CORAL: 0.4) |
-| `test_gpcm` | coral_gpcm_fixed architecture | ~274K | Cross-entropy |
-| `attn_gpcm_new` | Enhanced attention GPCM | ~194K | Combined (CE: 0.6, QWK: 0.2, Focal: 0.2) |
+| `deep_gpcm` | Core DKVMN + IRT + GPCM | ~280K | Combined (CE: 0.2, QWK: 0.2, Focal: 0.6) |
+| `attn_gpcm_learn` | Attention-enhanced with learnable embeddings | ~195K | Combined (CE: 0.2, QWK: 0.2, Focal: 0.6) |
+| `attn_gpcm_linear` | Attention-enhanced with linear decay embeddings | ~195K | Combined (CE: 0.2, QWK: 0.2, Focal: 0.6) |
+| `stable_temporal_attn_gpcm` | Production-ready temporal attention model | ~200K | Combined (CE: 0.2, QWK: 0.2, Focal: 0.6) |
 
-**Note**: The main.py pipeline automatically configures the optimal loss function for each model type.
+**Features:**
+- 🔥 **Adaptive Hyperparameter Optimization**: Intelligent epoch allocation and expanded search space
+- 🎯 **Model-Aware Parameter Search**: Only searches parameters relevant to each model
+- 📊 **Automated Analysis**: AI-generated insights and recommendations
+- 🛡️ **Fallback System**: Safe degradation to original optimization if needed
 
 ## Training Modes
 
-### 1. Single Training (No Cross-Validation)
+### 1. Adaptive Hyperparameter Optimization (RECOMMENDED)
+```bash
+# ⭐ Best practice: Adaptive optimization with intelligent epoch allocation
+python train.py --model deep_gpcm --dataset synthetic_500_200_4 --hyperopt --hyperopt_trials 50
+
+# Advanced configuration: Custom epoch allocation and expanded search
+python train.py --model deep_gpcm --dataset synthetic_500_200_4 --hyperopt \
+    --adaptive_epochs 5,15,40 --adaptive_arch --adaptive_learning
+
+# Disable adaptive features (fallback to original optimization)
+python train.py --model deep_gpcm --dataset synthetic_500_200_4 --hyperopt --no_adaptive
+
+# Quick adaptive search for development
+python train.py --model deep_gpcm --dataset synthetic_500_200_4 --hyperopt --hyperopt_trials 20
+```
+
+### 2. Standard Training
 ```bash
 # Basic single model training
 python train.py --model deep_gpcm --dataset synthetic_500_200_4 --epochs 30 --n_folds 0
 
-# With custom loss function
-python train.py --model deep_gpcm --dataset synthetic_500_200_4 --epochs 30 --n_folds 0 --loss combined
-```
-
-### 2. K-Fold Cross-Validation
-```bash
-# Standard k-fold training (no hyperparameter tuning)
+# K-fold cross-validation
 python train.py --model deep_gpcm --dataset synthetic_500_200_4 --epochs 30 --n_folds 5
 
-# Multiple models with k-fold CV
-python train.py --models deep_gpcm attn_gpcm --dataset synthetic_500_200_4 --epochs 30 --n_folds 3
+# Multiple models with standard training
+python train.py --models deep_gpcm attn_gpcm_learn --dataset synthetic_500_200_4 --epochs 30 --n_folds 5
 ```
 
-### 3. Hyperparameter Optimization
+## ⭐ Adaptive Hyperparameter Optimization
+
+### Key Features
+
+**🔄 Intelligent Epoch Allocation**
+- **Phase 1** (5 epochs): Quick exploration for unpromising configurations
+- **Phase 2** (15 epochs): Standard evaluation for most trials
+- **Phase 3** (40 epochs): Full evaluation for promising configurations
+
+**🎯 Model-Aware Parameter Search**
+- **Common Parameters**: `memory_size`, `key_dim`, `value_dim`, `final_fc_dim`, `dropout_rate`
+- **Attention Models**: Additional `embed_dim`, `n_heads`, `n_cycles` parameters
+- **Learning Parameters**: `lr`, `weight_decay`, `batch_size`, `grad_clip`, `label_smoothing`
+
+**🤖 Automated Analysis & Recommendations**
+- Performance pattern analysis and optimization insights
+- Parameter importance ranking and interaction analysis
+- Actionable recommendations for next optimization steps
+
+**🛡️ Fallback Safety System**
+- Automatic fallback to original optimization if adaptive features fail
+- Configurable failure thresholds and safety mechanisms
+
+### Usage Examples
+
 ```bash
-# Bayesian optimization with Gaussian Process
-python train.py --model deep_gpcm --dataset synthetic_500_200_4 --hyperopt --hyperopt_trials 50 --n_folds 5
+# ⭐ Recommended: Full adaptive optimization
+python train.py --model deep_gpcm --dataset synthetic_500_200_4 --hyperopt --hyperopt_trials 50
 
-# Quick hyperparameter search (fewer trials)
-python train.py --model deep_gpcm --dataset synthetic_500_200_4 --hyperopt --hyperopt_trials 20 --n_folds 3
+# Quick development testing
+python train.py --model deep_gpcm --dataset synthetic_500_200_4 --hyperopt --hyperopt_trials 10 --adaptive_epochs 3,5,10
 
-# Optimize specific metric
-python train.py --model deep_gpcm --dataset synthetic_500_200_4 --hyperopt --hyperopt_trials 50 --hyperopt_metric categorical_accuracy
+# Advanced: Custom configuration for attention models
+python train.py --model attn_gpcm_learn --dataset synthetic_500_200_4 --hyperopt \
+    --adaptive_epochs 5,20,50 --adaptive_arch --adaptive_learning --hyperopt_trials 75
+
+# Production: Multiple models with adaptive optimization
+python main.py --models deep_gpcm attn_gpcm_learn attn_gpcm_linear \
+    --dataset synthetic_500_200_4 --hyperopt --hyperopt_trials 100
 ```
 
-**Hyperparameter Optimization Features**:
-- **Bayesian Search**: Gaussian Process with Expected Improvement acquisition
-- **Parameter Space**: `memory_size`, `final_fc_dim`, `dropout_rate`, loss weights
-- **Loss Weight Optimization**: Automatic tuning of CE, focal, and QWK weights
-- **Comprehensive Analysis**: 9-panel visualization dashboard with parameter importance
-- **Convergence Analysis**: Tracks optimization efficiency and best parameter combinations
-- **Integration**: Seamlessly works with existing training pipeline
-
-### Generated Hyperopt Outputs
-```
-results/hyperopt/
-├── {model}_{dataset}_hyperopt_analysis.png     # 9-panel analysis dashboard
-├── {model}_{dataset}_detailed_parameters.png   # Individual parameter analysis
-├── {model}_{dataset}_hyperopt_report.md        # Comprehensive markdown report
-└── {model}_{dataset}_hyperopt_analysis.json    # Raw analysis data
-```
+## Evaluation and Analysis
 
 ### Evaluation
 ```bash
@@ -174,32 +186,11 @@ python analysis/irt_analysis.py --dataset synthetic_OC --analysis_types recovery
 
 # Save extracted parameters
 python analysis/irt_analysis.py --dataset synthetic_OC --save_params
-
-# IRT Analysis Features:
-# - Parameter recovery plots with KDE distributions for theta
-# - Temporal rank-rank correlation heatmaps showing stability over time
-# - Adaptive spacing and clean visualization
-# - Support for all 6 model types
 ```
 
-## Installation and Setup
+## Data Generation
 
-### Environment Setup
-```bash
-# Activate conda environment (REQUIRED)
-source ~/anaconda3/etc/profile.d/conda.sh && conda activate vrec-env
-
-# Clean previous outputs (using new cleanup utility)
-python main.py --action clean --dataset synthetic_OC  # Clean specific dataset
-python main.py --action clean --clean-all            # Clean all datasets
-python main.py --action clean --dataset synthetic_OC --dry-run  # Preview what will be deleted
-
-# Directories created automatically by scripts
-```
-
-### Data Generation
-
-#### New Format (Recommended)
+### New Format (Recommended)
 ```bash
 # Generate datasets with explicit configuration (OC format only)
 python utils/data_gen.py --name synthetic_4000_200_2   # 2 categories
@@ -218,7 +209,7 @@ python utils/data_gen.py --name synthetic_1000_120_3 --min_seq 30   # Custom min
 # - max_seq: Defaults to min(max_questions, 200)
 ```
 
-#### Legacy Format  
+### Legacy Format  
 ```bash
 # Standard synthetic dataset (OC format only)
 python utils/data_gen.py --categories 4 --students 800 --questions 50 --seed 42
@@ -227,244 +218,7 @@ python utils/data_gen.py --categories 4 --students 800 --questions 50 --seed 42
 python utils/data_gen.py --categories 3 --students 1000 --questions 200 --min_seq 50 --max_seq 200
 ```
 
-#### Sequence Length Logic
-- **Automatic**: `min_seq = max(10, max_seq // 4)` - 1/4 ratio with minimum of 10
-- **Override**: Command-line `--min_seq` and `--max_seq` take precedence when provided  
-- **Examples**:
-  - `synthetic_4000_200_2` → min_seq=50, max_seq=200 (200÷4=50)
-  - `synthetic_1000_80_3` → min_seq=20, max_seq=80 (80÷4=20)
-  - `synthetic_500_30_4` → min_seq=10, max_seq=30 (30÷4=7.5→10 minimum)
-
-## Performance Results
-
-### Current Performance (Validated from /results/)
-| Model | Categorical Accuracy | Quadratic Weighted Kappa | Ordinal Accuracy | Status |
-|-------|---------------------|-------------------------|------------------|--------|
-| **Deep-GPCM** | **53.5%** (±1.3%) | **0.643** (±0.016) | **83.1%** (±0.7%) | ✅ VALIDATED |
-| **Attn-GPCM** | 55.0% | 0.694 | ~86% | ✅ WORKING |
-| **CORAL-GPCM-Proper** | 61.3% | 0.655 | 84.1% | ✅ VALIDATED (Proper IRT-CORAL) |
-
-**Source**: Cross-validation results from `/results/train/` directory with 5-fold CV.
-**Note**: coral_gpcm_proper implements the correct IRT-CORAL separation with proper τ thresholds.
-
-## Loss Functions
-
-### Available Losses
-1. **Cross-Entropy (`ce`)**: Standard baseline loss
-2. **QWK Loss (`qwk`)**: Direct Quadratic Weighted Kappa optimization
-3. **EMD Loss (`emd`)**: Earth Mover's Distance for ordinal data
-4. **Ordinal CE (`ordinal_ce`)**: Distance-weighted cross-entropy
-5. **Combined (`combined`)**: Weighted combination of multiple losses
-
-### Usage Examples
-```bash
-# Direct QWK optimization
-python train.py --model coral_gpcm --loss qwk --dataset synthetic_OC
-
-# Balanced combined loss
-python train.py --model coral_gpcm --loss combined --ce_weight 0.7 --qwk_weight 0.3
-
-# CORAL-specific combined loss
-python train.py --model coral_gpcm --loss combined --ce_weight 0.5 --coral_weight 0.5
-```
-
-## Architecture Overview
-
-### Core Pipeline
-```
-Input → Embedding → DKVMN Memory → IRT Parameter Extraction → GPCM Layer → Predictions
-```
-
-### Key Components
-- **DKVMN Memory Networks**: Dynamic key-value memory with attention mechanisms
-- **IRT Parameter Extraction**: Temporal θ, α, β parameter computation
-- **GPCM Layer**: Generalized Partial Credit Model for ordinal probabilities
-- **CORAL Integration (coral_gpcm_proper)**: Proper IRT-CORAL separation with distinct τ thresholds
-- **Adaptive Blending**: Dynamic weighting between GPCM and CORAL predictions
-
-### CORAL-GPCM-Proper Architecture
-```
-Input → Embedding → DKVMN Memory → Summary Network ┬→ IRT Branch → α, θ, β → GPCM Probs ┐
-                                                    └→ CORAL Branch → τ thresholds → CORAL Probs ┘→ Adaptive Blend → Final Predictions
-```
-
-**Key Innovation**: Separate IRT parameters (β) and CORAL thresholds (τ) prevent mathematical equivalence
-
-### Directory Structure
-```
-models/
-├── base/
-│   └── base_model.py          # Base class for all models
-├── implementations/
-│   ├── deep_gpcm.py           # Core DeepGPCM implementation
-│   ├── attention_gpcm.py      # Attention-enhanced model
-│   └── coral_gpcm_proper.py   # Proper IRT-CORAL separation
-├── components/
-│   ├── memory_networks.py     # DKVMN architecture
-│   ├── embeddings.py          # Response embedding strategies
-│   ├── irt_layers.py          # IRT parameter extraction
-│   ├── attention_layers.py    # Attention mechanisms
-│   └── coral_layers.py        # CORAL ordinal regression
-├── adaptive/
-│   └── blenders.py            # Adaptive blending mechanisms
-└── __init__.py                # Model factory
-
-training/
-└── ordinal_losses.py          # Specialized ordinal loss functions
-
-analysis/
-├── irt_analysis.py            # Comprehensive IRT analysis
-├── extract_beta_params.py     # Parameter extraction
-└── beta_extraction_report.md  # Extraction methodology
-
-utils/
-├── plot_metrics.py            # Visualization generation
-└── clean_res.py               # Dataset cleanup utility
-```
-
-## Generated Outputs
-
-### Results Structure
-```
-results/
-├── plots/              # Comprehensive visualizations
-│   └── [dataset]/     # Dataset-specific plots
-│       ├── train.png           # Training metrics over epochs
-│       ├── test.png            # Test performance comparison
-│       ├── train_v_test.png    # Train vs test comparison (all 6 models)
-│       ├── confusion_matrices_test.png
-│       ├── category_accuracy_test.png
-│       ├── ordinal_distance_test.png
-│       ├── category_transitions_test.png
-│       ├── roc_curves_test.png
-│       └── calibration_curves_test.png
-├── irt_plots/         # IRT analysis with enhanced visualizations
-│   └── [dataset]/     # Dataset-specific IRT plots
-│       ├── param_recovery.png      # Parameter recovery with KDE theta distributions
-│       ├── temporal_rank_rank.png  # Temporal rank stability heatmaps
-│       ├── temporal.png            # Temporal parameter evolution
-│       ├── gpcm_probs_heatmap.png  # GPCM probability heatmaps
-│       ├── params_combined.png      # Combined parameter visualization
-│       └── irt_summary.txt          # Summary statistics
-├── train/             # Training metrics and histories
-│   └── [dataset]/     # Dataset-specific training results
-├── valid/             # Validation results
-│   └── [dataset]/     # Dataset-specific validation results
-└── test/              # Test evaluation results
-    └── [dataset]/     # Dataset-specific test results
-
-saved_models/          # Model storage structure
-└── [dataset]/         # Dataset-specific models
-    └── best_[model]_[dataset].pth
-```
-
-### Cleanup Functionality
-
-The project includes a comprehensive cleanup utility to manage results:
-
-```bash
-# Clean specific dataset results
-python utils/clean_res.py --dataset synthetic_OC
-
-# Preview cleanup without deleting (dry run)
-python utils/clean_res.py --dataset synthetic_OC --dry-run
-
-# Clean all datasets
-python utils/clean_res.py --all --no-confirm
-
-# Clean without creating backup
-python utils/clean_res.py --dataset synthetic_OC --no-backup
-```
-
-**Cleanup Features**:
-- Removes all dataset-specific files across all directories
-- Supports both new (`saved_models/dataset/`) and legacy (`save_models/`) structures
-- Creates timestamped backups by default (disable with `--no-backup`)
-- Shows confirmation prompt by default (disable with `--no-confirm`)
-- Dry-run mode to preview deletions (`--dry-run`)
-- Manifest file tracks backed up files
-
-### Visualization Types
-- **Training Curves**: Loss and accuracy evolution
-- **Performance Metrics**: Categorical accuracy, QWK, ordinal accuracy
-- **Confusion Matrices**: Model comparison matrices
-- **Temporal Heatmaps**: Student ability evolution over time
-- **IRT Plots**: Item Characteristic Curves, Wright maps
-- **Parameter Recovery**: Dynamic layout adapts to number of response categories
-
-## Configuration Options
-
-### Main Arguments
-- `--model`: Single model to train (`deep_gpcm`, `attn_gpcm`, etc.)
-- `--models`: Multiple models to train sequentially
-- `--dataset`: Dataset name (e.g., `synthetic_500_200_4`, `synthetic_OC`)
-- `--epochs`: Training epochs (default: 30)
-- `--n_folds`: Number of folds (0=no CV, 1=single run, >1=K-fold CV, default: 5)
-- `--batch_size`: Batch size (default: 64)
-- `--device`: Device selection (`cuda`/`cpu`)
-
-### Hyperparameter Optimization Arguments
-- `--hyperopt`: Enable Bayesian hyperparameter optimization
-- `--hyperopt_trials`: Number of optimization trials (default: 50)
-- `--hyperopt_metric`: Metric to optimize (default: `quadratic_weighted_kappa`)
-
-### Legacy Arguments (Deprecated)
-- `--cv`: Enable cross-validation with hyperparameter tuning (use `--hyperopt` instead)
-- `--no_cv`: Disable cross-validation (use `--n_folds 0` instead)
-
-### Cleanup Arguments
-- `--clean`: Clean existing results before running pipeline (start fresh)
-- `--clean-only`: Only clean results without running pipeline
-- `--clean-all`: Clean results for all datasets
-- `--dry-run`: Preview what will be deleted without deleting
-- `--no-backup`: Skip creating backup before deletion
-- `--no-confirm`: Skip confirmation prompt
-
-### Loss Function Arguments
-- `--loss`: Loss type (`ce`, `qwk`, `emd`, `ordinal_ce`, `combined`)
-- `--ce_weight`: Weight for CE in combined loss (default: 1.0)
-- `--qwk_weight`: Weight for QWK in combined loss (default: 0.5)
-- `--coral_weight`: Weight for CORAL loss (default: 0.0)
-
-### Data Formats
-
-#### Dataset Naming Conventions
-- **New Format**: `synthetic_<students>_<max_questions>_<categories>`
-  - Example: `synthetic_4000_200_2` = 4000 students, 200 questions, 2 categories
-  - Supports dynamic n_cats: 2, 3, 4, 5, etc.
-- **Legacy Format**: `synthetic_OC` (4 categories), `synthetic_PC` (3 categories)
-
-#### Response Types
-- **Ordered Categories (OC)**: Discrete responses {0, 1, ..., n_cats-1}
-- **Partial Credit (PC)**: Continuous scores [0, 1]
-
-## IRT Analysis Features
-
-### Parameter Extraction
-- **Student Abilities (θ)**: Temporal evolution of student proficiency
-- **Item Discriminations (α)**: How well items differentiate students
-- **Item Thresholds (β)**: Category boundary difficulties
-
-### Analysis Types
-- **Parameter Recovery**: Correlation with ground truth IRT parameters
-- **Temporal Analysis**: Time-series visualization of parameter evolution
-- **Static Analysis**: Traditional IRT plots and statistics
-
-### Binary Classification Support
-- **Dynamic Column Layout**: Parameter recovery plots automatically adapt to number of categories
-- **Binary Datasets**: Show 3 columns (θ, α, β_0) for 2-category data
-- **Multi-Category**: Show 2 + n_thresholds columns for 3+ category data
-- **Automatic Detection**: Handles any number of response categories (2, 3, 4, 5, etc.)
-
-### Temporal Insights
-All parameters in Deep-GPCM are time-indexed, representing:
-- **Dynamic Learning**: Student abilities evolve with each interaction
-- **Context Sensitivity**: Item parameters adapt to temporal context
-- **Learning Trajectories**: Individual student learning paths
-
 ## Cleanup Utility
-
-The project includes a comprehensive cleanup utility for managing experiment results:
 
 ### Basic Usage
 ```bash
@@ -504,20 +258,52 @@ python utils/clean_res.py --dataset synthetic_OC
 python utils/clean_res.py --all --dry-run
 ```
 
-### What Gets Cleaned
-- `results/train/[dataset]/` - Training results
-- `results/valid/[dataset]/` - Validation results  
-- `results/test/[dataset]/` - Test results
-- `results/plots/*_[dataset]*.png` - Plot files
-- `results/irt_plots/[dataset]/` - IRT plot directories
-- `saved_models/[dataset]/` - Model files (new structure)
-- `save_models/*_[dataset]*.pth` - Legacy model files
+## Configuration Options
 
-### Safety Features
-- **Backups**: Creates timestamped backups in `backups/` directory (default)
-- **Confirmation**: Prompts for confirmation before deletion (default)
-- **Dry Run**: Preview mode shows what would be deleted
-- **Manifest**: Backup includes manifest.json listing all backed up files
+### Main Arguments
+- `--model`: Single model to train (`deep_gpcm`, `attn_gpcm`, etc.)
+- `--models`: Multiple models to train sequentially
+- `--dataset`: Dataset name (e.g., `synthetic_500_200_4`, `synthetic_OC`)
+- `--epochs`: Training epochs (default: 30)
+- `--n_folds`: Number of folds (0=no CV, 1=single run, >1=K-fold CV, default: 5)
+- `--batch_size`: Batch size (default: 64)
+- `--device`: Device selection (`cuda`/`cpu`)
+
+### Adaptive Hyperparameter Optimization Arguments
+- `--hyperopt`: Enable Bayesian hyperparameter optimization
+- `--hyperopt_trials`: Number of optimization trials (default: 50)
+- `--hyperopt_metric`: Metric to optimize (default: `quadratic_weighted_kappa`)
+- `--adaptive`: Enable adaptive optimization features (default: True)
+- `--no_adaptive`: Disable adaptive optimization, use original system
+- `--adaptive_epochs`: Epoch allocation strategy (default: `5,15,40`)
+- `--adaptive_arch`: Enable architectural parameter search (default: True)
+- `--adaptive_learning`: Enable learning parameter search (default: True)
+
+### Loss Function Arguments
+- `--loss`: Loss type (`ce`, `qwk`, `emd`, `ordinal_ce`, `combined`)
+- `--ce_weight`: Weight for CE in combined loss (default: 1.0)
+- `--qwk_weight`: Weight for QWK in combined loss (default: 0.5)
+- `--coral_weight`: Weight for CORAL loss (default: 0.0)
+
+### Cleanup Arguments
+- `--clean`: Clean existing results before running pipeline (start fresh)
+- `--clean-only`: Only clean results without running pipeline
+- `--clean-all`: Clean results for all datasets
+- `--dry-run`: Preview what will be deleted without deleting
+- `--no-backup`: Skip creating backup before deletion
+- `--no-confirm`: Skip confirmation prompt
+
+## Environment Setup
+
+```bash
+# Activate conda environment (REQUIRED)
+source ~/anaconda3/etc/profile.d/conda.sh && conda activate vrec-env
+
+# Clean previous outputs (using new cleanup utility)
+python main.py --action clean --dataset synthetic_OC  # Clean specific dataset
+python main.py --action clean --clean-all            # Clean all datasets
+python main.py --action clean --dataset synthetic_OC --dry-run  # Preview what will be deleted
+```
 
 ## Troubleshooting
 
@@ -539,26 +325,3 @@ python utils/clean_res.py --all --dry-run
 - Start with standard models before trying adaptive variants
 - Monitor gradient norms during training (should be <10)
 - Use combined losses for CORAL models for better performance
-
----
-
-## Critical Issues
-
-### ❌ BLOCKING: CORAL Design Flaw
-**Problem**: CORAL uses β parameters instead of τ thresholds, making CORAL and GPCM identical.
-
-**Impact**: 
-- All CORAL-based models produce invalid results
-- Adaptive blending provides no benefit (blending identical systems)
-- Performance claims for CORAL variants are unreliable
-
-**Status**: 📋 FIX PLANNED - See `analysis/CORAL_DESIGN_FLAW_ANALYSIS.md` for detailed analysis.
-
-### ✅ WORKING: Core Deep-GPCM
-- Deep-GPCM baseline model works correctly
-- IRT parameter extraction validated
-- Full pipeline and evaluation system functional
-
----
-
-**Deep-GPCM: Bridging Neural Memory Networks with Classical Psychometrics**

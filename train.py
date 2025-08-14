@@ -27,6 +27,158 @@ import torch.nn as nn
 import torch.optim as optim
 
 
+def generate_hyperopt_analysis(optimization_results, best_params, analysis_data):
+    """Generate automated analysis and recommendations from hyperparameter optimization results."""
+    
+    # Extract trial data
+    all_trials = optimization_results.get('hyperopt_summary', {}).get('all_trials', [])
+    if not all_trials:
+        return {"⚠️ Error": ["No trial data available for analysis"]}
+    
+    # Convert to structured format for analysis
+    trials_data = []
+    for trial in all_trials:
+        trial_info = {
+            'score': trial.get('score', 0),
+            'params': trial.get('params', {}),
+            'cv_std': trial.get('cv_std', 0),
+            'trial_id': trial.get('trial_id', 0)
+        }
+        trials_data.append(trial_info)
+    
+    # Sort by performance
+    trials_data.sort(key=lambda x: x['score'], reverse=True)
+    best_trial = trials_data[0]
+    worst_trial = trials_data[-1]
+    
+    analysis_results = {}
+    
+    # 1. Performance Analysis
+    performance_analysis = []
+    performance_analysis.append(f"Best performance: {best_trial['score']:.4f} QWK (Trial #{best_trial['trial_id']})")
+    performance_analysis.append(f"Performance range: {worst_trial['score']:.4f} - {best_trial['score']:.4f} ({(best_trial['score'] - worst_trial['score']):.4f} spread)")
+    
+    # Stability analysis
+    if best_trial['cv_std'] < 0.01:
+        stability = "Excellent"
+    elif best_trial['cv_std'] < 0.02:
+        stability = "Good"
+    else:
+        stability = "Moderate"
+    performance_analysis.append(f"Best model stability: {stability} (CV std: {best_trial['cv_std']:.4f})")
+    
+    analysis_results["📊 Performance Summary"] = performance_analysis
+    
+    # 2. Parameter Pattern Analysis
+    pattern_analysis = []
+    
+    # Analyze top 5 vs bottom 5 trials
+    top_5 = trials_data[:5]
+    bottom_5 = trials_data[-5:]
+    
+    # Memory size analysis
+    top_memory = [trial['params'].get('memory_size', 50) for trial in top_5]
+    bottom_memory = [trial['params'].get('memory_size', 50) for trial in bottom_5]
+    
+    # Convert string memory sizes to int
+    top_memory = [int(m) if isinstance(m, str) else m for m in top_memory]
+    bottom_memory = [int(m) if isinstance(m, str) else m for m in bottom_memory]
+    
+    avg_top_memory = np.mean(top_memory)
+    avg_bottom_memory = np.mean(bottom_memory)
+    
+    if avg_top_memory < avg_bottom_memory:
+        pattern_analysis.append(f"Smaller memory networks perform better (top-5 avg: {avg_top_memory:.0f} vs bottom-5 avg: {avg_bottom_memory:.0f})")
+    else:
+        pattern_analysis.append(f"Larger memory networks perform better (top-5 avg: {avg_top_memory:.0f} vs bottom-5 avg: {avg_bottom_memory:.0f})")
+    
+    # Dropout analysis
+    top_dropout = [trial['params'].get('dropout_rate', 0.1) for trial in top_5]
+    bottom_dropout = [trial['params'].get('dropout_rate', 0.1) for trial in bottom_5]
+    avg_top_dropout = np.mean(top_dropout)
+    avg_bottom_dropout = np.mean(bottom_dropout)
+    
+    if avg_top_dropout < 0.05:
+        dropout_rec = "Very light regularization"
+    elif avg_top_dropout < 0.1:
+        dropout_rec = "Light regularization"
+    else:
+        dropout_rec = "Moderate regularization"
+    pattern_analysis.append(f"Optimal dropout: {dropout_rec} (top-5 avg: {avg_top_dropout:.3f})")
+    
+    analysis_results["🔍 Parameter Patterns"] = pattern_analysis
+    
+    # 3. Loss Weight Analysis (if available)
+    loss_analysis = []
+    if 'ce_weight_logit' in best_params and 'focal_weight_logit' in best_params:
+        # Convert logits to weights
+        ce_logit = best_params['ce_weight_logit']
+        focal_logit = best_params['focal_weight_logit']
+        
+        # Softmax conversion (approximation)
+        ce_weight = np.exp(ce_logit) / (np.exp(ce_logit) + np.exp(focal_logit) + 1)
+        focal_weight = np.exp(focal_logit) / (np.exp(ce_logit) + np.exp(focal_logit) + 1)
+        qwk_weight = 1 / (np.exp(ce_logit) + np.exp(focal_logit) + 1)
+        
+        loss_analysis.append(f"Optimal loss combination: CE={ce_weight:.2f}, Focal={focal_weight:.2f}, QWK={qwk_weight:.2f}")
+        
+        if focal_weight > ce_weight:
+            loss_analysis.append("Focal loss dominance suggests class imbalance handling is critical")
+        if qwk_weight > 0.2:
+            loss_analysis.append("High QWK weight indicates ordinal structure is important")
+    
+    if loss_analysis:
+        analysis_results["⚖️ Loss Function Insights"] = loss_analysis
+    
+    # 4. Recommendations
+    recommendations = []
+    
+    # Based on parameter importance
+    importance = analysis_data.get('parameter_importance', {})
+    if importance:
+        top_param = max(importance.items(), key=lambda x: x[1])
+        if top_param[1] > 50:  # >50% importance
+            recommendations.append(f"{top_param[0]} is critical ({top_param[1]:.1f}% importance) - focus optimization here")
+    
+    # Based on patterns
+    if avg_top_memory <= 20:
+        recommendations.append("Consider even smaller memory sizes (10-15) to prevent overfitting")
+    
+    if avg_top_dropout < 0.03:
+        recommendations.append("Very low dropout works best - try 0.01-0.05 range")
+    
+    # Convergence analysis
+    convergence_trial = analysis_data.get('convergence_analysis', {}).get('convergence_trial', None)
+    if convergence_trial and convergence_trial < len(all_trials) * 0.7:
+        recommendations.append(f"Early convergence (trial {convergence_trial}) - could reduce trials for efficiency")
+    
+    # Search space recommendations
+    current_params = set(best_params.keys())
+    missing_important = {'embed_dim', 'key_dim', 'value_dim', 'n_heads'} - current_params
+    if missing_important:
+        recommendations.append(f"Expand search space: add {', '.join(sorted(missing_important))} for better optimization")
+    
+    analysis_results["🚀 Actionable Recommendations"] = recommendations
+    
+    # 5. Next Steps
+    next_steps = []
+    best_score = best_trial['score']
+    
+    if best_score < 0.65:
+        next_steps.append("Performance below 65% QWK - expand architectural parameters (embed_dim, attention params)")
+    elif best_score < 0.70:
+        next_steps.append("Good performance - fine-tune with extended search space and adaptive epochs")
+    else:
+        next_steps.append("Excellent performance - focus on transfer learning to other datasets")
+    
+    next_steps.append("Implement adaptive epoch allocation (5→20→40 epochs based on performance)")
+    next_steps.append("Add learning rate scheduling and optimizer parameters to search space")
+    
+    analysis_results["📋 Next Steps"] = next_steps
+    
+    return analysis_results
+
+
 def load_simple_data(train_path, test_path):
     """Simple data loading function."""
     def read_data(file_path):
@@ -548,6 +700,18 @@ def main():
         train_group.add_argument('--cv', action='store_true', 
                                 help='Enable basic CV (deprecated, use --hyperopt for advanced optimization)')
         
+        # Adaptive hyperparameter optimization arguments
+        train_group.add_argument('--adaptive', action='store_true', default=True, 
+                                help='Enable adaptive optimization (default: True)')
+        train_group.add_argument('--no_adaptive', action='store_true', 
+                                help='Disable adaptive optimization features')
+        train_group.add_argument('--adaptive_epochs', type=str, default='5,15,40', 
+                                help='Adaptive epoch allocation (min,mid,max)')
+        train_group.add_argument('--adaptive_arch', action='store_true', default=True, 
+                                help='Enable architectural parameter optimization')
+        train_group.add_argument('--adaptive_learning', action='store_true', default=True, 
+                                help='Enable learning parameter optimization')
+        
         args = parser.parse_args()
         validate_args(args, required_fields=['dataset'])
         
@@ -560,6 +724,12 @@ def main():
             args.n_folds = 0
         elif args.cv and not hasattr(args, 'hyperopt'):
             args.n_folds = max(args.n_folds, 3)  # Ensure at least 3-fold for basic CV
+            
+        # Handle adaptive optimization flags
+        if args.no_adaptive:
+            args.adaptive = False
+            args.adaptive_arch = False
+            args.adaptive_learning = False
             
     except Exception as e:
         print(f"Warning: Unified parser failed ({e}), falling back to legacy parser")
@@ -582,6 +752,11 @@ def main():
         parser.add_argument('--hyperopt', action='store_true', help='Enable Bayesian hyperparameter optimization')
         parser.add_argument('--hyperopt_trials', type=int, default=50, help='Number of hyperparameter optimization trials')
         parser.add_argument('--hyperopt_metric', type=str, default='quadratic_weighted_kappa', help='Metric to optimize')
+        parser.add_argument('--adaptive', action='store_true', default=True, help='Enable adaptive optimization (default: True)')
+        parser.add_argument('--no_adaptive', action='store_true', help='Disable adaptive optimization features')
+        parser.add_argument('--adaptive_epochs', type=str, default='5,15,40', help='Adaptive epoch allocation (min,mid,max)')
+        parser.add_argument('--adaptive_arch', action='store_true', default=True, help='Enable architectural parameter optimization')
+        parser.add_argument('--adaptive_learning', action='store_true', default=True, help='Enable learning parameter optimization')
         parser.add_argument('--loss', type=str, default='factory', help='Loss function override (factory=use model default)')
         parser.add_argument('--seed', type=int, default=42, help='Random seed')
         parser.add_argument('--device', default=None, help='Device (cuda/cpu)')
@@ -593,6 +768,12 @@ def main():
             args.n_folds = 0
         elif args.cv and not args.hyperopt:
             args.n_folds = max(args.n_folds, 3)  # Ensure at least 3-fold for basic CV
+        
+        # Handle adaptive optimization flags
+        if args.no_adaptive:
+            args.adaptive = False
+            args.adaptive_arch = False
+            args.adaptive_learning = False
     
     # Get available models from factory registry for validation
     available_models = get_all_model_types()
@@ -707,32 +888,80 @@ def main():
         
         # Determine training approach
         if hasattr(args, 'hyperopt') and args.hyperopt:
-            # Advanced Bayesian hyperparameter optimization
-            print("🔬 Bayesian hyperparameter optimization")
+            # Parse adaptive epoch configuration
+            try:
+                epoch_parts = args.adaptive_epochs.split(',')
+                min_epochs, mid_epochs, max_epochs = map(int, epoch_parts)
+            except:
+                min_epochs, mid_epochs, max_epochs = 5, 15, 40
+                print(f"Warning: Invalid adaptive_epochs format, using defaults: {min_epochs},{mid_epochs},{max_epochs}")
             
-            from optimization.adaptive_hyperopt import HyperparameterOptimizer, HyperoptConfig
-            
-            # Create optimizer configuration
-            config = HyperoptConfig(
-                n_trials=args.hyperopt_trials,
-                metric=args.hyperopt_metric,
-                maximize=True,  # All our metrics are better when higher
-                n_initial_samples=max(10, args.hyperopt_trials // 5),
-                early_stopping_patience=max(10, args.hyperopt_trials // 3),
-                cv_folds=max(args.n_folds, 3),  # Ensure at least 3-fold for hyperopt
-                random_state=args.seed
-            )
-            
-            # Create optimizer
-            optimizer = HyperparameterOptimizer(model_name, args.dataset, config)
-            
-            # Run optimization
-            print(f"Starting {args.hyperopt_trials} trials with {config.cv_folds}-fold CV...")
-            optimization_results = optimizer.optimize()
+            # Use adaptive optimization by default
+            if args.adaptive:
+                print("🚀 ADAPTIVE Bayesian hyperparameter optimization")
+                from optimization.enhanced_adaptive_hyperopt import run_enhanced_hyperopt
+                from optimization.adaptive_scheduler import AdaptiveConfig
+                
+                adaptive_config = AdaptiveConfig(
+                    enable_adaptive_epochs=True,
+                    enable_architectural_params=args.adaptive_arch,
+                    enable_learning_params=args.adaptive_learning,
+                    min_epochs=min_epochs,
+                    intermediate_epochs=mid_epochs,
+                    max_epochs=max_epochs,
+                    fallback_on_failure=True,
+                    max_consecutive_failures=3
+                )
+                
+                print(f"Adaptive config:")
+                print(f"  Epochs: {min_epochs}→{mid_epochs}→{max_epochs}")
+                print(f"  Architectural params: {args.adaptive_arch}")
+                print(f"  Learning params: {args.adaptive_learning}")
+                print(f"  Trials: {args.hyperopt_trials}")
+                print(f"  CV folds: {max(args.n_folds, 3)}")
+                print(f"Starting enhanced optimization...")
+                
+                # Run enhanced optimization
+                optimization_results = run_enhanced_hyperopt(
+                    model_name=model_name,
+                    dataset=args.dataset,
+                    n_trials=args.hyperopt_trials,
+                    metric=args.hyperopt_metric,
+                    cv_folds=max(args.n_folds, 3),
+                    adaptive_config=adaptive_config
+                )
+            else:
+                print("📊 ORIGINAL Bayesian hyperparameter optimization")
+                from optimization.adaptive_hyperopt import HyperparameterOptimizer, HyperoptConfig
+                
+                # Create optimizer configuration
+                config = HyperoptConfig(
+                    n_trials=args.hyperopt_trials,
+                    metric=args.hyperopt_metric,
+                    maximize=True,  # All our metrics are better when higher
+                    n_initial_samples=max(10, args.hyperopt_trials // 5),
+                    early_stopping_patience=max(10, args.hyperopt_trials // 3),
+                    cv_folds=max(args.n_folds, 3),  # Ensure at least 3-fold for hyperopt
+                    random_state=args.seed
+                )
+                
+                # Create optimizer
+                optimizer = HyperparameterOptimizer(model_name, args.dataset, config)
+                
+                # Run optimization
+                print(f"Starting {args.hyperopt_trials} trials with {config.cv_folds}-fold CV...")
+                optimization_results = optimizer.optimize()
             
             # Extract best parameters
             best_params = optimization_results['best_params']
             best_score = optimization_results['best_score']
+            
+            # Show adaptive features if enabled
+            if args.adaptive and 'adaptive_features' in optimization_results:
+                features = optimization_results['adaptive_features']
+                print(f"Adaptive status: {'✅ Active' if features.get('adaptive_enabled', False) else '⚠️ Fallback'}")
+                if features.get('fallback_triggered', False):
+                    print(f"Fallback reason: {features.get('fallback_reason', 'Unknown')}")
             
             print(f"\n🏆 Optimization completed!")
             print(f"Best {args.hyperopt_metric}: {best_score:.4f}")
@@ -744,12 +973,12 @@ def main():
                     print(f"  {param}: {value}")
             
             # Create data loaders with optimized batch size
-            final_batch_size = best_params.get('batch_size', args.batch_size)
+            final_batch_size = int(best_params.get('batch_size', args.batch_size))
             train_loader, test_loader = create_data_loaders(train_data, test_data, final_batch_size)
             
-            # Create model with optimized parameters
+            # Create model with optimized parameters (filter out training-only parameters)
             model_params = {k: v for k, v in best_params.items() 
-                           if k not in ['lr', 'batch_size', 'weight_decay'] and not k.endswith('_logit')}
+                           if k not in ['lr', 'batch_size', 'weight_decay', 'grad_clip', 'label_smoothing'] and not k.endswith('_logit')}
             model = create_model(model_name, n_questions, n_cats, device, **model_params)
             
             # Handle optimized loss weights
@@ -806,6 +1035,44 @@ def main():
             }
             log_path = path_manager.get_result_path('train', model_name, args.dataset)
             save_results(training_results, str(log_path))
+            
+            # Generate comprehensive hyperparameter optimization analysis and visualizations
+            print(f"\n📊 Generating hyperparameter optimization analysis...")
+            try:
+                from optimization.hyperopt_visualization import create_hyperopt_visualizer
+                
+                visualizer = create_hyperopt_visualizer()
+                analysis = visualizer.analyze_optimization_results(
+                    optimization_results, model_name, args.dataset
+                )
+                
+                print(f"📈 Optimization analysis completed!")
+                print(f"   Best parameters: {len(best_params)} parameters optimized")
+                print(f"   Parameter importance: {len(analysis.get('parameter_importance', {}))} parameters analyzed")
+                print(f"   Convergence: Trial {analysis['convergence_analysis'].get('convergence_trial', 'N/A')}")
+                print(f"   Visualizations: {len(analysis.get('visualization_paths', {}))} plots generated")
+                print(f"   📋 Full report: {analysis.get('report_path', 'N/A')}")
+                
+                # Display top 3 most important parameters
+                importance = analysis.get('parameter_importance', {})
+                if importance:
+                    top_params = sorted(importance.items(), key=lambda x: x[1], reverse=True)[:3]
+                    print(f"   🎯 Top parameters: {', '.join([f'{p}({v:.1f}%)' for p, v in top_params])}")
+                
+                # Generate automated analysis and recommendations
+                try:
+                    automated_analysis = generate_hyperopt_analysis(optimization_results, best_params, analysis)
+                    print(f"\n🤖 AUTOMATED ANALYSIS & RECOMMENDATIONS")
+                    print("=" * 60)
+                    for section, content in automated_analysis.items():
+                        print(f"\n{section}:")
+                        for item in content:
+                            print(f"  • {item}")
+                except Exception as analysis_error:
+                    print(f"⚠️  Automated analysis failed: {analysis_error}")
+                
+            except Exception as e:
+                print(f"⚠️  Warning: Hyperopt visualization failed: {e}")
             
             print(f"💾 Optimized model saved to: {model_path}")
             print(f"📋 Training logs saved to: {log_path}")
@@ -1097,7 +1364,7 @@ def main():
             print("📈 Single train/test split (no cross-validation)")
             print("✅ Training completed successfully!")
         
-        if not args.no_cv and args.n_folds > 1 and not args.cv:
+        if not args.no_cv and args.n_folds > 1 and not args.cv and not (hasattr(args, 'hyperopt') and args.hyperopt):
             # Compute and display k-fold summary
             print(f"\\n{'='*20} K-FOLD SUMMARY {'='*20}")
             

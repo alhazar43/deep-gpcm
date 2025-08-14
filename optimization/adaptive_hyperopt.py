@@ -506,7 +506,7 @@ class HyperparameterOptimizer:
                     fold_val_data = [all_data[i] for i in val_idx]
                     
                     # Create data loaders with current batch size
-                    batch_size = model_params.get('batch_size', 64)
+                    batch_size = int(model_params.get('batch_size', 64))
                     train_loader, val_loader = create_data_loaders(fold_train_data, fold_val_data, batch_size)
                     
                     # Create model with current hyperparameters

@@ -1,0 +1,38 @@
+{
+  "model_name": "deep_gpcm",
+  "dataset": "synthetic_500_200_4",
+  "config": {
+    "adaptive_epochs": true,
+    "architectural_params": true,
+    "learning_params": true,
+    "min_epochs": 1,
+    "intermediate_epochs": 1,
+    "max_epochs": 1
+  },
+  "performance_comparison": {},
+  "trial_history": [
+    {
+      "trial_id": 1,
+      "params": {
+        "memory_size": "100",
+        "final_fc_dim": "100",
+        "dropout_rate": 0.09507143064099162,
+        "ce_weight_logit": 0.9279757672456204,
+        "focal_weight_logit": 0.3946339367881464,
+        "key_dim": "64",
+        "value_dim": "200",
+        "lr": 0.0016443457513284064,
+        "weight_decay": 5.9025528556031264e-05,
+        "batch_size": "256",
+        "grad_clip": 2.001688750125598,
+        "label_smoothing": 0.028573363584388157
+      },
+      "score": 0.12198761939792753,
+      "cv_std": 0.0290896868204612,
+      "early_stopped": false,
+      "training_time": 26.359419584274292,
+      "epochs_used": 1
+    }
+  ],
+  "timestamp": "2025-08-14T13:47:14.189567"
+}

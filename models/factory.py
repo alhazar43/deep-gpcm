@@ -20,12 +20,12 @@ MODEL_REGISTRY = {
         'display_name': 'Deep-GPCM',
         'description': 'Deep learning GPCM with DKVMN memory',
         'default_params': {
-            'memory_size': 50,
+            'memory_size': 20,
             'key_dim': 50,
             'value_dim': 200,
-            'final_fc_dim': 50,
+            'final_fc_dim': 100,
             'embedding_strategy': 'linear_decay',
-            'dropout_rate': 0.0
+            'dropout_rate': 0.05
         },
         'hyperparameter_grid': {
             'memory_size': [20, 50, 100],
@@ -39,9 +39,9 @@ MODEL_REGISTRY = {
         # }
         'loss_config': {
             'type': 'combined',
-            'ce_weight': 0.4,
+            'ce_weight': 0.2,
             'qwk_weight': 0.2,
-            'focal_weight': 0.4
+            'focal_weight': 0.6
         }
     },
     'attn_gpcm_learn': {
@@ -50,12 +50,12 @@ MODEL_REGISTRY = {
         'display_name': 'Attention-GPCM-Learned',
         'description': 'Attention-enhanced GPCM with multi-head attention and Learned embeddings',
         'default_params': {
-            'memory_size': 50,
+            'memory_size': 20,
             'key_dim': 50,
             'value_dim': 200,
-            'final_fc_dim': 50,
+            'final_fc_dim': 100,
             'embedding_strategy': 'linear_decay',
-            'dropout_rate': 0.1,
+            'dropout_rate': 0.05,
             'embed_dim': 64,
             'n_heads': 4,
             'n_cycles': 2,
@@ -71,9 +71,9 @@ MODEL_REGISTRY = {
         },
         'loss_config': {
             'type': 'combined',
-            'ce_weight': 0.4,
+            'ce_weight': 0.2,
             'qwk_weight': 0.2,
-            'focal_weight': 0.4
+            'focal_weight': 0.6
         }
     },
     # 'coral_prob': {
@@ -143,10 +143,11 @@ MODEL_REGISTRY = {
         'display_name': 'Attention-GPCM-Linear',
         'description': 'Enhanced AttentionGPCM with standard linear decay embedding (no learnable embedding)',
         'default_params': {
-            'memory_size': 50,
+            'memory_size': 20,
             'key_dim': 50,
             'value_dim': 200,
-            'final_fc_dim': 50,
+            'final_fc_dim': 100,
+            'dropout_rate': 0.05,
             'embedding_strategy': 'linear_decay',
             'dropout_rate': 0.1,
             'embed_dim': 64,
@@ -165,9 +166,9 @@ MODEL_REGISTRY = {
         },
         'loss_config': {
             'type': 'combined',
-            'ce_weight': 0.4,
+            'ce_weight': 0.2,
             'qwk_weight': 0.2,
-            'focal_weight': 0.4
+            'focal_weight': 0.6
         }
         # 'loss_config': {
         #     'type': 'focal',
@@ -255,12 +256,12 @@ MODEL_REGISTRY = {
         'display_name': 'Stable-Temporal-Attention-GPCM',
         'description': 'Production-ready temporal GPCM with relative attention and no positional encoding conflicts',
         'default_params': {
-            'memory_size': 50,
+            'memory_size': 20,
             'key_dim': 50,
             'value_dim': 200,
-            'final_fc_dim': 50,
+            'final_fc_dim': 100,
             'embedding_strategy': 'linear_decay',
-            'dropout_rate': 0.1,
+            'dropout_rate': 0.05,
             'embed_dim': 64,
             'n_heads': 4,
             'n_cycles': 2,
@@ -278,48 +279,48 @@ MODEL_REGISTRY = {
         },
         'loss_config': {
             'type': 'combined',
-            'ce_weight': 0.4,
+            'ce_weight': 0.2,
             'qwk_weight': 0.2,
-            'focal_weight': 0.4
+            'focal_weight': 0.6
         }
     },
-    'stable_temporal_attn_gpcm': {
-        'class': StableTemporalAttentionGPCM,
-        'color': '#17becf',  # Cyan - fresh stable model
-        'display_name': 'Stable-Temporal-Attention-GPCM',
-        'description': 'Production-ready temporal GPCM with no positional encoding conflicts and batch size independence',
-        'default_params': {
-            'memory_size': 50,
-            'key_dim': 50,
-            'value_dim': 200,
-            'final_fc_dim': 50,
-            'embedding_strategy': 'linear_decay',
-            'dropout_rate': 0.1,
-            'embed_dim': 64,
-            'n_heads': 4,
-            'n_cycles': 2,
-            'ability_scale': 1.0,
-            'max_seq_len': 1000,
-            'temporal_window': 5,  # Larger window for relative attention
-            'temporal_dim': 8
-        },
-        'hyperparameter_grid': {
-            'memory_size': [20, 50, 100],
-            'final_fc_dim': [50, 100],
-            'dropout_rate': [0.0, 0.1, 0.2],
-            'embed_dim': [32, 64, 128],
-            'n_heads': [2, 4, 8],
-            'n_cycles': [1, 2, 3],
-            'temporal_window': [3, 5, 7],  # Relative attention window
-            'temporal_dim': [4, 8, 16]
-        },
-        'loss_config': {
-            'type': 'combined',
-            'ce_weight': 0.6,
-            'qwk_weight': 0.2,
-            'focal_weight': 0.2
-        }
-    }
+    # 'stable_temporal_attn_gpcm': {
+    #     'class': StableTemporalAttentionGPCM,
+    #     'color': '#17becf',  # Cyan - fresh stable model
+    #     'display_name': 'Stable-Temporal-Attention-GPCM',
+    #     'description': 'Production-ready temporal GPCM with no positional encoding conflicts and batch size independence',
+    #     'default_params': {
+    #         'memory_size': 50,
+    #         'key_dim': 50,
+    #         'value_dim': 200,
+    #         'final_fc_dim': 50,
+    #         'embedding_strategy': 'linear_decay',
+    #         'dropout_rate': 0.1,
+    #         'embed_dim': 64,
+    #         'n_heads': 4,
+    #         'n_cycles': 2,
+    #         'ability_scale': 1.0,
+    #         'max_seq_len': 1000,
+    #         'temporal_window': 5,  # Larger window for relative attention
+    #         'temporal_dim': 8
+    #     },
+    #     'hyperparameter_grid': {
+    #         'memory_size': [20, 50, 100],
+    #         'final_fc_dim': [50, 100],
+    #         'dropout_rate': [0.0, 0.1, 0.2],
+    #         'embed_dim': [32, 64, 128],
+    #         'n_heads': [2, 4, 8],
+    #         'n_cycles': [1, 2, 3],
+    #         'temporal_window': [3, 5, 7],  # Relative attention window
+    #         'temporal_dim': [4, 8, 16]
+    #     },
+    #     'loss_config': {
+    #         'type': 'combined',
+    #         'ce_weight': 0.4,
+    #         'qwk_weight': 0.2,
+    #         'focal_weight': 0.4
+    #     }
+    # }
     # Legacy model name aliases for backward compatibility
     # 'coral_gpcm_proper': {
     #     'class': CORALGPCM,

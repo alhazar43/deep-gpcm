@@ -35,7 +35,8 @@ def run_command(cmd, description):
 
 
 def run_complete_pipeline(models=None, dataset='synthetic_OC', 
-                         epochs=30, n_folds=5, cv=False, **kwargs):
+                         epochs=30, n_folds=5, cv=False, hyperopt=False, 
+                         adaptive=True, hyperopt_trials=50, **kwargs):
     """Run the complete Deep-GPCM pipeline with dynamic model discovery."""
     
     # Use all available models if none specified
@@ -117,6 +118,12 @@ def run_complete_pipeline(models=None, dataset='synthetic_OC',
         # Add cv flag if enabled
         if cv:
             cmd.append("--cv")
+        
+        # Add hyperparameter optimization if enabled
+        if hyperopt:
+            cmd.extend(["--hyperopt", "--hyperopt_trials", str(hyperopt_trials)])
+            if not adaptive:
+                cmd.append("--no_adaptive")
         
         # Add common arguments (but skip loss-related if not specified by user)
         for key, value in kwargs.items():
@@ -254,6 +261,12 @@ def main():
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--device', default=None, help='Device (cuda/cpu)')
     
+    # Hyperparameter optimization
+    parser.add_argument('--hyperopt', action='store_true', help='Enable Bayesian hyperparameter optimization')
+    parser.add_argument('--hyperopt_trials', type=int, default=50, help='Number of hyperparameter optimization trials')
+    parser.add_argument('--adaptive', action='store_true', default=True, help='Enable adaptive optimization (default: True)')
+    parser.add_argument('--no_adaptive', action='store_true', help='Disable adaptive optimization features')
+    
     # Loss configurations are now managed automatically by factory system
     
     
@@ -324,6 +337,9 @@ def main():
             epochs=args.epochs,
             n_folds=args.n_folds,
             cv=args.cv,
+            hyperopt=args.hyperopt,
+            adaptive=args.adaptive and not args.no_adaptive,
+            hyperopt_trials=args.hyperopt_trials,
             batch_size=args.batch_size,
             lr=args.lr,
             seed=args.seed,
