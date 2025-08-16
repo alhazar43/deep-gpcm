@@ -5,34 +5,232 @@
     "adaptive_epochs": true,
     "architectural_params": true,
     "learning_params": true,
-    "min_epochs": 1,
-    "intermediate_epochs": 1,
-    "max_epochs": 1
+    "min_epochs": 5,
+    "intermediate_epochs": 15,
+    "max_epochs": 40
   },
   "performance_comparison": {},
   "trial_history": [
     {
-      "trial_id": 1,
+      "trial_id": 41,
       "params": {
-        "memory_size": "100",
-        "final_fc_dim": "100",
-        "dropout_rate": 0.09507143064099162,
-        "ce_weight_logit": 0.9279757672456204,
-        "focal_weight_logit": 0.3946339367881464,
-        "key_dim": "64",
-        "value_dim": "200",
-        "lr": 0.0016443457513284064,
-        "weight_decay": 5.9025528556031264e-05,
-        "batch_size": "256",
-        "grad_clip": 2.001688750125598,
-        "label_smoothing": 0.028573363584388157
+        "memory_size": 50,
+        "final_fc_dim": 50,
+        "dropout_rate": 0.1,
+        "ce_weight_logit": -2.0,
+        "focal_weight_logit": -2.0,
+        "key_dim": 128,
+        "value_dim": 128,
+        "lr": 0.01,
+        "weight_decay": 0.0007794231632327708,
+        "batch_size": 32,
+        "grad_clip": 0.5,
+        "label_smoothing": 0.2
       },
-      "score": 0.12198761939792753,
-      "cv_std": 0.0290896868204612,
+      "score": 0.6568461615209314,
+      "cv_std": 0.015175100988689957,
       "early_stopped": false,
-      "training_time": 26.359419584274292,
-      "epochs_used": 1
+      "training_time": 180.27567744255066,
+      "epochs_used": 5
+    },
+    {
+      "trial_id": 42,
+      "params": {
+        "memory_size": 50,
+        "final_fc_dim": 50,
+        "dropout_rate": 0.1,
+        "ce_weight_logit": -1.1652544177502615,
+        "focal_weight_logit": 0.4685623669443437,
+        "key_dim": 128,
+        "value_dim": 128,
+        "lr": 0.01,
+        "weight_decay": 0.0005877922854025941,
+        "batch_size": 32,
+        "grad_clip": 2.6527767539726623,
+        "label_smoothing": 0.2
+      },
+      "score": 0.6655222170319932,
+      "cv_std": 0.014092836129595209,
+      "early_stopped": false,
+      "training_time": 180.53964138031006,
+      "epochs_used": 5
+    },
+    {
+      "trial_id": 43,
+      "params": {
+        "memory_size": 100,
+        "final_fc_dim": 100,
+        "dropout_rate": 0.1,
+        "ce_weight_logit": -2.0,
+        "focal_weight_logit": -2.0,
+        "key_dim": 128,
+        "value_dim": 128,
+        "lr": 0.01,
+        "weight_decay": 0.001,
+        "batch_size": 128,
+        "grad_clip": 0.5,
+        "label_smoothing": 0.2
+      },
+      "score": 0.5883435362747582,
+      "cv_std": 0.011628982161721767,
+      "early_stopped": false,
+      "training_time": 498.6864330768585,
+      "epochs_used": 5
+    },
+    {
+      "trial_id": 44,
+      "params": {
+        "memory_size": 20,
+        "final_fc_dim": 50,
+        "dropout_rate": 0.1,
+        "ce_weight_logit": -2.0,
+        "focal_weight_logit": -2.0,
+        "key_dim": 128,
+        "value_dim": 128,
+        "lr": 0.01,
+        "weight_decay": 0.001,
+        "batch_size": 32,
+        "grad_clip": 5.0,
+        "label_smoothing": 0.2
+      },
+      "score": 0.6605183299447748,
+      "cv_std": 0.013141685020121772,
+      "early_stopped": false,
+      "training_time": 182.69895792007446,
+      "epochs_used": 5
+    },
+    {
+      "trial_id": 45,
+      "params": {
+        "memory_size": 20,
+        "final_fc_dim": 100,
+        "dropout_rate": 0.1,
+        "ce_weight_logit": -2.0,
+        "focal_weight_logit": -2.0,
+        "key_dim": 128,
+        "value_dim": 128,
+        "lr": 0.01,
+        "weight_decay": 1e-06,
+        "batch_size": 32,
+        "grad_clip": 5.0,
+        "label_smoothing": 0.2
+      },
+      "score": 0.6562957155560977,
+      "cv_std": 0.013724654907034941,
+      "early_stopped": false,
+      "training_time": 181.46363592147827,
+      "epochs_used": 5
+    },
+    {
+      "trial_id": 46,
+      "params": {
+        "memory_size": 20,
+        "final_fc_dim": 100,
+        "dropout_rate": 0.1,
+        "ce_weight_logit": -0.9477150624392316,
+        "focal_weight_logit": 0.38261259512245394,
+        "key_dim": 128,
+        "value_dim": 128,
+        "lr": 0.01,
+        "weight_decay": 0.0006013448413853069,
+        "batch_size": 32,
+        "grad_clip": 5.0,
+        "label_smoothing": 0.2
+      },
+      "score": 0.6633890374857939,
+      "cv_std": 0.014389085322189873,
+      "early_stopped": false,
+      "training_time": 180.64312529563904,
+      "epochs_used": 5
+    },
+    {
+      "trial_id": 47,
+      "params": {
+        "memory_size": 20,
+        "final_fc_dim": 100,
+        "dropout_rate": 0.0,
+        "ce_weight_logit": -2.0,
+        "focal_weight_logit": -2.0,
+        "key_dim": 128,
+        "value_dim": 128,
+        "lr": 0.008810921496957691,
+        "weight_decay": 1e-06,
+        "batch_size": 32,
+        "grad_clip": 0.5,
+        "label_smoothing": 0.2
+      },
+      "score": 0.6526246397543304,
+      "cv_std": 0.018956004081814592,
+      "early_stopped": false,
+      "training_time": 178.1012032032013,
+      "epochs_used": 5
+    },
+    {
+      "trial_id": 48,
+      "params": {
+        "memory_size": 20,
+        "final_fc_dim": 100,
+        "dropout_rate": 0.016079250994901383,
+        "ce_weight_logit": -2.0,
+        "focal_weight_logit": -2.0,
+        "key_dim": 128,
+        "value_dim": 128,
+        "lr": 0.01,
+        "weight_decay": 0.001,
+        "batch_size": 32,
+        "grad_clip": 3.002426304755737,
+        "label_smoothing": 0.2
+      },
+      "score": 0.6486855083852976,
+      "cv_std": 0.02351168610404317,
+      "early_stopped": false,
+      "training_time": 184.35586714744568,
+      "epochs_used": 5
+    },
+    {
+      "trial_id": 49,
+      "params": {
+        "memory_size": 20,
+        "final_fc_dim": 50,
+        "dropout_rate": 0.0,
+        "ce_weight_logit": -2.0,
+        "focal_weight_logit": -2.0,
+        "key_dim": 128,
+        "value_dim": 128,
+        "lr": 0.008234735289977339,
+        "weight_decay": 1e-06,
+        "batch_size": 32,
+        "grad_clip": 0.5,
+        "label_smoothing": 0.2
+      },
+      "score": 0.6595203513001469,
+      "cv_std": 0.0132900017087024,
+      "early_stopped": false,
+      "training_time": 175.96489119529724,
+      "epochs_used": 5
+    },
+    {
+      "trial_id": 50,
+      "params": {
+        "memory_size": 20,
+        "final_fc_dim": 100,
+        "dropout_rate": 0.0,
+        "ce_weight_logit": 2.0,
+        "focal_weight_logit": -2.0,
+        "key_dim": 128,
+        "value_dim": 128,
+        "lr": 0.0025195549005496963,
+        "weight_decay": 1e-06,
+        "batch_size": 32,
+        "grad_clip": 0.5,
+        "label_smoothing": 0.2
+      },
+      "score": 0.6303169001151521,
+      "cv_std": 0.016030125652705823,
+      "early_stopped": false,
+      "training_time": 177.32922863960266,
+      "epochs_used": 5
     }
   ],
-  "timestamp": "2025-08-14T13:47:14.189567"
+  "timestamp": "2025-08-15T00:35:15.006775"
 }

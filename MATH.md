@@ -570,7 +570,170 @@ P_final(Y_t = k) ← P_final(Y_t = k) / Σ_{c=0}^{K-1} P_final(Y_t = c)
 2. **Rank Consistency**: Maintain ordinal relationships in optimization
 3. **Statistical Efficiency**: Maximize information extraction from ordinal structure
 
-### 6.2 Cross-Entropy Loss (Standard)
+### 6.2 WeightedOrdinalLoss Mathematical Formulation
+
+#### 6.2.1 Problem Formulation for Class Imbalance
+
+**Educational Assessment Context**: Given ordinal proficiency levels $\mathcal{Y} = \{0, 1, 2, 3\}$ where:
+- $y = 0$: Below Basic, $y = 1$: Basic, $y = 2$: Proficient, $y = 3$: Advanced
+
+**Class Distribution**: For dataset $\mathcal{D} = \{(x_i, y_i)\}_{i=1}^N$ with class counts $\mathbf{c} = [c_0, c_1, c_2, c_3]$ where $c_k = |\{i : y_i = k\}|$.
+
+**Imbalance Characterization**:
+- **Imbalance Ratio**: $\rho_k = \frac{c_k}{\max_j c_j}$ for class $k$
+- **Shannon Entropy**: $H(\mathbf{p}) = -\sum_{k=0}^{K-1} p_k \log p_k$ where $p_k = \frac{c_k}{N}$
+
+#### 6.2.2 Weighted Cross-Entropy Foundation
+
+**Base Loss Function**: Given model logits $\mathbf{z}_i \in \mathbb{R}^K$ and softmax probabilities $\hat{\mathbf{p}}_i = \text{softmax}(\mathbf{z}_i)$:
+
+$$\mathcal{L}_{\text{WCE}}(\mathbf{z}_i, y_i; \mathbf{w}) = -w_{y_i} \log \hat{p}_{i,y_i}$$
+
+where $\mathbf{w} = [w_0, w_1, w_2, w_3]$ are class-specific weights.
+
+#### 6.2.3 Class Weight Computation Strategies
+
+**Balanced Weighting**:
+$$w_k^{\text{bal}} = \frac{N}{K \cdot c_k}$$
+
+**Properties**:
+- Normalization: $\sum_{k=0}^{K-1} c_k \cdot w_k^{\text{bal}} = N$
+- Inverse Frequency: $w_k^{\text{bal}} \propto c_k^{-1}$
+- Theoretical Optimality: Minimizes expected classification error under uniform misclassification costs
+
+**Square Root Balanced Weighting**:
+$$w_k^{\text{sqrt}} = \sqrt{\frac{N}{K \cdot c_k}} = \sqrt{w_k^{\text{bal}}}$$
+
+**Properties**:
+- Gentler Penalty: $w_k^{\text{sqrt}} = \sqrt{w_k^{\text{bal}}}$
+- Ordinal Structure Preservation: Less aggressive reweighting for ordinal data
+- Theoretical Justification: $w_k^{\text{sqrt}} \propto c_k^{-1/2}$ provides compromise between balance and structure
+
+#### 6.2.4 Ordinal Distance Penalty Framework
+
+**Distance Matrix Definition**: For ordinal classes, define symmetric distance matrix $\mathbf{D} \in \mathbb{R}^{K \times K}$:
+
+$$D_{j,k} = |j - k|$$
+
+**Properties**:
+- Symmetry: $D_{j,k} = D_{k,j}$
+- Triangle Inequality: $D_{j,k} \leq D_{j,l} + D_{l,k}$
+- Zero Diagonal: $D_{k,k} = 0$
+- Educational Interpretation: Distance reflects severity of misclassification
+
+**Ordinal Penalty Computation**: Given predicted class $\hat{y}_i = \arg\max_k \hat{p}_{i,k}$ and true class $y_i$:
+
+$$\text{penalty}_i = 1 + \alpha \cdot D_{\hat{y}_i, y_i}$$
+
+where $\alpha \geq 0$ is the ordinal penalty coefficient.
+
+**Alternative Distance Functions**:
+- **Linear**: $D_{j,k} = |j - k|$ (default)
+- **Quadratic**: $D_{j,k} = (j - k)^2$
+- **Huber**: $D_{j,k} = \begin{cases} \frac{1}{2}(j-k)^2 & \text{if } |j-k| \leq \delta \\ \delta|j-k| - \frac{1}{2}\delta^2 & \text{otherwise} \end{cases}$
+
+#### 6.2.5 Complete WeightedOrdinalLoss Formulation
+
+**Combined Loss Function**:
+$$\mathcal{L}_{\text{WOL}}(\mathbf{z}_i, y_i; \mathbf{w}, \alpha) = w_{y_i} \cdot (1 + \alpha \cdot D_{\hat{y}_i, y_i}) \cdot (-\log \hat{p}_{i,y_i})$$
+
+**Component Analysis**:
+1. **Base Cross-Entropy**: $-\log \hat{p}_{i,y_i}$ provides fundamental classification loss
+2. **Class Rebalancing**: $w_{y_i}$ corrects for imbalanced class distribution
+3. **Ordinal Awareness**: $(1 + \alpha \cdot D_{\hat{y}_i, y_i})$ penalizes distant misclassifications
+
+**Batch-Level Loss**:
+$$\mathcal{L}_{\text{batch}} = \frac{1}{B} \sum_{i=1}^B \mathcal{L}_{\text{WOL}}(\mathbf{z}_i, y_i; \mathbf{w}, \alpha)$$
+
+#### 6.2.6 Gradient Flow Analysis
+
+**Gradient with Respect to Logits**:
+$$\frac{\partial \mathcal{L}_{\text{WOL}}}{\partial z_{i,j}} = w_{y_i} \cdot (1 + \alpha \cdot D_{\hat{y}_i, y_i}) \cdot (\hat{p}_{i,j} - \mathbf{1}_{j=y_i})$$
+
+**Key Properties**:
+- **Scaling by Class Weight**: Gradient magnitude proportional to $w_{y_i}$
+- **Ordinal Penalty Amplification**: Additional scaling by $(1 + \alpha \cdot D_{\hat{y}_i, y_i})$
+- **Preserved Softmax Structure**: Maintains standard cross-entropy gradient form
+- **Distance-Aware Learning**: Larger penalties for ordinal violations drive stronger gradients
+
+#### 6.2.7 Theoretical Properties
+
+**Theorem 1 (Convexity)**: $\mathcal{L}_{\text{WOL}}$ is convex in $\mathbf{z}_i$ for fixed $\hat{y}_i$.
+
+**Proof**: Cross-entropy $-\log \hat{p}_{i,y_i}$ is convex in logits. Positive scaling by $w_{y_i} \cdot (1 + \alpha \cdot D_{\hat{y}_i, y_i}) > 0$ preserves convexity. □
+
+**Theorem 2 (Ordinal Consistency)**: $\mathcal{L}_{\text{WOL}}$ with $\alpha > 0$ is ordinal-consistent.
+
+**Definition**: Loss function $\ell$ is ordinal-consistent if misclassifying $y$ as $\hat{y}_1$ incurs higher penalty than misclassifying as $\hat{y}_2$ when $|y - \hat{y}_1| > |y - \hat{y}_2|$.
+
+**Proof**: For fixed $y, \mathbf{z}$, if $|y - \hat{y}_1| > |y - \hat{y}_2|$, then:
+$$\mathcal{L}_{\text{WOL}}(\mathbf{z}, y; \hat{y}_1) = w_y(1 + \alpha|y - \hat{y}_1|)(-\log \hat{p}_{y}) > w_y(1 + \alpha|y - \hat{y}_2|)(-\log \hat{p}_{y}) = \mathcal{L}_{\text{WOL}}(\mathbf{z}, y; \hat{y}_2)$$ □
+
+**Theorem 3 (Asymptotic Behavior)**:
+- **As $\alpha \to 0$**: $\mathcal{L}_{\text{WOL}} \to \mathcal{L}_{\text{WCE}}$ (standard weighted cross-entropy)
+- **As $\alpha \to \infty$**: Loss dominated by ordinal distance, potentially losing inter-class discrimination
+
+#### 6.2.8 Integration with Multi-Component Loss Framework
+
+**Combined Loss Architecture**:
+$$\mathcal{L}_{\text{total}} = \lambda_{\text{WOL}} \mathcal{L}_{\text{WOL}} + \lambda_{\text{focal}} \mathcal{L}_{\text{focal}} + \lambda_{\text{QWK}} \mathcal{L}_{\text{QWK}}$$
+
+where:
+- $\mathcal{L}_{\text{focal}}$: Focal loss for hard example emphasis
+- $\mathcal{L}_{\text{QWK}}$: Quadratic Weighted Kappa loss for ordinal structure
+- $\lambda_{\bullet}$: Loss component weights with $\sum \lambda_{\bullet} = 1$
+
+**Gradient Coordination**: The combined gradient is:
+$$\frac{\partial \mathcal{L}_{\text{total}}}{\partial \mathbf{z}} = \lambda_{\text{WOL}} \frac{\partial \mathcal{L}_{\text{WOL}}}{\partial \mathbf{z}} + \lambda_{\text{focal}} \frac{\partial \mathcal{L}_{\text{focal}}}{\partial \mathbf{z}} + \lambda_{\text{QWK}} \frac{\partial \mathcal{L}_{\text{QWK}}}{\partial \mathbf{z}}$$
+
+#### 6.2.9 Computational Complexity Analysis
+
+**Forward Pass Complexity**:
+- **Softmax Computation**: $O(K)$ per sample
+- **Class Weight Lookup**: $O(1)$ per sample
+- **Distance Computation**: $O(1)$ per sample (direct calculation)
+- **Total Per Sample**: $O(K)$
+
+**Backward Pass Complexity**:
+- **Gradient Computation**: $O(K)$ per sample
+- **Memory Overhead**: $O(K)$ for class weights storage
+
+**Batch Processing**: For batch size $B$:
+- **Forward Pass**: $O(BK)$
+- **Backward Pass**: $O(BK)$
+- **Space Complexity**: $O(BK + K)$
+
+#### 6.2.10 Educational Assessment Applications
+
+**Cognitive Diagnostic Integration**: In IRT-based models where student ability $\theta$ and item difficulty $\beta$ determine response probability:
+
+$$P(Y_{ij} = 1 | \theta_i, \beta_j) = \frac{1}{1 + \exp(-(\theta_i - \beta_j))}$$
+
+WeightedOrdinalLoss preserves ordinal structure while handling natural proficiency distribution imbalances common in educational data.
+
+**Knowledge Component Mastery**: For skills-based assessment with binary skill vectors $\mathbf{q} \in \{0,1\}^M$:
+
+$$\hat{y} = f(\mathbf{x}, \mathbf{q}; \boldsymbol{\theta})$$
+
+where $f$ represents the neural architecture (DKVMN, DKT, etc.) and WeightedOrdinalLoss ensures balanced learning across all proficiency levels.
+
+#### 6.2.11 Implementation Considerations
+
+**Numerical Stability**:
+- Use log-softmax: $\log \hat{p}_{i,k} = z_{i,k} - \log \sum_{j=0}^{K-1} \exp(z_{i,j})$
+- Clamp class weights: $w_k \in [\epsilon, W_{\max}]$ where $\epsilon = 0.01, W_{\max} = 100$
+
+**Hyperparameter Selection**:
+- **Ordinal Penalty $\alpha$**: Grid search in $[0, 0.5, 1, 2, 5]$
+- **Class Weight Strategy**: Validate both `balanced` and `sqrt_balanced`
+- **Loss Combination Weights**: Bayesian optimization or grid search over $\lambda$ values
+
+**Convergence Monitoring**:
+- Track per-class learning curves for balanced convergence
+- Monitor ordinal consistency through confusion matrix analysis
+- Validate balanced performance across proficiency levels
+
+### 6.3 Cross-Entropy Loss (Standard)
 
 **Implementation:**
 ```python
@@ -587,7 +750,7 @@ return nn.CrossEntropyLoss()
 \frac{\partial ℒ_{CE}}{\partial \theta_t} = \sum_k (P(Y_t = k) - y_{t,k}) \frac{\partial P(Y_t = k)}{\partial \theta_t}
 ```
 
-### 6.2 Focal Loss (from `losses.py:53-82`)
+### 6.4 Focal Loss (from `losses.py:53-82`)
 
 **Implementation:**
 ```python
@@ -606,7 +769,7 @@ def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
 - `α = 1.0` (class balancing factor)
 - `γ = 2.0` (focusing parameter)
 
-### 6.4 Quadratic Weighted Kappa Loss (from `losses.py:85-172`)
+### 6.5 Quadratic Weighted Kappa Loss (from `losses.py:85-172`)
 
 **Theoretical Foundation**: QWK measures ordinal agreement while penalizing disagreements quadratically by distance.
 
@@ -650,7 +813,7 @@ QWK = (P_o - P_e) / (1 - P_e + ε)
 ℒ_QWK = 1 - QWK
 ```
 
-### 6.4 CORAL Loss (from `losses.py:316-396`)
+### 6.6 CORAL Loss (from `losses.py:316-396`)
 
 **Cumulative Logits Conversion:**
 ```python
@@ -685,7 +848,7 @@ loss = loss.mean(dim=-1)  # Average across thresholds
 ℒ_CORAL = -Σ_t Σ_{k=0}^{K-2} [y_t > k] log σ(f_{t,k}) + [y_t ≤ k] log(1 - σ(f_{t,k}))
 ```
 
-### 6.5 Combined Loss (from `losses.py:230-313`)
+### 6.7 Combined Loss (from `losses.py:230-313`)
 
 **Optimized Implementation:**
 ```python

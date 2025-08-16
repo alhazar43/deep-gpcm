@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Deep-GPCM (Generalized Partial Credit Model) system is a production-ready knowledge tracing framework that combines deep learning memory networks with Item Response Theory (IRT) for polytomous response prediction. The system implements multiple model architectures including attention mechanisms, ordinal regression (CORAL), temporal analysis capabilities, and advanced adaptive hyperparameter optimization.
+The Deep-GPCM (Generalized Partial Credit Model) system is a production-ready knowledge tracing framework that combines deep learning memory networks with Item Response Theory (IRT) for polytomous response prediction. The system implements multiple model architectures including attention mechanisms, ordinal regression (CORAL), temporal analysis capabilities, class imbalance handling through WeightedOrdinalLoss, and advanced adaptive hyperparameter optimization.
 
 ## System Architecture
 
@@ -26,6 +26,12 @@ deep-gpcm/
 Data Input → Embedding → Memory Networks → IRT Parameters → GPCM → Predictions
      ↓            ↓            ↓              ↓           ↓          ↓
    Loaders   Strategies    DKVMN/Attention  θ,α,β    Probabilities  Metrics
+                                                           ↓
+                                                    Loss Computation
+                                                           ↓
+                                              Multi-Objective Loss System
+                                                    (CE + Focal + QWK + 
+                                                 WeightedOrdinal + CORAL)
 ```
 
 ## Model Architecture
@@ -212,6 +218,7 @@ class TrainingConfig:
   - Focal loss (focal)
   - Quadratic Weighted Kappa (qwk)
   - CORAL ordinal loss (coral)
+  - WeightedOrdinalLoss (weighted_ordinal)
   - Combined multi-objective (combined)
 
 #### Loss Configuration Pattern
@@ -222,6 +229,129 @@ def create_loss_function(loss_type, n_cats, **kwargs):
     # 3. Configure parameters
     # 4. Return callable loss function
 ```
+
+### Class Imbalance Architecture: WeightedOrdinalLoss Integration
+
+The WeightedOrdinalLoss represents a significant architectural enhancement addressing class imbalance challenges in ordinal prediction while maintaining the system's core design principles.
+
+#### Architectural Design Patterns
+
+**1. Modular Loss Integration**
+```
+Loss Function Hierarchy:
+├── Base Loss Functions (nn.Module inheritance)
+│   ├── CrossEntropyLoss (PyTorch native)
+│   ├── FocalLoss (custom implementation)
+│   ├── QWKLoss (ordinal-aware)
+│   └── WeightedOrdinalLoss (NEW: class balance + ordinal)
+└── CombinedLoss (orchestration layer)
+    └── weighted_ordinal_weight: 0.0-1.0 parameter
+```
+
+**2. Factory Pattern Integration**
+The WeightedOrdinalLoss seamlessly integrates through the existing model factory system:
+```
+Model Configuration → Loss Configuration → Component Instantiation
+      ↓                      ↓                       ↓
+'weighted_ordinal_weight': 0.2 → CombinedLoss → WeightedOrdinalLoss
+```
+
+#### System Architecture Components
+
+**1. Dynamic Class Weight Computation**
+- **Location**: Training loop initialization
+- **Strategy**: Auto-detection of training data class distribution
+- **Methods**: Balanced (inverse frequency) or sqrt_balanced (gentler for ordinal)
+- **Device Management**: Automatic GPU/CPU tensor placement
+
+**2. Loss Component Architecture**
+```python
+class WeightedOrdinalLoss:
+    # Class imbalance handling
+    class_weights: torch.Tensor  # Dynamic runtime computation
+    
+    # Ordinal structure preservation  
+    ordinal_distances: torch.Tensor  # Pre-computed distance matrix
+    ordinal_penalty: float  # Configurable penalty strength
+```
+
+**3. Multi-Objective Loss Orchestration**
+The CombinedLoss architecture provides unified gradient coordination:
+```
+Forward Pass Flow:
+Input → Multiple Loss Components → Weighted Summation → Single Gradient
+  ↓           ↓                        ↓                     ↓
+logits → [ce, focal, qwk, weighted_ordinal] → Combined Loss → Backprop
+```
+
+#### Integration Points
+
+**1. Model Factory System Integration**
+```yaml
+Factory Configuration:
+  deep_gpcm:
+    loss_config:
+      weighted_ordinal_weight: 0.2    # Default enabled
+      ordinal_penalty: 0.5           # Mild ordinal penalty
+  
+  attn_gpcm_learn:
+    loss_config:
+      weighted_ordinal_weight: 0.2    # Attention models benefit
+      ordinal_penalty: 0.3           # Reduced for attention
+  
+  attn_gpcm_linear:
+    loss_config:
+      weighted_ordinal_weight: 0.0    # Disabled for linear embeddings
+```
+
+**2. Training Pipeline Integration**
+```
+Training Loop Architecture:
+Data Batch → Class Distribution Analysis → Weight Computation
+     ↓                                          ↓
+Forward Pass → Loss Computation → WeightedOrdinalLoss Component
+     ↓                ↓                        ↓
+Combined Loss → Gradient Flow → Parameter Updates
+```
+
+**3. Configuration Management Integration**
+- **Backward Compatibility**: Defaults to 0.0 weight (disabled) for existing models
+- **Progressive Activation**: Non-zero weights enable class balance handling
+- **Parameter Validation**: Factory system ensures valid weight configurations
+
+#### Architectural Design Decisions
+
+**1. Separation of Concerns**
+- **Class Weighting**: Handled independently from ordinal penalty computation
+- **Device Management**: Centralized tensor device placement logic
+- **Loss Orchestration**: CombinedLoss maintains single responsibility for gradient coordination
+
+**2. Performance Optimization**
+- **Pre-computed Distance Matrix**: O(1) ordinal distance lookups during training
+- **Efficient Class Weight Computation**: Single pass through training data
+- **Minimal Computational Overhead**: Lightweight integration with existing loss pipeline
+
+**3. Extensibility Preservation**
+- **Modular Design**: WeightedOrdinalLoss can be independently modified or replaced
+- **Configuration Flexibility**: Fine-grained control through factory parameters
+- **Strategy Pattern**: Multiple class weighting strategies (balanced, sqrt_balanced)
+
+#### System Quality Attributes
+
+**1. Maintainability**
+- **Single Responsibility**: Each component handles one aspect of class balance
+- **Open/Closed Principle**: System extended without modifying existing loss functions
+- **Dependency Injection**: Class weights injected at runtime, not hardcoded
+
+**2. Performance**
+- **Memory Efficiency**: Reuses existing tensor operations and device management
+- **Computational Efficiency**: Pre-computed matrices minimize runtime calculations
+- **GPU Optimization**: Proper CUDA tensor handling for multi-GPU environments
+
+**3. Reliability**
+- **Graceful Degradation**: System functions normally if class weights unavailable
+- **Error Handling**: Robust handling of edge cases (zero class counts, device mismatches)
+- **Backward Compatibility**: Existing models unaffected by architectural changes
 
 ### Data Management
 
@@ -282,7 +412,10 @@ results/
 - **Embedding strategies**: Pluggable via strategy pattern
 - **Memory networks**: Abstract base class for new architectures
 - **Attention mechanisms**: Composable attention components
-- **Loss functions**: Modular loss registry system
+- **Loss functions**: Modular loss registry system with class imbalance handling
+  - Extensible loss hierarchy: Base → Specialized (WeightedOrdinalLoss)
+  - Multi-objective orchestration through CombinedLoss
+  - Runtime parameter injection for dynamic class weighting
 
 ## Performance Characteristics
 
@@ -321,36 +454,36 @@ User Request
 ┌─────────────────────────────────────┐
 │ Adaptive Configuration Layer        │
 │ • Model-aware parameter detection   │
-│ • Search space expansion           │
-│ • Resource allocation planning     │
+│ • Search space expansion            │
+│ • Resource allocation planning      │
 └─────────────────────────────────────┘
      ↓
 ┌─────────────────────────────────────┐
 │ Enhanced Bayesian Optimizer         │
 │ • TPE sampler with adaptive epochs  │
-│ • Trial result analysis            │
-│ • Performance pattern recognition  │
+│ • Trial result analysis             │
+│ • Performance pattern recognition   │
 └─────────────────────────────────────┘
      ↓
 ┌─────────────────────────────────────┐
 │ Adaptive Scheduler                  │
-│ • Dynamic epoch allocation         │
-│ • Early stopping logic            │
-│ • Fallback safety system          │
+│ • Dynamic epoch allocation          │
+│ • Early stopping logic              │
+│ • Fallback safety system            │
 └─────────────────────────────────────┘
      ↓
 ┌─────────────────────────────────────┐
 │ Model Training & Evaluation         │
-│ • Cross-validation execution       │
-│ • Metric collection               │
-│ • Performance validation          │
+│ • Cross-validation execution        │
+│ • Metric collection                 │
+│ • Performance validation            │
 └─────────────────────────────────────┘
      ↓
 ┌─────────────────────────────────────┐
 │ Analysis & Recommendation Engine    │
-│ • Parameter importance ranking     │
-│ • Performance insight generation   │
-│ • Next-step recommendations       │
+│ • Parameter importance ranking      │
+│ • Performance insight generation    │
+│ • Next-step recommendations         │
 └─────────────────────────────────────┘
 ```
 

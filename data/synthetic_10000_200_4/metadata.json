@@ -1,0 +1,15 @@
+{
+  "dataset_name": "synthetic_10000_200_4",
+  "n_students": 10000,
+  "n_questions": 200,
+  "n_cats": 4,
+  "response_type": "ordered_categorical",
+  "format": "new_format",
+  "description": "Synthetic GPCM data: 10000 students, 200 questions, 4 categories",
+  "train_students": 8000,
+  "test_students": 2000,
+  "seq_len_range": [
+    50,
+    200
+  ]
+}

@@ -2,54 +2,108 @@
 
 **Model:** deep_gpcm  
 **Dataset:** synthetic_500_200_4  
-**Generated:** 2025-08-14 12:12:39  
+**Generated:** 2025-08-15 00:38:54  
 
 ## Summary
 
-- **Total Trials:** 47
-- **Successful Trials:** 47 (100.0%)
-- **Best Score:** 0.6233
-- **Mean Score:** 0.6144 ± 0.0080
-- **Total Time:** 8435.0s
-- **Convergence Trial:** 31
+- **Total Trials:** 50
+- **Successful Trials:** 50 (100.0%)
+- **Best Score:** 0.6684
+- **Mean Score:** 0.6041 ± 0.1281
+- **Total Time:** 11387.6s
+- **Convergence Trial:** 35
 
 ## Best Parameters
 
 - **memory_size:** 20
-- **final_fc_dim:** 100
-- **dropout_rate:** 0.049646
-- **ce_weight_logit:** -0.252597
-- **focal_weight_logit:** 0.918033
+- **final_fc_dim:** 50
+- **dropout_rate:** 0.100000
+- **ce_weight_logit:** -2.000000
+- **focal_weight_logit:** 2.000000
+- **key_dim:** 128
+- **value_dim:** 128
+- **lr:** 0.008413
+- **weight_decay:** 0.000345
+- **batch_size:** 32
+- **grad_clip:** 4.196344
+- **label_smoothing:** 0.200000
 
 ## Parameter Importance
 
-- **memory_size:** 86.2%
-- **focal_weight_logit:** 7.1%
-- **ce_weight_logit:** 3.9%
-- **dropout_rate:** 2.1%
-- **final_fc_dim:** 0.7%
+- **value_dim:** 39.6%
+- **lr:** 24.1%
+- **label_smoothing:** 12.3%
+- **key_dim:** 8.8%
+- **batch_size:** 7.6%
+- **dropout_rate:** 2.0%
+- **memory_size:** 2.0%
+- **focal_weight_logit:** 1.2%
+- **ce_weight_logit:** 0.9%
+- **grad_clip:** 0.7%
+- **weight_decay:** 0.5%
+- **final_fc_dim:** 0.2%
 
 ## Parameter-Performance Correlations
 
-- **memory_size:** -0.877
-- **ce_weight_logit:** -0.180
-- **focal_weight_logit:** 0.135
-- **final_fc_dim:** 0.078
-- **dropout_rate:** -0.030
+- **value_dim:** -0.806
+- **key_dim:** 0.680
+- **label_smoothing:** 0.664
+- **ce_weight_logit:** -0.329
+- **batch_size:** -0.324
+- **memory_size:** -0.311
+- **lr:** 0.274
+- **dropout_rate:** 0.178
+- **weight_decay:** -0.149
+- **final_fc_dim:** 0.094
+- **focal_weight_logit:** -0.070
+- **grad_clip:** -0.049
 
 ## Convergence Analysis
 
-- **Convergence Trial:** 5
-- **Final Best Score:** 0.6233
-- **Improvement Rate:** 0.0005
-- **Convergence Efficiency:** 10.6%
+- **Convergence Trial:** 7
+- **Final Best Score:** 0.6684
+- **Improvement Rate:** 0.0038
+- **Convergence Efficiency:** 14.0%
 
 ## Optimization Efficiency
 
-- **Score Range:** 0.0278
-- **Exploration Ratio:** 0.287
-- **Improvement Rate:** 0.0041
-- **95th Percentile Score:** 0.6230
+- **Score Range:** 0.5851
+- **Exploration Ratio:** 0.217
+- **Improvement Rate:** 0.0186
+- **95th Percentile Score:** 0.6666
+
+## 🤖 Automated Analysis & Recommendations
+
+*This section provides AI-generated insights and actionable recommendations based on the optimization results.*
+
+### 📊 Performance Summary
+
+- Best performance: 0.6684 QWK (Trial #35)
+- Performance range: 0.5851 spread across all trials
+- Convergence efficiency: Excellent (14.0% of trials needed)
+
+### 🔍 Parameter Patterns
+
+- Lower value_dim values strongly improve performance (correlation: -0.806)
+- Higher key_dim values strongly improve performance (correlation: 0.680)
+- Higher label_smoothing values strongly improve performance (correlation: 0.664)
+
+### ⚖️ Loss Function Insights
+
+- Optimal loss combination: CE=0.02, Focal=0.87, QWK=0.12
+- Focal loss dominance suggests class imbalance handling is critical
+
+### 🚀 Actionable Recommendations
+
+- Efficient convergence - current search space and strategy are effective
+- Small memory networks work best - consider testing even smaller sizes (10-15)
+- Expand search space: add embed_dim, n_heads for architectural optimization
+
+### 📋 Next Steps
+
+- Good performance - fine-tune with extended search space and adaptive epochs
+- Implement adaptive epoch allocation (5→20→40 epochs based on performance)
+- Add learning rate scheduling and optimizer parameters to search space
 
 ## Visualizations
 

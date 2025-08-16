@@ -614,7 +614,7 @@ def print_evaluation_summary(results, model_name):
         print(f"  Total samples evaluated:  {perf['total_samples']:,}")
 
 
-def find_trained_models(models_dir: str = "save_models") -> dict:
+def find_trained_models(models_dir: str = "results") -> dict:
     """Find all trained model files for batch evaluation with factory validation."""
     from pathlib import Path
     
@@ -627,52 +627,34 @@ def find_trained_models(models_dir: str = "save_models") -> dict:
     available_models = get_all_model_types()
     
     model_files = {}
-    for model_file in models_dir.glob("**/*.pth"):
-        model_name = model_file.stem
-        # Expected format: best_modeltype_dataset.pth or best_modeltype.pth (dataset from directory)
-        parts = model_name.split('_')
-        if len(parts) >= 2 and parts[0] == 'best':
-            detected_type = None
-            dataset = None
+    # Look for models in dataset subdirectories
+    for dataset_dir in models_dir.iterdir():
+        if dataset_dir.is_dir():
+            dataset_name = dataset_dir.name
+            models_subdir = dataset_dir / "models"
             
-            # Legacy name mapping
-            legacy_mapping = {
-                'coral_gpcm_proper': 'coral_prob',
-                'coral_gpcm_fixed': 'coral_thresh'
-            }
-            
-            # Try to detect model type using factory registry - sort by length to match longest first
-            for model_type in sorted(available_models, key=len, reverse=True):
-                if model_type in model_name:
-                    detected_type = model_type
-                    # Extract dataset: check if dataset is in filename or use parent directory name
-                    if model_name.startswith(f'best_{model_type}'):
-                        remaining = model_name[len(f'best_{model_type}'):].strip('_')
-                        if remaining:
-                            dataset = remaining
+            if models_subdir.exists():
+                for model_file in models_subdir.glob("*.pth"):
+                    model_name = model_file.stem
+                    # Expected format: best_modeltype.pth
+                    parts = model_name.split('_')
+                    if len(parts) >= 2 and parts[0] == 'best':
+                        detected_type = None
+                        
+                        # Try to detect model type using factory registry - sort by length to match longest first
+                        for model_type in sorted(available_models, key=len, reverse=True):
+                            if model_type in model_name:
+                                detected_type = model_type
+                                break
+                        
+                        # Validate that detected type exists in factory
+                        if detected_type and validate_model_type(detected_type):
+                            if dataset_name not in model_files:
+                                model_files[dataset_name] = {}
+                            model_files[dataset_name][detected_type] = str(model_file)
                         else:
-                            # Use parent directory as dataset name
-                            dataset = model_file.parent.name
-                    else:
-                        dataset = model_file.parent.name
-                    break
-            
-            # Check legacy names if not found
-            if not detected_type:
-                for legacy_name, canonical_name in legacy_mapping.items():
-                    if legacy_name in model_name:
-                        detected_type = canonical_name
-                        dataset = model_file.parent.name
-                        break
-            
-            # Validate that detected type exists in factory
-            if detected_type and validate_model_type(detected_type) and dataset:
-                if dataset not in model_files:
-                    model_files[dataset] = {}
-                model_files[dataset][detected_type] = str(model_file)
-            else:
-                # Skip invalid model files with warning
-                print(f"⚠️  Skipping unrecognized model file: {model_file.name}")
+                            # Skip invalid model files with warning
+                            print(f"⚠️  Skipping unrecognized model file: {model_file.name}")
     
     return model_files
 
@@ -769,10 +751,10 @@ def print_evaluation_summary(summary: dict):
 
 def batch_evaluate_models(dataset_filter=None, model_filter=None, batch_size=32, device=None, regenerate_plots=False, include_cv_folds=False):
     """Batch evaluate all available models."""
-    available_models = find_trained_models("saved_models")
+    available_models = find_trained_models("results")
     
     if not available_models:
-        print("❌ No trained models found in saved_models/")
+        print("❌ No trained models found in results/")
         return
     
     # Filter out CV fold models by default (they lack corresponding data directories)
@@ -914,7 +896,10 @@ def main():
                                       help='Use adaptive thresholds based on data')
         
         args = parser.parse_args()
-        validate_args(args, required_fields=['dataset'])
+        
+        # Only validate dataset as required if not doing batch evaluation
+        if not args.all and not args.summary_only:
+            validate_args(args, required_fields=['dataset'])
         
     except Exception as e:
         print(f"Warning: Unified parser failed ({e}), falling back to legacy parser")

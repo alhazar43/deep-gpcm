@@ -3,13 +3,8 @@ import torch.nn as nn
 
 from .implementations.deep_gpcm import DeepGPCM
 from .implementations.attention_gpcm import AttentionGPCM, EnhancedAttentionGPCM
-# Unused temporal models moved to tmp_cleanup/phase3/
-# from .implementations.temporal_attention_gpcm import TemporalAttentionGPCM
-# from .implementations.fixed_temporal_attention_gpcm import FixedTemporalAttentionGPCM
-from .implementations.stable_temporal_attention_gpcm import StableTemporalAttentionGPCM
-# Legacy CORAL imports removed - only coral_gpcm_proper remains
-from .implementations.coral_gpcm_proper import CORALGPCM
-from .implementations.coral_gpcm_fixed import CORALGPCMFixed
+# Ordinal Attention GPCM - complete standalone implementation with temperature suppression
+from .implementations.ordinal_attention_gpcm import OrdinalAttentionGPCM
 # Legacy adaptive imports removed
 
 # Enhanced model registry with configuration management
@@ -20,12 +15,12 @@ MODEL_REGISTRY = {
         'display_name': 'Deep-GPCM',
         'description': 'Deep learning GPCM with DKVMN memory',
         'default_params': {
-            'memory_size': 20,
-            'key_dim': 50,
-            'value_dim': 200,
-            'final_fc_dim': 100,
+            'memory_size': 50,        # Optimized from adaptive hyperopt
+            'key_dim': 64,           # Optimized from adaptive hyperopt
+            'value_dim': 256,         # Optimized from adaptive hyperopt
+            'final_fc_dim': 50,       # Optimized from adaptive hyperopt
             'embedding_strategy': 'linear_decay',
-            'dropout_rate': 0.05
+            'dropout_rate': 0.05       # Optimized from adaptive hyperopt
         },
         'hyperparameter_grid': {
             'memory_size': [20, 50, 100],
@@ -39,9 +34,15 @@ MODEL_REGISTRY = {
         # }
         'loss_config': {
             'type': 'combined',
-            'ce_weight': 0.2,
-            'qwk_weight': 0.2,
-            'focal_weight': 0.6
+            'ce_weight': 0.0,        # Optimized from adaptive hyperopt
+            'focal_weight': 0.2,     # Reduced to make room for weighted ordinal
+            'qwk_weight': 0.2,       # Optimized from adaptive hyperopt
+            'weighted_ordinal_weight': 0.6,  # NEW: Simple weighted ordinal for class balance
+            'ordinal_penalty': 0.5   # Mild penalty for ordinal distance mistakes
+        },
+        'training_config': {
+            'lr': 0.001,              # Standard default
+            'batch_size': 64          # Optimized batch size only
         }
     },
     'attn_gpcm_learn': {
@@ -50,15 +51,15 @@ MODEL_REGISTRY = {
         'display_name': 'Attention-GPCM-Learned',
         'description': 'Attention-enhanced GPCM with multi-head attention and Learned embeddings',
         'default_params': {
-            'memory_size': 20,
-            'key_dim': 50,
-            'value_dim': 200,
-            'final_fc_dim': 100,
+            'memory_size': 50,        # Optimized from adaptive hyperopt
+            'key_dim': 64,           # Optimized from adaptive hyperopt
+            'value_dim': 128,         # Optimized from adaptive hyperopt
+            'final_fc_dim': 50,       # Optimized from adaptive hyperopt
             'embedding_strategy': 'linear_decay',
-            'dropout_rate': 0.05,
-            'embed_dim': 64,
-            'n_heads': 4,
-            'n_cycles': 2,
+            'dropout_rate': 0.05,      # Optimized from adaptive hyperopt
+            'embed_dim': 64,          # Optimized from adaptive hyperopt
+            'n_heads': 8,             # Optimized from adaptive hyperopt
+            'n_cycles': 3,            # Optimized from adaptive hyperopt
             'ability_scale': 1.0
         },
         'hyperparameter_grid': {
@@ -71,9 +72,108 @@ MODEL_REGISTRY = {
         },
         'loss_config': {
             'type': 'combined',
-            'ce_weight': 0.2,
+            'ce_weight': 0.0,        # Reduced to make room for weighted ordinal
+            'focal_weight': 0.2,     # Optimized from adaptive hyperopt
+            'qwk_weight': 0.2,       # Optimized from adaptive hyperopt
+            'weighted_ordinal_weight': 0.6,  # NEW: Simple weighted ordinal for class balance
+            'ordinal_penalty': 0.5   # Mild penalty for ordinal distance mistakes
+        },
+        'training_config': {
+            'lr': 0.001,              # Standard default
+            'batch_size': 64          # Optimized batch size only
+        }
+    },
+    # 'attn_gpcm_linear': {
+    #     'class': EnhancedAttentionGPCM,
+    #     'color': '#2ca02c',  # Green
+    #     'display_name': 'Attention-GPCM-Learned',
+    #     'description': 'Attention-enhanced GPCM with multi-head attention and Learned embeddings',
+    #     'default_params': {
+    #         'memory_size': 50,        # Optimized from adaptive hyperopt
+    #         'key_dim': 64,           # Optimized from adaptive hyperopt
+    #         'value_dim': 128,         # Optimized from adaptive hyperopt
+    #         'final_fc_dim': 50,       # Optimized from adaptive hyperopt
+    #         'embedding_strategy': 'linear_decay',
+    #         'dropout_rate': 0.05,      # Optimized from adaptive hyperopt
+    #         'embed_dim': 64,          # Optimized from adaptive hyperopt
+    #         'n_heads': 8,             # Optimized from adaptive hyperopt
+    #         'n_cycles': 3,            # Optimized from adaptive hyperopt
+    #         'ability_scale': 1.0,
+    #         'use_learnable_embedding': False,
+    #     },
+    #     'hyperparameter_grid': {
+    #         'memory_size': [20, 50, 100],
+    #         'final_fc_dim': [50, 100],
+    #         'dropout_rate': [0.0, 0.1, 0.2],
+    #         'embed_dim': [32, 64, 128],
+    #         'n_heads': [2, 4, 8],
+    #         'n_cycles': [1, 2, 3]
+    #     },
+    #     'loss_config': {
+    #         'type': 'combined',
+    #         'ce_weight': 0.0,        # Reduced to make room for weighted ordinal
+    #         'focal_weight': 0.6,     # Optimized from adaptive hyperopt
+    #         'qwk_weight': 0.2,       # Optimized from adaptive hyperopt
+    #         'weighted_ordinal_weight': 0.2,  # NEW: Simple weighted ordinal for class balance
+    #         'ordinal_penalty': 0.5   # Mild penalty for ordinal distance mistakes
+    #     },
+    #     'training_config': {
+    #         'lr': 0.001,              # Standard default
+    #         'batch_size': 64          # Optimized batch size only
+    #     }
+    #     # 'loss_config': {
+    #     #     'type': 'focal',
+    #     #     'focal_gamma': 2.0,
+    #     #     'focal_alpha': 1.0
+    #     # }
+    # },
+
+    'attn_gpcm_linear': {
+        'class': OrdinalAttentionGPCM,
+        'color': '#d62728',  # red
+        'display_name': 'Ordinal-Attention-GPCM',
+        'description': 'Enhanced ordinal embedding with adaptive weight suppression to reduce adjacent category interference',
+        'default_params': {
+            # IDENTICAL base parameters to attn_gpcm_linear
+            'memory_size': 50,
+            'key_dim': 64,
+            'value_dim': 128,
+            'final_fc_dim': 50,
+            'dropout_rate': 0.05,
+            'embed_dim': 64,
+            'n_heads': 8,
+            'n_cycles': 3,
+            'ability_scale': 1.0,
+            'use_learnable_embedding': False,
+            # NEW: Adaptive suppression parameters
+            'suppression_mode': 'temperature',  # 'temperature', 'confidence', 'attention', 'none'
+            'temperature_init': 1.0  # Initial temperature for weight sharpening
+        },
+        'hyperparameter_grid': {
+            # IDENTICAL base hyperparameter grid to attn_gpcm_linear
+            'memory_size': [20, 50, 100],
+            'final_fc_dim': [50, 100],
+            'dropout_rate': [0.0, 0.1, 0.2],
+            'embed_dim': [32, 64, 128],
+            'n_heads': [2, 4, 8],
+            'n_cycles': [1, 2, 3],
+            # NEW: Suppression parameters for hyperopt
+            'suppression_mode': ['temperature', 'none'],  # Start conservative
+            'temperature_init': [1.5, 2.0, 3.0, 4.0]  # Temperature range
+        },
+        'loss_config': {
+            # IDENTICAL loss config to attn_gpcm_linear
+            'type': 'combined',
+            'ce_weight': 0.0,
+            'focal_weight': 0.2,
             'qwk_weight': 0.2,
-            'focal_weight': 0.6
+            'weighted_ordinal_weight': 0.6,
+            'ordinal_penalty': 0.5
+        },
+        'training_config': {
+            # IDENTICAL training config to attn_gpcm_linear
+            'lr': 0.001,
+            'batch_size': 64
         }
     },
     # 'coral_prob': {
@@ -137,45 +237,6 @@ MODEL_REGISTRY = {
     #         'ce_weight': 0.0
     #     }
     # },
-    'attn_gpcm_linear': {
-        'class': EnhancedAttentionGPCM,
-        'color': '#2ca02c',  # Green
-        'display_name': 'Attention-GPCM-Linear',
-        'description': 'Enhanced AttentionGPCM with standard linear decay embedding (no learnable embedding)',
-        'default_params': {
-            'memory_size': 20,
-            'key_dim': 50,
-            'value_dim': 200,
-            'final_fc_dim': 100,
-            'dropout_rate': 0.05,
-            'embedding_strategy': 'linear_decay',
-            'dropout_rate': 0.1,
-            'embed_dim': 64,
-            'n_heads': 4,
-            'n_cycles': 2,
-            'ability_scale': 1.0,
-            'use_learnable_embedding': False
-        },
-        'hyperparameter_grid': {
-            'memory_size': [20, 50, 100],
-            'final_fc_dim': [50, 100],
-            'dropout_rate': [0.0, 0.1, 0.2],
-            'embed_dim': [32, 64, 128],
-            'n_heads': [2, 4, 8],
-            'n_cycles': [1, 2, 3]
-        },
-        'loss_config': {
-            'type': 'combined',
-            'ce_weight': 0.2,
-            'qwk_weight': 0.2,
-            'focal_weight': 0.6
-        }
-        # 'loss_config': {
-        #     'type': 'focal',
-        #     'focal_gamma': 2.0,
-        #     'focal_alpha': 1.0
-        # }
-    },
     # 'temporal_attn_gpcm': {
     #     'class': TemporalAttentionGPCM,
     #     'color': '#9467bd',  # Purple
@@ -250,40 +311,40 @@ MODEL_REGISTRY = {
     #         'focal_weight': 0.2
     #     }
     # },
-    'stable_temporal_attn_gpcm': {
-        'class': StableTemporalAttentionGPCM,
-        'color': '#17becf',  # Cyan
-        'display_name': 'Stable-Temporal-Attention-GPCM',
-        'description': 'Production-ready temporal GPCM with relative attention and no positional encoding conflicts',
-        'default_params': {
-            'memory_size': 20,
-            'key_dim': 50,
-            'value_dim': 200,
-            'final_fc_dim': 100,
-            'embedding_strategy': 'linear_decay',
-            'dropout_rate': 0.05,
-            'embed_dim': 64,
-            'n_heads': 4,
-            'n_cycles': 2,
-            'ability_scale': 1.0,
-            'temporal_window': 5
-        },
-        'hyperparameter_grid': {
-            'memory_size': [20, 50, 100],
-            'final_fc_dim': [50, 100],
-            'dropout_rate': [0.0, 0.1, 0.2],
-            'embed_dim': [32, 64, 128],
-            'n_heads': [2, 4, 8],
-            'n_cycles': [1, 2, 3],
-            'temporal_window': [3, 5, 7]
-        },
-        'loss_config': {
-            'type': 'combined',
-            'ce_weight': 0.2,
-            'qwk_weight': 0.2,
-            'focal_weight': 0.6
-        }
-    },
+    # 'stable_temporal_attn_gpcm': {
+    #     'class': StableTemporalAttentionGPCM,
+    #     'color': '#17becf',  # Cyan
+    #     'display_name': 'Stable-Temporal-Attention-GPCM',
+    #     'description': 'Production-ready temporal GPCM with relative attention and no positional encoding conflicts',
+    #     'default_params': {
+    #         'memory_size': 20,
+    #         'key_dim': 50,
+    #         'value_dim': 200,
+    #         'final_fc_dim': 100,
+    #         'embedding_strategy': 'linear_decay',
+    #         'dropout_rate': 0.05,
+    #         'embed_dim': 64,
+    #         'n_heads': 4,
+    #         'n_cycles': 2,
+    #         'ability_scale': 1.0,
+    #         'temporal_window': 5
+    #     },
+    #     'hyperparameter_grid': {
+    #         'memory_size': [20, 50, 100],
+    #         'final_fc_dim': [50, 100],
+    #         'dropout_rate': [0.0, 0.1, 0.2],
+    #         'embed_dim': [32, 64, 128],
+    #         'n_heads': [2, 4, 8],
+    #         'n_cycles': [1, 2, 3],
+    #         'temporal_window': [3, 5, 7]
+    #     },
+    #     'loss_config': {
+    #         'type': 'combined',
+    #         'ce_weight': 0.2,
+    #         'qwk_weight': 0.2,
+    #         'focal_weight': 0.6
+    #     }
+    # },
     # 'stable_temporal_attn_gpcm': {
     #     'class': StableTemporalAttentionGPCM,
     #     'color': '#17becf',  # Cyan - fresh stable model
@@ -512,6 +573,19 @@ def get_model_loss_config(model_type: str) -> Dict[str, Any]:
     """
     config = get_model_config(model_type)
     return config.get('loss_config', {})
+
+
+def get_model_training_config(model_type: str) -> Dict[str, Any]:
+    """Get training configuration for a model type.
+    
+    Args:
+        model_type: Model type name
+        
+    Returns:
+        Dictionary with training configuration (lr, weight_decay, batch_size, grad_clip, label_smoothing)
+    """
+    config = get_model_config(model_type)
+    return config.get('training_config', {})
 
 
 def get_model_hyperparameter_grid(model_type: str) -> Dict[str, list]:

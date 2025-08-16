@@ -187,7 +187,8 @@ class UnifiedArgumentParser:
             
         # Multi-dataset handling
         if hasattr(args, 'all') and args.all:
-            args.datasets = self._get_all_datasets(args.data_dir, args.exclude)
+            exclude = getattr(args, 'exclude', [])
+            args.datasets = self._get_all_datasets(args.data_dir, exclude)
         elif hasattr(args, 'datasets') and args.datasets:
             args.datasets = [self._validate_dataset(d, args.data_dir) 
                            for d in args.datasets]

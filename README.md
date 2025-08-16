@@ -1,6 +1,6 @@
 # Deep-GPCM: Knowledge Tracing System
 
-Production-ready Deep Generalized Partial Credit Model for polytomous response prediction with adaptive ordinal regression and temporal IRT analysis.
+Production-ready Deep Generalized Partial Credit Model for polytomous response prediction with adaptive ordinal regression, temporal IRT analysis, and class-balanced ordinal loss for educational assessment.
 
 ## Quick Start
 
@@ -59,16 +59,18 @@ python main.py --action clean --clean-all --no-confirm  # Clean all without prom
 ### Available Models
 | Model | Description | Parameters | Loss Function |
 |-------|-------------|------------|---------------|
-| `deep_gpcm` | Core DKVMN + IRT + GPCM | ~280K | Combined (CE: 0.2, QWK: 0.2, Focal: 0.6) |
-| `attn_gpcm_learn` | Attention-enhanced with learnable embeddings | ~195K | Combined (CE: 0.2, QWK: 0.2, Focal: 0.6) |
-| `attn_gpcm_linear` | Attention-enhanced with linear decay embeddings | ~195K | Combined (CE: 0.2, QWK: 0.2, Focal: 0.6) |
-| `stable_temporal_attn_gpcm` | Production-ready temporal attention model | ~200K | Combined (CE: 0.2, QWK: 0.2, Focal: 0.6) |
+| `deep_gpcm` | Core DKVMN + IRT + GPCM | ~280K | Combined (CE: 0.2, QWK: 0.2, Focal: 0.4, WeightedOrd: 0.2) |
+| `attn_gpcm_learn` | Attention-enhanced with learnable embeddings | ~195K | Combined (CE: 0.4, QWK: 0.2, Focal: 0.2, WeightedOrd: 0.2) |
+| `attn_gpcm_linear` | Attention-enhanced with linear decay embeddings | ~195K | Combined (CE: 0.2, QWK: 0.2, Focal: 0.5, WeightedOrd: 0.1) |
+| `stable_temporal_attn_gpcm` | Production-ready temporal attention model | ~200K | Combined (CE: 0.2, QWK: 0.2, Focal: 0.5, WeightedOrd: 0.1) |
 
 **Features:**
 - 🔥 **Adaptive Hyperparameter Optimization**: Intelligent epoch allocation and expanded search space
 - 🎯 **Model-Aware Parameter Search**: Only searches parameters relevant to each model
 - 📊 **Automated Analysis**: AI-generated insights and recommendations
 - 🛡️ **Fallback System**: Safe degradation to original optimization if needed
+- ⚖️ **Class-Balanced Ordinal Loss**: WeightedOrdinalLoss for educational assessment class imbalance
+- 🎚️ **Configurable Loss Components**: Enable/disable loss components via factory configuration
 
 ## Training Modes
 

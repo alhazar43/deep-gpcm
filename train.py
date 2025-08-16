@@ -21,7 +21,7 @@ from sklearn.model_selection import KFold
 from utils.metrics import compute_metrics, save_results, ensure_results_dirs
 from utils.path_utils import get_path_manager, ensure_directories
 from models.factory import get_all_model_types, get_model_hyperparameter_grid, validate_model_type
-from training.losses import create_loss_function
+from training.losses import create_loss_function, compute_class_weights_from_data
 import torch.utils.data as data_utils
 import torch.nn as nn
 import torch.optim as optim
@@ -320,12 +320,36 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
     
     # Create loss function
     loss_kwargs = loss_kwargs or {}
+    
+    # Compute class weights for weighted ordinal loss if enabled
+    if loss_kwargs.get('weighted_ordinal_weight', 0.0) > 0:
+        # Collect all training targets to compute class weights
+        all_targets = []
+        for batch in train_loader:
+            if len(batch) == 2:
+                questions, responses = batch
+            elif len(batch) == 3:
+                questions, responses, mask = batch
+            else:
+                raise ValueError(f"Unexpected batch format: {len(batch)} elements")
+            all_targets.append(responses.view(-1))
+        all_targets = torch.cat(all_targets)
+        
+        # Compute balanced class weights
+        class_weights = compute_class_weights_from_data(
+            all_targets, model.n_cats, strategy='sqrt_balanced', device=device
+        )
+        loss_kwargs['class_weights'] = class_weights
+        print(f"📊 Computed class weights: {class_weights.cpu().numpy()}")
+    
     criterion = create_loss_function(loss_type, model.n_cats, **loss_kwargs)
     
-    # Get learning rate from loss_kwargs or use default
+    # Get training parameters from loss_kwargs or use defaults
     learning_rate = loss_kwargs.get('lr', 0.001) if loss_kwargs else 0.001
+    weight_decay = loss_kwargs.get('weight_decay', 1e-5) if loss_kwargs else 1e-5
+    grad_clip = loss_kwargs.get('grad_clip') if loss_kwargs else None
     
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.8, patience=3)
     
     training_history = []
@@ -419,8 +443,9 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
             
             loss.backward()
             
-            # Monitor gradient norms with reasonable clipping  
-            grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            # Monitor gradient norms with configurable clipping  
+            max_norm = grad_clip if grad_clip is not None else 1.0
+            grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
             grad_norms.append(grad_norm.item())
             
             # Skip update if gradients are still too large
@@ -863,9 +888,34 @@ def main():
     for model_name in models_to_train:
         print(f"\n{'='*20} TRAINING {model_name.upper()} {'='*20}")
         
-        # Get factory loss configuration
-        from models.factory import get_model_loss_config
+        # Get factory configurations
+        from models.factory import get_model_loss_config, get_model_training_config
         loss_config = get_model_loss_config(model_name)
+        factory_training_config = get_model_training_config(model_name)
+        
+        # Create unified training config (factory defaults + command line overrides)
+        unified_training_config = {
+            'lr': factory_training_config.get('lr', 0.001),
+            'weight_decay': factory_training_config.get('weight_decay', 1e-5),
+            'batch_size': factory_training_config.get('batch_size', 64),
+            'grad_clip': factory_training_config.get('grad_clip', None),
+            'label_smoothing': factory_training_config.get('label_smoothing', 0.0)
+        }
+        
+        # Override with command line arguments if provided
+        if hasattr(args, 'lr') and args.lr != 0.001:  # Only override if different from default
+            unified_training_config['lr'] = args.lr
+        if hasattr(args, 'batch_size') and args.batch_size != 64:  # Only override if different from default
+            unified_training_config['batch_size'] = args.batch_size
+            
+        # Print training configuration
+        if factory_training_config:
+            print(f"🎯 Factory training config: lr={unified_training_config['lr']:.6f}, "
+                  f"batch_size={unified_training_config['batch_size']}, "
+                  f"weight_decay={unified_training_config['weight_decay']:.6f}")
+            if unified_training_config['grad_clip']:
+                print(f"   grad_clip={unified_training_config['grad_clip']:.3f}, "
+                      f"label_smoothing={unified_training_config['label_smoothing']:.3f}")
         
         # Determine loss function - allow command line override
         if hasattr(args, 'loss') and args.loss != 'factory':
@@ -885,6 +935,9 @@ def main():
             for param, value in loss_config.items():
                 if param != 'type':
                     factory_loss_kwargs[param] = value
+        
+        # Add unified training config to factory_loss_kwargs
+        factory_loss_kwargs.update(unified_training_config)
         
         # Determine training approach
         if hasattr(args, 'hyperopt') and args.hyperopt:
@@ -973,7 +1026,7 @@ def main():
                     print(f"  {param}: {value}")
             
             # Create data loaders with optimized batch size
-            final_batch_size = int(best_params.get('batch_size', args.batch_size))
+            final_batch_size = int(best_params.get('batch_size', unified_training_config['batch_size']))
             train_loader, test_loader = create_data_loaders(train_data, test_data, final_batch_size)
             
             # Create model with optimized parameters (filter out training-only parameters)
@@ -1081,7 +1134,7 @@ def main():
             print("📈 Single training (no cross-validation)")
             
             # Create data loaders
-            train_loader, test_loader = create_data_loaders(train_data, test_data, args.batch_size)
+            train_loader, test_loader = create_data_loaders(train_data, test_data, unified_training_config['batch_size'])
             
             # Create and train model
             # Prepare model kwargs
@@ -1275,7 +1328,7 @@ def main():
                 fold_test_data = [all_data[i] for i in test_idx]
                 
                 # Create data loaders
-                train_loader, test_loader = create_data_loaders(fold_train_data, fold_test_data, args.batch_size)
+                train_loader, test_loader = create_data_loaders(fold_train_data, fold_test_data, unified_training_config['batch_size'])
                 
                 # Create and train model
                 # Prepare model kwargs

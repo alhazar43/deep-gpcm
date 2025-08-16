@@ -1528,8 +1528,8 @@ class UnifiedIRTAnalyzer:
                 model_color = self.get_model_color(model_name)
             ax = axes[idx]
             
-            # Limit to first 50 questions
-            max_questions = min(50, max(len(q_seq) for q_seq in temporal_data['question_ids']))
+            # Use full number of questions
+            max_questions = max(len(q_seq) for q_seq in temporal_data['question_ids'])
             
             # Create theta matrix - rows: selected students, cols: questions (time steps)
             theta_matrix = np.full((n_students, max_questions), np.nan)
@@ -1602,8 +1602,8 @@ class UnifiedIRTAnalyzer:
                 model_color = self.get_model_color(model_name)
             ax = axes[idx]
             
-            # Limit to first 50 questions
-            max_questions = min(50, max(len(q_seq) for q_seq in temporal_data['question_ids']))
+            # Use full number of questions
+            max_questions = max(len(q_seq) for q_seq in temporal_data['question_ids'])
             
             # Create probability matrix - rows: selected students, cols: questions (time steps)
             prob_matrix = np.full((n_students, max_questions), np.nan)
@@ -1682,8 +1682,8 @@ class UnifiedIRTAnalyzer:
             else:
                 model_color = self.get_model_color(model_name)
             
-            # Limit questions
-            max_questions = min(50, max(len(q_seq) for q_seq in temporal_data['question_ids']))
+            # Use full number of questions
+            max_questions = max(len(q_seq) for q_seq in temporal_data['question_ids'])
             
             # Create matrices for parameters and probabilities
             alpha_matrix = np.full((n_students, max_questions), np.nan)

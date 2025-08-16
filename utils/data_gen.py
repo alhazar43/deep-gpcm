@@ -66,7 +66,12 @@ class GpcmGen:
         sequences = []
         
         for student_id in range(self.n_students):
-            seq_len = np.random.randint(*self.seq_len_range)
+            # Normal distribution centered at half the total questions
+            center = self.n_questions // 2
+            std_dev = self.n_questions // 10  # Scale std with question count
+            seq_len_raw = int(np.random.normal(center, std_dev))
+            # Clip to min/max bounds
+            seq_len = np.clip(seq_len_raw, *self.seq_len_range)
             q_seq = np.random.choice(self.n_questions, size=seq_len, replace=True)
             
             r_seq = []
