@@ -4,32 +4,52 @@ import torch.nn.functional as F
 from typing import Tuple, Optional
 
 
+class ExponentialActivation(nn.Module):
+    """Exponential activation function for discrimination parameters."""
+    def forward(self, x):
+        return torch.exp(x)
+
+
 class IRTParameterExtractor(nn.Module):
     """Extract IRT parameters (theta, alpha, beta) from neural features."""
     
     def __init__(self, input_dim: int, n_cats: int, ability_scale: float = 1.0, 
-                 use_discrimination: bool = True, dropout_rate: float = 0.0, question_dim: int = None):
+                 use_discrimination: bool = True, dropout_rate: float = 0.0, question_dim: int = None,
+                 use_research_beta: bool = True, use_bounded_beta: bool = False, 
+                 conservative_research: bool = False):
         super().__init__()
         self.n_cats = n_cats
         self.ability_scale = ability_scale
         self.use_discrimination = use_discrimination
+        self.use_research_beta = use_research_beta
+        self.use_bounded_beta = use_bounded_beta
+        self.conservative_research = conservative_research
         self.question_dim = question_dim or input_dim
         
         # Student ability network (theta)
         self.ability_network = nn.Linear(input_dim, 1)
         
         # Question difficulty thresholds (beta) - K-1 thresholds per question
-        self.threshold_network = nn.Sequential(
-            nn.Linear(self.question_dim, n_cats - 1),
-            nn.Tanh()
-        )
+        if self.use_research_beta:
+            # RESEARCH-BASED SOLUTION: Monotonic Gap Parameterization
+            # Unconstrained base threshold + positive gaps for monotonicity
+            self.threshold_base = nn.Linear(self.question_dim, 1)
+            if self.n_cats > 2:
+                self.threshold_gaps = nn.Linear(self.question_dim, self.n_cats - 2)
+        else:
+            # STABLE IMPLEMENTATION: Tanh-constrained for attention models
+            self.threshold_network = nn.Sequential(
+                nn.Linear(self.question_dim, n_cats - 1),
+                nn.Tanh()
+            )
         
         # Discrimination parameter (alpha) - optional
         if use_discrimination:
             discrim_input_dim = input_dim + self.question_dim
             self.discrimination_network = nn.Sequential(
                 nn.Linear(discrim_input_dim, 1),
-                nn.Softplus()  # Positive constraint
+                nn.ReLU(),  # First ensure non-negative
+                ExponentialActivation()  # Then exponential activation for proper discrimination scaling
             )
         
         self.dropout = nn.Dropout(dropout_rate) if dropout_rate > 0 else nn.Identity()
@@ -42,10 +62,28 @@ class IRTParameterExtractor(nn.Module):
         nn.init.kaiming_normal_(self.ability_network.weight)
         nn.init.constant_(self.ability_network.bias, 0)
         
-        for module in self.threshold_network:
-            if isinstance(module, nn.Linear):
-                nn.init.kaiming_normal_(module.weight)
-                nn.init.constant_(module.bias, 0)
+        if self.use_research_beta:
+            # RESEARCH-BASED SOLUTION: Initialize monotonic gap parameterization
+            if self.conservative_research:
+                # Very conservative initialization for problematic architectures
+                nn.init.normal_(self.threshold_base.weight, std=0.01)
+                nn.init.constant_(self.threshold_base.bias, 0.0)
+                if self.n_cats > 2:
+                    nn.init.normal_(self.threshold_gaps.weight, std=0.01)
+                    nn.init.constant_(self.threshold_gaps.bias, 0.1)
+            else:
+                # Standard research-based initialization
+                nn.init.normal_(self.threshold_base.weight, std=0.05)
+                nn.init.constant_(self.threshold_base.bias, 0.0)
+                if self.n_cats > 2:
+                    nn.init.normal_(self.threshold_gaps.weight, std=0.05)
+                    nn.init.constant_(self.threshold_gaps.bias, 0.3)
+        else:
+            # STABLE IMPLEMENTATION: Initialize tanh-constrained network
+            for module in self.threshold_network:
+                if isinstance(module, nn.Linear):
+                    nn.init.kaiming_normal_(module.weight)
+                    nn.init.constant_(module.bias, 0)
         
         if self.use_discrimination:
             for module in self.discrimination_network:
@@ -75,7 +113,38 @@ class IRTParameterExtractor(nn.Module):
         
         # Extract thresholds (beta) - use question features if provided
         threshold_input = question_features if question_features is not None else features
-        beta = self.threshold_network(threshold_input)
+        
+        if self.use_research_beta:
+            # RESEARCH-BASED SOLUTION: Monotonic Gap Parameterization
+            # β₀ ∈ ℝ (unconstrained base threshold)
+            beta_0 = self.threshold_base(threshold_input)  # Shape: (batch, seq, 1)
+            
+            # Apply bounds for numerical stability if requested
+            if self.use_bounded_beta:
+                beta_0 = torch.clamp(beta_0, min=-3.0, max=3.0)
+            
+            if self.n_cats == 2:
+                # Binary case: only one threshold
+                beta = beta_0
+            else:
+                # Multi-category: construct monotonic sequence β₀ < β₁ < β₂ < ...
+                # Using positive gaps: βₖ = β₀ + Σᵢ₌₁ᵏ softplus(gapᵢ)
+                gaps = F.softplus(self.threshold_gaps(threshold_input))  # Shape: (batch, seq, n_cats-2)
+                
+                # Apply bounds to gaps for stability
+                if self.use_bounded_beta:
+                    gaps = torch.clamp(gaps, min=0.1, max=2.0)
+                
+                # Construct monotonic thresholds (CUMULATIVE - this explodes for 5+ categories)
+                betas = [beta_0]
+                for i in range(gaps.shape[-1]):
+                    next_beta = betas[-1] + gaps[:, :, i:i+1]
+                    betas.append(next_beta)
+                
+                beta = torch.cat(betas, dim=-1)  # Shape: (batch, seq, n_cats-1)
+        else:
+            # STABLE IMPLEMENTATION: Tanh-constrained for attention models
+            beta = self.threshold_network(threshold_input)
         
         # Extract discrimination (alpha) if enabled
         if self.use_discrimination:

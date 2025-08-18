@@ -39,9 +39,11 @@ class FixedLinearDecayEmbedding(nn.Module, EmbeddingStrategy):
         # Direct embedding matrix: (n_cats * n_questions) → embed_dim  
         self.direct_embed = nn.Linear(n_cats * n_questions, embed_dim)
         
-        # Suppression mechanisms
+        # Suppression mechanisms (temperature disabled for research-beta compatibility)
         if suppression_mode == 'temperature':
-            self.temperature = nn.Parameter(torch.tensor(temperature_init))
+            # DISABLED: Temperature parameter causes gradient explosion with research-based beta
+            # Store mode for reference but don't create learnable parameter
+            pass
         elif suppression_mode == 'confidence':
             self.confidence_estimator = nn.Sequential(
                 nn.Linear(embed_dim, 32),
@@ -101,8 +103,9 @@ class FixedLinearDecayEmbedding(nn.Module, EmbeddingStrategy):
         
         # Step 2: Apply adaptive suppression based on mode
         if self.suppression_mode == 'temperature':
-            # Learnable temperature sharpening (reduces adjacent interference)
-            suppressed_weights = F.softmax(base_weights / self.temperature, dim=-1)
+            # FINAL FIX: Remove temperature parameter completely - use bounded triangular weights
+            # Same as LinearDecayEmbedding to ensure compatibility with research-based beta
+            suppressed_weights = base_weights  # Use base triangular weights directly
         elif self.suppression_mode == 'confidence' and context_embedding is not None:
             # Confidence-based adaptive sharpening
             confidence = self.confidence_estimator(context_embedding)
@@ -214,14 +217,17 @@ class OrdinalAttentionGPCM(BaseKnowledgeTracingModel):
             nn.Dropout(dropout_rate)
         )
         
-        # IRT parameter extraction (copied exactly)
+        # IRT parameter extraction (research-based approach with conservative initialization)
         self.irt_extractor = IRTParameterExtractor(
             input_dim=final_fc_dim,
             n_cats=n_cats,
             ability_scale=ability_scale,
             use_discrimination=True,
             dropout_rate=dropout_rate,
-            question_dim=key_dim
+            question_dim=key_dim,
+            use_research_beta=True,  # Fixed embedding now compatible with research-based approach
+            conservative_research=True,  # Use conservative initialization for stability across folds
+            use_bounded_beta=True  # Add bounds for numerical stability
         )
         
         # GPCM probability layer (copied exactly)

@@ -21,70 +21,70 @@ MODEL: DEEP_GPCM
   Type: deep_gpcm
 
   Student Ability (θ) Recovery:
-    Correlation: 0.0233
+    Correlation: 0.0105
     Students analyzed: 1000
 
   Item Parameter Recovery:
-    Discrimination (α): 0.9083
+    Discrimination (α): 0.7254
     Items analyzed: 199/200
     Threshold correlations:
-      β_0: 0.7735
-      β_1: 0.6790
-    Average β correlation: 0.7262
+      β_0: 0.9007
+      β_1: 0.8216
+    Average β correlation: 0.8612
 
   Student ability statistics:
-    Range: [-2.500, 2.856]
-    Mean: 0.113, Std: 0.921
+    Range: [-1.777, 2.156]
+    Mean: 0.286, Std: 0.698
 
   Discrimination statistics:
-    Range: [0.438, 1.787]
-    Mean: 0.948, Std: 0.250
+    Range: [1.000, 2.086]
+    Mean: 1.116, Std: 0.194
 
 MODEL: ATTN_GPCM_LEARN
   Type: attn_gpcm_learn
 
   Student Ability (θ) Recovery:
-    Correlation: 0.0298
+    Correlation: 0.0061
     Students analyzed: 1000
 
   Item Parameter Recovery:
-    Discrimination (α): 0.8138
+    Discrimination (α): 0.6311
     Items analyzed: 199/200
     Threshold correlations:
-      β_0: 0.6942
-      β_1: 0.8142
-    Average β correlation: 0.7542
+      β_0: 0.9484
+      β_1: 0.9235
+    Average β correlation: 0.9359
 
   Student ability statistics:
-    Range: [-2.863, 2.302]
-    Mean: -0.010, Std: 0.943
+    Range: [-1.512, 1.838]
+    Mean: 0.320, Std: 0.541
 
   Discrimination statistics:
-    Range: [0.292, 1.746]
-    Mean: 0.819, Std: 0.282
+    Range: [1.000, 2.301]
+    Mean: 1.178, Std: 0.266
 
 MODEL: ATTN_GPCM_LINEAR
   Type: attn_gpcm_linear
 
   Student Ability (θ) Recovery:
-    Correlation: 0.0201
+    Correlation: 0.0026
     Students analyzed: 1000
 
   Item Parameter Recovery:
-    Discrimination (α): 0.9464
+    Discrimination (α): 0.8563
     Items analyzed: 199/200
     Threshold correlations:
-      β_0: 0.8539
-      β_1: 0.7862
-    Average β correlation: 0.8201
+      β_0: 0.9661
+      β_1: 0.9381
+    Average β correlation: 0.9521
 
   Student ability statistics:
-    Range: [-2.278, 2.472]
-    Mean: 0.155, Std: 0.895
+    Range: [-2.130, 2.449]
+    Mean: 0.366, Std: 0.656
 
   Discrimination statistics:
-    Range: [0.354, 2.126]
-    Mean: 1.002, Std: 0.333
+    Range: [1.000, 2.370]
+    Mean: 1.211, Std: 0.309
 
 --------------------------------------------------------------------------------
 

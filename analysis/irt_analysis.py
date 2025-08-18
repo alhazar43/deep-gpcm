@@ -37,9 +37,11 @@ from utils.path_utils import get_path_manager, find_best_model
 class UnifiedIRTAnalyzer:
     """Unified IRT analysis tool with all functionality."""
     
-    def __init__(self, dataset='synthetic_OC', output_dir=None):
+    def __init__(self, dataset='synthetic_OC', output_dir=None, normalization_method='custom'):
         from utils.path_utils import get_plot_path
         self.dataset = dataset
+        self.normalization_method = normalization_method  # 'custom', 'mean_sigma', or 'raw'
+        
         # Create dataset-specific output directory using new structure
         if output_dir is None:
             self.output_dir = get_plot_path(dataset, 'irt')
@@ -764,25 +766,69 @@ class UnifiedIRTAnalyzer:
         
         return results
     
-    def normalize_parameters(self, alphas, betas, thetas=None):
-        """Normalize parameters to standard IRT scale."""
+    def normalize_parameters(self, alphas, betas, thetas=None, method='custom'):
+        """Normalize parameters to standard IRT scale.
+        
+        Args:
+            method: 'custom' (original), 'mean_sigma' (standard IRT linking), or 'raw' (no normalization)
+            
+        Usage Examples:
+            # Use original method (default)
+            analyzer = UnifiedIRTAnalyzer('synthetic_OC')
+            
+            # Use standard IRT mean-sigma linking
+            analyzer = UnifiedIRTAnalyzer('synthetic_OC', normalization_method='mean_sigma')
+            
+            # Use raw parameters (no normalization)
+            analyzer = UnifiedIRTAnalyzer('synthetic_OC', normalization_method='raw')
+        """
         results = {}
         
-        # Normalize discriminations (log-normal prior)
-        if alphas is not None and len(alphas) > 0:
-            results['alphas'] = np.exp((np.log(alphas + 1e-6) - np.mean(np.log(alphas + 1e-6))) / 
-                                     np.std(np.log(alphas + 1e-6)) * 0.5 + np.log(1.0))
-        
-        # Normalize thresholds (normal prior)
-        if betas is not None and len(betas) > 0:
-            betas_norm = np.zeros_like(betas)
-            for k in range(betas.shape[1]):
-                betas_norm[:, k] = (betas[:, k] - np.mean(betas[:, k])) / np.std(betas[:, k])
-            results['betas'] = betas_norm
-        
-        # Normalize abilities (normal prior)
-        if thetas is not None and len(thetas) > 0:
-            results['thetas'] = (thetas - np.mean(thetas)) / np.std(thetas)
+        if method == 'raw':
+            # No normalization - use raw parameters
+            if alphas is not None:
+                results['alphas'] = alphas
+            if betas is not None:
+                results['betas'] = betas
+            if thetas is not None:
+                results['thetas'] = thetas
+                
+        elif method == 'mean_sigma':
+            # Standard IRT mean-sigma linking
+            if alphas is not None and len(alphas) > 0:
+                # Mean-sigma linking for discrimination: α_linked = α / σ_β
+                if betas is not None and len(betas) > 0:
+                    beta_std = np.std(betas.flatten())
+                    results['alphas'] = alphas / max(beta_std, 0.1)  # Avoid division by zero
+                else:
+                    results['alphas'] = alphas / np.std(alphas)  # Self-standardize if no betas
+            
+            if betas is not None and len(betas) > 0:
+                # Mean-sigma linking for thresholds: β_linked = (β - μ_β) / σ_β
+                beta_mean = np.mean(betas.flatten())
+                beta_std = np.std(betas.flatten())
+                results['betas'] = (betas - beta_mean) / max(beta_std, 0.1)
+            
+            if thetas is not None and len(thetas) > 0:
+                # Standard ability normalization: θ ~ N(0,1)
+                results['thetas'] = (thetas - np.mean(thetas)) / np.std(thetas)
+                
+        else:  # method == 'custom' (original behavior)
+            # Normalize discriminations (log-normal prior) - ORIGINAL METHOD
+            if alphas is not None and len(alphas) > 0:
+                results['alphas'] = np.exp((np.log(alphas + 1e-6) - np.mean(np.log(alphas + 1e-6))) / 
+                                         np.std(np.log(alphas + 1e-6)) * 0.5 + np.log(1.0))
+            
+            # Normalize thresholds (normal prior) - ORIGINAL METHOD
+            if betas is not None and len(betas) > 0:
+                betas_norm = np.zeros_like(betas)
+                for k in range(betas.shape[1]):
+                    betas_norm[:, k] = (betas[:, k] - np.mean(betas[:, k])) / np.std(betas[:, k])
+                results['betas'] = betas_norm
+            
+            # Normalize abilities (normal prior) - ORIGINAL METHOD
+            if thetas is not None and len(thetas) > 0:
+                results['thetas'] = (thetas - np.mean(thetas)) / np.std(thetas)
         
         return results
     
@@ -802,8 +848,8 @@ class UnifiedIRTAnalyzer:
             true_thetas = true_thetas[:n_students]
             
             # Normalize
-            norm_true = self.normalize_parameters(None, None, true_thetas)['thetas']
-            norm_learned = self.normalize_parameters(None, None, learned_thetas)['thetas']
+            norm_true = self.normalize_parameters(None, None, true_thetas, method=self.normalization_method)['thetas']
+            norm_learned = self.normalize_parameters(None, None, learned_thetas, method=self.normalization_method)['thetas']
             
             results['theta_correlation'] = np.corrcoef(norm_true, norm_learned)[0, 1]
             results['n_students'] = n_students
@@ -822,13 +868,13 @@ class UnifiedIRTAnalyzer:
             valid_indices = np.where(valid_items)[0]
             
             # Normalize parameters
-            norm_true_alpha = self.normalize_parameters(true_alphas, None)['alphas']
-            norm_true_beta = self.normalize_parameters(None, true_betas)['betas']
+            norm_true_alpha = self.normalize_parameters(true_alphas, None, method=self.normalization_method)['alphas']
+            norm_true_beta = self.normalize_parameters(None, true_betas, method=self.normalization_method)['betas']
             
             norm_learned_alpha = self.normalize_parameters(
-                learned_params['item_discriminations'][valid_items], None)['alphas']
+                learned_params['item_discriminations'][valid_items], None, method=self.normalization_method)['alphas']
             norm_learned_beta = self.normalize_parameters(
-                None, learned_params['item_thresholds'][valid_items])['betas']
+                None, learned_params['item_thresholds'][valid_items], method=self.normalization_method)['betas']
             
             # Calculate correlations
             results['alpha_correlation'] = np.corrcoef(
@@ -949,8 +995,8 @@ class UnifiedIRTAnalyzer:
                 ax.set_xlabel('True θ')
                 ax.set_ylabel('Learned θ')
                 
-                # Show only parameter info, no model name
-                title_text = f'Final θ (r={corr["theta_correlation"]:.3f})'
+                # Show parameter info with normalization method
+                title_text = f'Final θ ({self.normalization_method}, r={corr["theta_correlation"]:.3f})'
                 is_best_theta = best_models.get('theta') == model_name
                 if is_best_theta:
                     title_text += ' *'
@@ -993,7 +1039,7 @@ class UnifiedIRTAnalyzer:
                 ax.set_xlabel('True α')
                 ax.set_ylabel('Learned α')
                 
-                title_text = f'Discrimination (r={corr["alpha_correlation"]:.3f})'
+                title_text = f'Discrimination ({self.normalization_method}, r={corr["alpha_correlation"]:.3f})'
                 is_best_alpha = best_models.get('alpha') == model_name
                 if is_best_alpha:
                     title_text += ' *'
@@ -1014,7 +1060,7 @@ class UnifiedIRTAnalyzer:
                     ax.set_xlabel(f'True β_{k}')
                     ax.set_ylabel(f'Learned β_{k}')
                     
-                    title_text = f'Threshold {k} (r={corr["beta_correlations"][k]:.3f})'
+                    title_text = f'Threshold {k} ({self.normalization_method}, r={corr["beta_correlations"][k]:.3f})'
                     is_best_beta = best_models.get(f'beta_{k}') == model_name
                     if is_best_beta:
                         title_text += ' *'
@@ -1025,8 +1071,16 @@ class UnifiedIRTAnalyzer:
                     ax.grid(True, alpha=0.3)
         
         # Create suptitle - always black, never green, never model colors
+        # Get normalization method description
+        norm_descriptions = {
+            'custom': 'All parameters normalized with custom linking method',
+            'mean_sigma': 'All parameters normalized with standard IRT mean-sigma linking',
+            'raw': 'Raw parameters (no normalization applied)'
+        }
+        norm_desc = norm_descriptions.get(self.normalization_method, f'Normalization: {self.normalization_method}')
+        
         title = 'IRT Parameter Recovery Analysis\n' + \
-                'All parameters normalized with standard IRT priors\n* = Best correlation per parameter type'
+                f'{norm_desc}\n* = Best correlation per parameter type'
         
         if best_overall_model:
             avg_corr = overall_scores.get(best_overall_model, 0)
@@ -1984,6 +2038,16 @@ class UnifiedIRTAnalyzer:
         print("UNIFIED IRT ANALYSIS")
         print("="*80)
         
+        # Display normalization method being used
+        norm_descriptions = {
+            'custom': 'Custom linking method (original implementation)',
+            'mean_sigma': 'Standard IRT mean-sigma linking',
+            'raw': 'Raw parameters (no normalization)'
+        }
+        norm_desc = norm_descriptions.get(self.normalization_method, f'Method: {self.normalization_method}')
+        print(f"Parameter Normalization: {norm_desc}")
+        print("-" * 80)
+        
         # Find models
         models = self.find_models()
         if not models:
@@ -2052,7 +2116,7 @@ class UnifiedIRTAnalyzer:
                         if key in correlations:
                             results[key] = correlations[key]
                     
-                    print(f"  Correlations: θ={correlations.get('theta_correlation', 'N/A'):.3f}, " +
+                    print(f"  Correlations ({self.normalization_method}): θ={correlations.get('theta_correlation', 'N/A'):.3f}, " +
                           f"α={correlations.get('alpha_correlation', 'N/A'):.3f}, " +
                           f"β_avg={correlations.get('beta_avg_correlation', 'N/A'):.3f}")
                 
@@ -2158,8 +2222,14 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Basic parameter recovery analysis
+  # Basic parameter recovery analysis (using original normalization)
   python irt_analysis.py --dataset synthetic_OC
+  
+  # Use standard IRT mean-sigma linking
+  python irt_analysis.py --dataset synthetic_OC --norm_method mean_sigma
+  
+  # Use raw parameters (no normalization)
+  python irt_analysis.py --dataset synthetic_OC --norm_method raw
   
   # Temporal analysis with average theta
   python irt_analysis.py --dataset synthetic_OC --theta_method average --analysis_types temporal
@@ -2184,6 +2254,9 @@ Examples:
                         help='Method for extracting student abilities')
     parser.add_argument('--item_method', default='average', choices=['average', 'last'],
                         help='Method for extracting item parameters')
+    parser.add_argument('--norm_method', default='custom', 
+                        choices=['custom', 'mean_sigma', 'raw'],
+                        help='Parameter normalization method: custom (original), mean_sigma (standard IRT), raw (none)')
     
     # Analysis types
     parser.add_argument('--analysis_types', nargs='+', 
@@ -2198,7 +2271,8 @@ Examples:
     args = parser.parse_args()
     
     # Create analyzer and run
-    analyzer = UnifiedIRTAnalyzer(dataset=args.dataset, output_dir=args.output_dir)
+    analyzer = UnifiedIRTAnalyzer(dataset=args.dataset, output_dir=args.output_dir, 
+                                  normalization_method=args.norm_method)
     analyzer.run_analysis(args)
 
 

@@ -21,73 +21,73 @@ MODEL: DEEP_GPCM
   Type: deep_gpcm
 
   Student Ability (θ) Recovery:
-    Correlation: -0.0405
+    Correlation: -0.0494
     Students analyzed: 1000
 
   Item Parameter Recovery:
-    Discrimination (α): 0.8638
+    Discrimination (α): 0.8803
     Items analyzed: 199/200
     Threshold correlations:
-      β_0: 0.8165
-      β_1: 0.7905
-      β_2: 0.5863
-    Average β correlation: 0.7311
+      β_0: 0.9183
+      β_1: 0.9047
+      β_2: 0.8776
+    Average β correlation: 0.9002
 
   Student ability statistics:
-    Range: [-2.485, 2.254]
-    Mean: 0.050, Std: 0.842
+    Range: [-2.098, 3.095]
+    Mean: 0.689, Std: 0.924
 
   Discrimination statistics:
-    Range: [0.598, 2.146]
-    Mean: 1.011, Std: 0.269
+    Range: [0.438, 1.782]
+    Mean: 0.825, Std: 0.239
 
 MODEL: ATTN_GPCM_LEARN
   Type: attn_gpcm_learn
 
   Student Ability (θ) Recovery:
-    Correlation: -0.0416
+    Correlation: -0.0341
     Students analyzed: 1000
 
   Item Parameter Recovery:
-    Discrimination (α): 0.9195
+    Discrimination (α): 0.8836
     Items analyzed: 199/200
     Threshold correlations:
-      β_0: 0.7570
-      β_1: 0.8305
-      β_2: 0.7194
-    Average β correlation: 0.7690
+      β_0: 0.9631
+      β_1: 0.9683
+      β_2: 0.9569
+    Average β correlation: 0.9628
 
   Student ability statistics:
-    Range: [-2.251, 2.009]
-    Mean: 0.091, Std: 0.870
+    Range: [-1.799, 3.690]
+    Mean: 0.832, Std: 0.993
 
   Discrimination statistics:
-    Range: [0.466, 1.998]
-    Mean: 0.964, Std: 0.277
+    Range: [0.320, 1.601]
+    Mean: 0.702, Std: 0.217
 
 MODEL: ATTN_GPCM_LINEAR
   Type: attn_gpcm_linear
 
   Student Ability (θ) Recovery:
-    Correlation: -0.0339
+    Correlation: -0.0382
     Students analyzed: 1000
 
   Item Parameter Recovery:
-    Discrimination (α): 0.9234
+    Discrimination (α): 0.9432
     Items analyzed: 199/200
     Threshold correlations:
-      β_0: 0.8613
-      β_1: 0.8920
-      β_2: 0.7832
-    Average β correlation: 0.8455
+      β_0: 0.9717
+      β_1: 0.9640
+      β_2: 0.9447
+    Average β correlation: 0.9601
 
   Student ability statistics:
-    Range: [-1.909, 1.877]
-    Mean: 0.117, Std: 0.815
+    Range: [-2.572, 3.383]
+    Mean: 0.779, Std: 1.089
 
   Discrimination statistics:
-    Range: [0.566, 2.445]
-    Mean: 1.157, Std: 0.352
+    Range: [0.344, 1.758]
+    Mean: 0.755, Std: 0.254
 
 --------------------------------------------------------------------------------
 

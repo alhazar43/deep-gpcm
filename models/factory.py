@@ -17,7 +17,7 @@ MODEL_REGISTRY = {
         'default_params': {
             'memory_size': 50,        # Optimized from adaptive hyperopt
             'key_dim': 64,           # Optimized from adaptive hyperopt
-            'value_dim': 256,         # Optimized from adaptive hyperopt
+            'value_dim': 128,         # Optimized from adaptive hyperopt
             'final_fc_dim': 50,       # Optimized from adaptive hyperopt
             'embedding_strategy': 'linear_decay',
             'dropout_rate': 0.05       # Optimized from adaptive hyperopt
@@ -80,7 +80,8 @@ MODEL_REGISTRY = {
         },
         'training_config': {
             'lr': 0.001,              # Standard default
-            'batch_size': 64          # Optimized batch size only
+            'batch_size': 64,         # Optimized batch size only
+            'grad_clip': 1.5          # Moderate gradient clipping for research-based approach
         }
     },
     # 'attn_gpcm_linear': {
@@ -173,7 +174,8 @@ MODEL_REGISTRY = {
         'training_config': {
             # IDENTICAL training config to attn_gpcm_linear
             'lr': 0.001,
-            'batch_size': 64
+            'batch_size': 64,
+            'grad_clip': 5.0  # Adaptive gradient clipping will increase automatically if needed
         }
     },
     # 'coral_prob': {

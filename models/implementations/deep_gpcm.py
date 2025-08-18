@@ -47,14 +47,15 @@ class DeepGPCM(BaseKnowledgeTracingModel):
             nn.Dropout(dropout_rate)
         )
         
-        # IRT parameter extraction
+        # IRT parameter extraction (use research-based approach for Deep-GPCM)
         self.irt_extractor = IRTParameterExtractor(
             input_dim=final_fc_dim,
             n_cats=n_cats,
             ability_scale=ability_scale,
             use_discrimination=use_discrimination,
             dropout_rate=dropout_rate,
-            question_dim=key_dim
+            question_dim=key_dim,
+            use_research_beta=True  # Use research-based monotonic gap parameterization
         )
         
         # GPCM probability computation

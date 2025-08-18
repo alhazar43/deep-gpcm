@@ -187,7 +187,7 @@ class EnhancedAttentionGPCM(AttentionGPCM):
             self.use_learnable_scale = False
             self.fixed_ability_scale = ability_scale
         
-        # Replace the IRT parameter extractor to use learnable scale
+        # Replace the IRT parameter extractor to use learnable scale (stable tanh for attention)
         from ..components.irt_layers import IRTParameterExtractor
         self.irt_extractor = IRTParameterExtractor(
             input_dim=final_fc_dim,
@@ -195,7 +195,8 @@ class EnhancedAttentionGPCM(AttentionGPCM):
             ability_scale=1.0,  # Will be multiplied by learnable scale
             use_discrimination=True,
             dropout_rate=dropout_rate,
-            question_dim=key_dim
+            question_dim=key_dim,
+            use_research_beta=True  # Use research-based approach for better beta recovery
         )
         
         # Replace embedding with learnable version if using linear_decay and enabled
