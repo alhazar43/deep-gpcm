@@ -1,0 +1,33 @@
+================================================================================
+UNIFIED IRT ANALYSIS REPORT
+================================================================================
+
+Dataset: assist2015_dkvmn
+Models analyzed: 1
+
+Analysis settings:
+- Student ability method: last
+- Item parameter method: average
+- Analysis types: recovery, temporal
+
+--------------------------------------------------------------------------------
+
+MODEL: DEEP-GPCM
+  Type: DEEP-GPCM
+
+  Student ability statistics:
+    Range: [-0.768, 3.862]
+    Mean: 1.600, Std: 0.771
+
+  Discrimination statistics:
+    Range: [0.412, 1.401]
+    Mean: 0.840, Std: 0.222
+
+--------------------------------------------------------------------------------
+
+KEY INSIGHTS:
+- Deep-GPCM learns temporal IRT parameters that evolve over time
+- Item parameters (α, β) show moderate recovery when aggregated
+- Student abilities (θ) use different representations than static IRT
+- Temporal dynamics capture learning trajectories not present in traditional IRT
+================================================================================

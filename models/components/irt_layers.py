@@ -4,11 +4,6 @@ import torch.nn.functional as F
 from typing import Tuple, Optional
 
 
-class ExponentialActivation(nn.Module):
-    """Exponential activation function for discrimination parameters."""
-    def forward(self, x):
-        return torch.exp(x)
-
 
 class IRTParameterExtractor(nn.Module):
     """Extract IRT parameters (theta, alpha, beta) from neural features."""
@@ -46,11 +41,8 @@ class IRTParameterExtractor(nn.Module):
         # Discrimination parameter (alpha) - optional
         if use_discrimination:
             discrim_input_dim = input_dim + self.question_dim
-            self.discrimination_network = nn.Sequential(
-                nn.Linear(discrim_input_dim, 1),
-                nn.ReLU(),  # First ensure non-negative
-                ExponentialActivation()  # Then exponential activation for proper discrimination scaling
-            )
+            # Direct linear layer for lognormal(0, 0.3) mapping via exp(0.3 * x)
+            self.discrimination_network = nn.Linear(discrim_input_dim, 1)
         
         self.dropout = nn.Dropout(dropout_rate) if dropout_rate > 0 else nn.Identity()
         
@@ -86,10 +78,10 @@ class IRTParameterExtractor(nn.Module):
                     nn.init.constant_(module.bias, 0)
         
         if self.use_discrimination:
-            for module in self.discrimination_network:
-                if isinstance(module, nn.Linear):
-                    nn.init.kaiming_normal_(module.weight)
-                    nn.init.constant_(module.bias, 0)
+            # Proper initialization for lognormal(0, 0.3) mapping
+            # If x ~ Normal(0, std), then exp(0.3 * x) approximates lognormal(0, 0.3)
+            nn.init.normal_(self.discrimination_network.weight, std=0.1)
+            nn.init.constant_(self.discrimination_network.bias, 0)
     
     def forward(self, features: torch.Tensor, 
                 question_features: torch.Tensor = None) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -152,7 +144,11 @@ class IRTParameterExtractor(nn.Module):
                 discrim_input = torch.cat([features, question_features], dim=-1)
             else:
                 discrim_input = torch.cat([features, features], dim=-1)  # Use features twice if no question features
-            alpha = self.discrimination_network(discrim_input).squeeze(-1)
+            
+            # Mathematically correct lognormal(0, 0.3) mapping
+            # If network output ~ Normal(0, std), then exp(0.3 * output) ~ lognormal(0, 0.3)
+            raw_alpha = self.discrimination_network(discrim_input).squeeze(-1)
+            alpha = torch.exp(0.3 * raw_alpha)
         else:
             alpha = torch.ones_like(theta)
         

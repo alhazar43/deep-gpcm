@@ -37,7 +37,7 @@ from utils.path_utils import get_path_manager, find_best_model
 class UnifiedIRTAnalyzer:
     """Unified IRT analysis tool with all functionality."""
     
-    def __init__(self, dataset='synthetic_OC', output_dir=None, normalization_method='custom'):
+    def __init__(self, dataset='synthetic_OC', output_dir=None, normalization_method='mean_sigma'):
         from utils.path_utils import get_plot_path
         self.dataset = dataset
         self.normalization_method = normalization_method  # 'custom', 'mean_sigma', or 'raw'
@@ -438,7 +438,7 @@ class UnifiedIRTAnalyzer:
                     attention_mechanisms=['ordinal_aware', 'response_conditioned', 'qwk_aligned'],
                     fusion_method='concat'
                 )
-        elif model_type == 'attention' or 'attention' in str(checkpoint['model_state_dict'].keys()):
+        elif model_type == 'attention' or (model_type not in get_all_model_types() and 'attention' in str(checkpoint['model_state_dict'].keys())):
             # Use factory system for attention models
             try:
                 # Get saved configuration if available
@@ -478,13 +478,13 @@ class UnifiedIRTAnalyzer:
                 fallback_type = model_type if model_type in get_all_model_types() else 'deep_gpcm'
                 factory_params = get_model_default_params(fallback_type)
                 
-                # Create model_kwargs from saved config and factory defaults
-                model_kwargs = {
-                    'memory_size': saved_config.get('memory_size', 50),
-                    'key_dim': saved_config.get('key_dim', 50), 
-                    'value_dim': saved_config.get('value_dim', 200),
-                    'final_fc_dim': saved_config.get('final_fc_dim', 50),
-                }
+                # Start with factory defaults as primary source
+                model_kwargs = factory_params.copy()
+                
+                # Only override with saved config if keys exist
+                for key in ['memory_size', 'key_dim', 'value_dim', 'final_fc_dim']:
+                    if key in saved_config:
+                        model_kwargs[key] = saved_config[key]
                 
                 # Apply factory defaults
                 model_kwargs.update(factory_params)
@@ -796,12 +796,11 @@ class UnifiedIRTAnalyzer:
         elif method == 'mean_sigma':
             # Standard IRT mean-sigma linking
             if alphas is not None and len(alphas) > 0:
-                # Mean-sigma linking for discrimination: α_linked = α / σ_β
-                if betas is not None and len(betas) > 0:
-                    beta_std = np.std(betas.flatten())
-                    results['alphas'] = alphas / max(beta_std, 0.1)  # Avoid division by zero
-                else:
-                    results['alphas'] = alphas / np.std(alphas)  # Self-standardize if no betas
+                # For lognormal discriminations, normalize in log space then transform back
+                log_alphas = np.log(alphas)
+                log_alphas_norm = (log_alphas - np.mean(log_alphas)) / np.std(log_alphas)
+                # Scale to target lognormal(0, 0.3) and transform back
+                results['alphas'] = np.exp(log_alphas_norm * 0.3)
             
             if betas is not None and len(betas) > 0:
                 # Mean-sigma linking for thresholds: β_linked = (β - μ_β) / σ_β
@@ -814,10 +813,13 @@ class UnifiedIRTAnalyzer:
                 results['thetas'] = (thetas - np.mean(thetas)) / np.std(thetas)
                 
         else:  # method == 'custom' (original behavior)
-            # Normalize discriminations (log-normal prior) - ORIGINAL METHOD
+            # Normalize discriminations - PROPERLY FIXED for lognormal(0, 0.3) distribution
             if alphas is not None and len(alphas) > 0:
-                results['alphas'] = np.exp((np.log(alphas + 1e-6) - np.mean(np.log(alphas + 1e-6))) / 
-                                         np.std(np.log(alphas + 1e-6)) * 0.5 + np.log(1.0))
+                # Since alphas follow lognormal(0, 0.3), normalize in log space
+                log_alphas = np.log(alphas)
+                log_alphas_norm = (log_alphas - np.mean(log_alphas)) / np.std(log_alphas)
+                # Scale to target lognormal(0, 0.3) and transform back
+                results['alphas'] = np.exp(log_alphas_norm * 0.3)
             
             # Normalize thresholds (normal prior) - ORIGINAL METHOD
             if betas is not None and len(betas) > 0:
@@ -918,9 +920,11 @@ class UnifiedIRTAnalyzer:
             if 'beta_correlations' in corr:
                 max_thresholds = max(max_thresholds, len(corr['beta_correlations']))
         
-        # Calculate number of columns: theta + theta_dist + alpha + thresholds
-        n_cols = 3 + max_thresholds  # theta, theta_dist, alpha, then thresholds
-        fig, axes = plt.subplots(n_models, n_cols, figsize=(4 * n_cols, 4 * n_models))
+        # Calculate number of columns: theta + alpha + thresholds (restore theta columns)
+        n_cols = 2 + max_thresholds  # theta, alpha, then thresholds
+        # Use 1:1 aspect ratio for subplots (perfect square)
+        subplot_size = 3.25
+        fig, axes = plt.subplots(n_models, n_cols, figsize=(subplot_size * n_cols, subplot_size * 1.1 * n_models))
         
         if n_models == 1:
             axes = axes.reshape(1, -1)
@@ -986,112 +990,80 @@ class UnifiedIRTAnalyzer:
             else:
                 model_color = self.get_model_color(model_name)
             
-            # Student ability plot
+            # Theta distribution plot (first column - KDE)
             if 'theta_correlation' in corr:
                 ax = axes[idx, 0]
-                ax.scatter(results['true_thetas_norm'][:corr['n_students']], 
-                          results['learned_thetas_norm'], alpha=0.6, color=model_color)
-                ax.plot([-3, 3], [-3, 3], 'k--', linewidth=2, label='Perfect recovery')
-                ax.set_xlabel('True θ')
-                ax.set_ylabel('Learned θ')
                 
-                # Show parameter info with normalization method
-                title_text = f'Final θ ({self.normalization_method}, r={corr["theta_correlation"]:.3f})'
-                is_best_theta = best_models.get('theta') == model_name
-                if is_best_theta:
-                    title_text += ' *'
-                    ax.set_title(title_text, color='green', fontweight='bold')
-                else:
-                    ax.set_title(title_text, color='black', fontweight='bold')
-                # No individual legend - will be in main legend
-                ax.grid(True, alpha=0.3)
-                
-                # Theta distribution plot
-                ax = axes[idx, 1]
-                
-                # Import scipy for KDE
+                # Plot KDE for learned theta (colored line)
                 from scipy.stats import gaussian_kde
+                learned_theta = results['learned_thetas_norm']
+                true_theta = results['true_thetas_norm']
                 
-                # Create KDE for both distributions
-                true_kde = gaussian_kde(results['true_thetas_norm'][:corr['n_students']])
-                learned_kde = gaussian_kde(results['learned_thetas_norm'])
+                # Create KDE for learned theta
+                learned_kde = gaussian_kde(learned_theta)
+                theta_range = np.linspace(-3, 3, 200)
+                learned_density = learned_kde(theta_range)
+                ax.plot(theta_range, learned_density, color=model_color, linewidth=2, label=r'Learned $\theta$')
                 
-                # Plot range
-                x = np.linspace(-4, 4, 200)
+                # Create KDE for true theta (black dashed line)
+                true_kde = gaussian_kde(true_theta)
+                true_density = true_kde(theta_range)
+                ax.plot(theta_range, true_density, 'k--', linewidth=2, label=r'True $\theta$')
                 
-                # Plot KDE curves
-                ax.plot(x, true_kde(x), 'k--', linewidth=2, label='Perfect recovery')  # Black dashed for true
-                ax.plot(x, learned_kde(x), color=model_color, linewidth=2.5, linestyle='-')  # Model color for learned
-                
-                ax.set_xlabel('Normalized θ')
+                ax.set_xlabel(r'$\theta$ value')
                 ax.set_ylabel('Density')
-                ax.set_title('θ Distribution (KDE)', color='black', fontweight='bold')
-                # No individual legend - will be in main legend
+                
+                title_text = 'Student Ability'
+                ax.set_title(title_text, color='black', fontweight='bold')
                 ax.grid(True, alpha=0.3)
-                ax.set_ylim(0, None)  # Start y-axis at 0
             
-            # Discrimination plot
+            # Discrimination plot (second column)
             if 'alpha_correlation' in corr:
-                ax = axes[idx, 2]
+                ax = axes[idx, 1]
                 ax.scatter(results['true_alphas_norm'][results['valid_indices']], 
                           results['learned_alphas_norm'], alpha=0.6, color=model_color)
                 ax.plot([0, 3], [0, 3], 'k--', linewidth=2, label='Perfect recovery')
-                ax.set_xlabel('True α')
-                ax.set_ylabel('Learned α')
+                ax.set_xlabel(r'True $\alpha$')
+                ax.set_ylabel(r'Learned $\alpha$')
                 
-                title_text = f'Discrimination ({self.normalization_method}, r={corr["alpha_correlation"]:.3f})'
+                title_text = f'Discrimination (r={corr["alpha_correlation"]:.3f})'
                 is_best_alpha = best_models.get('alpha') == model_name
                 if is_best_alpha:
                     title_text += ' *'
                     ax.set_title(title_text, color='green', fontweight='bold')
                 else:
                     ax.set_title(title_text, color='black', fontweight='bold')
-                # No individual legend - will be in main legend
                 ax.grid(True, alpha=0.3)
             
             # Threshold plots - handle variable number of thresholds
             if 'beta_correlations' in corr:
                 n_thresholds = len(corr['beta_correlations'])
                 for k in range(n_thresholds):  # Use all available thresholds
-                    ax = axes[idx, k + 3]
+                    ax = axes[idx, k + 2]  # Now starting from column 2 (theta, alpha, then thresholds)
                     ax.scatter(results['true_betas_norm'][results['valid_indices'], k], 
                               results['learned_betas_norm'][:, k], alpha=0.6, color=model_color)
                     ax.plot([-3, 3], [-3, 3], 'k--', linewidth=2, label='Perfect recovery')
-                    ax.set_xlabel(f'True β_{k}')
-                    ax.set_ylabel(f'Learned β_{k}')
+                    ax.set_xlabel(rf'True $\beta_{{{k}}}$')
+                    ax.set_ylabel(rf'Learned $\beta_{{{k}}}$')
                     
-                    title_text = f'Threshold {k} ({self.normalization_method}, r={corr["beta_correlations"][k]:.3f})'
+                    title_text = f'Threshold {k} (r={corr["beta_correlations"][k]:.3f})'
                     is_best_beta = best_models.get(f'beta_{k}') == model_name
                     if is_best_beta:
                         title_text += ' *'
                         ax.set_title(title_text, color='green', fontweight='bold')
                     else:
                         ax.set_title(title_text, color='black', fontweight='bold')
-                    # No individual legend - will be in main legend
                     ax.grid(True, alpha=0.3)
         
-        # Create suptitle - always black, never green, never model colors
-        # Get normalization method description
-        norm_descriptions = {
-            'custom': 'All parameters normalized with custom linking method',
-            'mean_sigma': 'All parameters normalized with standard IRT mean-sigma linking',
-            'raw': 'Raw parameters (no normalization applied)'
-        }
-        norm_desc = norm_descriptions.get(self.normalization_method, f'Normalization: {self.normalization_method}')
-        
-        title = 'IRT Parameter Recovery Analysis\n' + \
-                f'{norm_desc}\n* = Best correlation per parameter type'
-        
-        if best_overall_model:
-            avg_corr = overall_scores.get(best_overall_model, 0)
-            title += f'\nBest Overall: {best_overall_model.upper()} (avg r={avg_corr:.3f})'
+        # Create clean main title (exactly as specified)
+        title = 'IRT Parameter Analysis (Normalized with respect to assumed priors)'
         
         # Adaptive spacing based on number of models
         n_models = len(models_with_corr)
-        title_y = 1 - 0.01 / n_models  # Very close to top
-        legend_y = title_y - 0.04  # Smaller gap between title and legend
+        title_y = 0.85  # Higher position for title
+        legend_y = 0.825  # Closer to title, less whitespace below
         
-        plt.suptitle(title, fontsize=14, fontweight='bold', y=title_y)  # Always black
+        plt.suptitle(title, fontsize=20, fontweight='bold', y=title_y)
         
         # Add model color legend under title
         from matplotlib.patches import Patch
@@ -1104,19 +1076,67 @@ class UnifiedIRTAnalyzer:
                 color = model_colors[model_name]
             else:
                 color = self.get_model_color(model_name)
-            legend_elements.append(Patch(facecolor=color, label=model_name.upper()))
+            # Escape underscores for LaTeX compatibility
+            safe_model_name = model_name.replace('_', r'\_').upper()
+            legend_elements.append(Patch(facecolor=color, label=safe_model_name))
         
         # Add perfect recovery line
         legend_elements.append(Line2D([0], [0], color='k', linestyle='--', linewidth=2, 
                                      label='Perfect recovery'))
         
-        # Create a figure-level legend with adaptive positioning
+        # Create a figure-level legend with larger size positioned between title and subplots
         fig.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, legend_y),
-                  ncol=min(len(models_with_corr) + 1, 7), frameon=True, fancybox=True, shadow=True)
+                  ncol=min(len(models_with_corr) + 1, 5), frameon=True, fancybox=True, shadow=True,
+                  fontsize=12, markerscale=1.2)  # Larger font and markers
         
-        # Adaptive top margin for tight_layout - negative margin to overlap
-        top_margin = legend_y + 0.02  # Add to pull plots up (negative margin effect)
-        plt.tight_layout(rect=[0, 0, 1, top_margin])  # Leave space for title and legend
+        # Use much tighter layout with minimal margins
+        top_margin = 0.8  # Minimal space for title and legend, trimmed whitespace beneath legend
+        plt.tight_layout(rect=[0, 0, 1, top_margin], pad=0.3, h_pad=0.6, w_pad=0.4)
+        
+        # Configure matplotlib for LaTeX rendering
+        plt.rcParams.update({
+            'font.family': 'serif',
+            'text.usetex': False,  # Use mathtext for better compatibility
+            'font.size': 10,
+            'axes.labelsize': 10,
+            'axes.titlesize': 11,
+            'xtick.labelsize': 9,
+            'ytick.labelsize': 9,
+            'legend.fontsize': 10,
+            'figure.titlesize': 12
+        })
+        
+        # Save as PDF with PGF backend and direct PGF export
+        save_path_str = str(save_path)
+        pdf_path = save_path_str.replace('.png', '.pdf')
+        pgf_path = save_path_str.replace('.png', '.pgf')
+        
+        try:
+            # Configure PGF backend for LaTeX compatibility
+            import matplotlib.backends.backend_pgf
+            matplotlib.rcParams.update({
+                "pgf.texsystem": "pdflatex",
+                "font.family": "serif",
+                "text.usetex": False,
+                "pgf.rcfonts": False,  # Don't use matplotlib's font settings
+                "pgf.preamble": r"\usepackage{times}\usepackage{helvet}\usepackage{courier}",
+            })
+            
+            # Save PDF with PGF backend
+            plt.savefig(pdf_path, backend='pgf', bbox_inches='tight')
+            print(f"PDF saved with PGF backend: {pdf_path}")
+            
+            # Save direct PGF for LaTeX insertion
+            plt.savefig(pgf_path, backend='pgf', bbox_inches='tight')
+            print(f"PGF file saved for LaTeX insertion: {pgf_path}")
+            
+        except Exception as e:
+            print(f"PGF backend failed ({e}), using default backend")
+            # Fallback to regular PDF
+            plt.savefig(pdf_path, bbox_inches='tight')
+            print(f"PDF saved with default backend: {pdf_path}")
+        
+        # Also save PNG for compatibility
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
         plt.close()
     
@@ -1563,16 +1583,19 @@ class UnifiedIRTAnalyzer:
         """Create temporal theta heatmap visualization (students x questions)."""
         n_models = len(temporal_data_dict)
         
-        # Adaptive figure height based on number of students (fixed height per model)
-        height_per_model = 6  # Fixed height for each model's heatmap
-        fig, axes = plt.subplots(n_models, 1, figsize=(12, height_per_model * n_models))
+        # Compact figure sizing for better visualization
+        height_per_model = 4  # Reduced height for compact view
+        fig, axes = plt.subplots(n_models, 1, figsize=(15, height_per_model * n_models))
         
         if n_models == 1:
             axes = [axes]
         
-        # Select students based on model-averaged hit rates (consistent across all plots)
+        # Select top 20 students based on model-averaged hit rates (consistent across all plots)
         selected_students, avg_scores = self.select_students_by_model_average_hit_rate(temporal_data_dict, n_students=20)
         n_students = len(selected_students)
+        
+        # Limit to first 50 questions for better visualization
+        max_questions_limit = 50
         
         for idx, (model_name, temporal_data) in enumerate(temporal_data_dict.items()):
             # Use passed model colors if available, otherwise fetch
@@ -1582,19 +1605,17 @@ class UnifiedIRTAnalyzer:
                 model_color = self.get_model_color(model_name)
             ax = axes[idx]
             
-            # Use full number of questions
-            max_questions = max(len(q_seq) for q_seq in temporal_data['question_ids'])
+            # Use limited number of questions (50 max)
+            actual_max_questions = max(len(q_seq) for q_seq in temporal_data['question_ids'])
+            max_questions = min(max_questions_limit, actual_max_questions)
             
             # Create theta matrix - rows: selected students, cols: questions (time steps)
             theta_matrix = np.full((n_students, max_questions), np.nan)
-            student_labels = []  # Track which students we're showing
             
             for display_idx, student_idx in enumerate(selected_students):
                 abilities = temporal_data['student_abilities'][student_idx]
                 seq_len = min(max_questions, len(abilities))
                 theta_matrix[display_idx, :seq_len] = abilities[:seq_len]
-                # Include average hit rate in label
-                student_labels.append(f"S{student_idx+1} ({avg_scores[display_idx]:.2f})")  # Student labels with hit rate
             
             # Create heatmap
             im = ax.imshow(theta_matrix, cmap='RdYlBu_r', aspect='auto', 
@@ -1616,10 +1637,9 @@ class UnifiedIRTAnalyzer:
                 ax.set_xticks(x_ticks)
                 ax.set_xticklabels(x_ticks + 1)  # Questions start from 1
             
-            # Set y-ticks for students (show actual student IDs, every 4th)
-            y_ticks = np.arange(0, n_students, 4)
-            ax.set_yticks(y_ticks)
-            ax.set_yticklabels([student_labels[i] for i in y_ticks])  # Show actual student IDs
+            # Remove y-ticks but keep y-label 
+            ax.set_yticks([])
+            ax.set_ylabel('Students', fontweight='bold')
         
         # Suptitle remains neutral - no green color, no emoji
         if best_model and best_model in temporal_data_dict:
@@ -1633,20 +1653,66 @@ class UnifiedIRTAnalyzer:
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
         plt.close()
     
-    def plot_temporal_gpcm_probs_heatmap(self, temporal_data_dict, save_path, best_model=None, model_colors=None):
-        """Create temporal GPCM probabilities heatmap for predicted categories."""
+    def compute_qwk_probability_agreement(self, y_true, y_pred_probs, K=4):
+        """
+        Compute QWK-weighted probability agreement between true ordinal category and predicted probabilities.
+        
+        This measures "degree of closeness" between probability distributions and true ordinal categories,
+        respecting ordinal structure where being wrong by 1 category is better than wrong by 2.
+        
+        Args:
+            y_true: int, true category (0 to K-1)
+            y_pred_probs: array of length K, predicted probabilities
+            K: int, number of categories
+        
+        Returns:
+            float in [0,1], higher = better agreement
+            
+        Mathematical formulation:
+            Agreement = Σ_k [QWK_weight(y_true, k) × p_k]
+            where QWK_weight(i,j) = 1 - (i-j)²/(K-1)²
+            
+        Examples:
+            Perfect prediction: [1,0,0,0] for y_true=0 → 1.0
+            Worst prediction: [0,0,0,1] for y_true=0 → 0.0  
+            Adjacent category: [0,1,0,0] for y_true=0 → 8/9 ≈ 0.889
+            Uniform prediction: [0.25,0.25,0.25,0.25] for y_true=0 → 0.611
+        """
+        if not (0 <= y_true < K):
+            return 0.0
+            
+        agreement = 0.0
+        for k in range(K):
+            # QWK-style weight: 1 - (distance²) / (max_distance²)
+            distance_squared = (y_true - k) ** 2
+            max_distance_squared = (K - 1) ** 2
+            weight = 1.0 - distance_squared / max_distance_squared
+            agreement += weight * y_pred_probs[k]
+        
+        return agreement
+    
+    def plot_temporal_gpcm_probs_heatmap(self, temporal_data_dict, save_path, best_model=None, model_colors=None, 
+                                       visualization_type='expected_score'):
+        """Create temporal GPCM probabilities heatmap with softer probabilistic visualization.
+        
+        Args:
+            visualization_type: 'expected_score', 'max_prob', 'ordinal_weighted', 'qwk_agreement', 'entropy'
+        """
         n_models = len(temporal_data_dict)
         
-        # Adaptive figure height based on number of students (fixed height per model)
-        height_per_model = 6  # Fixed height for each model's heatmap
-        fig, axes = plt.subplots(n_models, 1, figsize=(12, height_per_model * n_models))
+        # Compact figure sizing for better visualization
+        height_per_model = 4  # Reduced height for compact view
+        fig, axes = plt.subplots(n_models, 1, figsize=(15, height_per_model * n_models))
         
         if n_models == 1:
             axes = [axes]
         
-        # Select students based on model-averaged hit rates (consistent across all plots)
+        # Select top 20 students based on model-averaged hit rates (consistent across all plots)
         selected_students, avg_scores = self.select_students_by_model_average_hit_rate(temporal_data_dict, n_students=20)
         n_students = len(selected_students)
+        
+        # Limit to first 50 questions for better visualization
+        max_questions_limit = 50
         
         for idx, (model_name, temporal_data) in enumerate(temporal_data_dict.items()):
             # Use passed model colors if available, otherwise fetch
@@ -1656,37 +1722,128 @@ class UnifiedIRTAnalyzer:
                 model_color = self.get_model_color(model_name)
             ax = axes[idx]
             
-            # Use full number of questions
-            max_questions = max(len(q_seq) for q_seq in temporal_data['question_ids'])
+            # Use limited number of questions (50 max)
+            actual_max_questions = max(len(q_seq) for q_seq in temporal_data['question_ids'])
+            max_questions = min(max_questions_limit, actual_max_questions)
             
             # Create probability matrix - rows: selected students, cols: questions (time steps)
             prob_matrix = np.full((n_students, max_questions), np.nan)
-            student_labels = []  # Track which students we're showing
             
             for display_idx, student_idx in enumerate(selected_students):
                 gpcm_probs = temporal_data['gpcm_probabilities'][student_idx]  # (seq_len, n_cats)
+                responses = temporal_data['responses'][student_idx]  # True responses
                 seq_len = min(max_questions, len(gpcm_probs))
-                # Include average hit rate in label
-                student_labels.append(f"S{student_idx+1} ({avg_scores[display_idx]:.2f})")  # Student labels with hit rate
                 
-                # Extract probabilities for the predicted response categories (argmax)
+                # Different visualization approaches for probabilistic understanding
                 for t in range(seq_len):
-                    predicted_category = np.argmax(gpcm_probs[t])  # Get predicted category
-                    prob_matrix[display_idx, t] = gpcm_probs[t, predicted_category]  # Probability of predicted category
+                    if visualization_type == 'expected_score':
+                        # Expected ordinal score: E[Y] = Σ(k * P(Y=k))
+                        expected_score = sum(k * gpcm_probs[t, k] for k in range(gpcm_probs.shape[1]))
+                        prob_matrix[display_idx, t] = expected_score
+                        
+                    elif visualization_type == 'max_prob':
+                        # Maximum probability (confidence measure)
+                        prob_matrix[display_idx, t] = np.max(gpcm_probs[t])
+                        
+                    elif visualization_type == 'ordinal_weighted':
+                        # Ordinal distance-weighted accuracy (legacy linear weighting)
+                        if t < len(responses) and 0 <= responses[t] < gpcm_probs.shape[1]:
+                            true_response = int(responses[t])
+                            weights = np.array([1.0, 0.75, 0.25, 0.0])  # Distance weights
+                            weighted_prob = 0.0
+                            for k in range(gpcm_probs.shape[1]):
+                                distance = abs(true_response - k)
+                                if distance < len(weights):
+                                    weighted_prob += weights[distance] * gpcm_probs[t, k]
+                            prob_matrix[display_idx, t] = weighted_prob
+                        else:
+                            prob_matrix[display_idx, t] = 0.0
+                            
+                    elif visualization_type == 'qwk_agreement':
+                        # QWK-weighted probability agreement (principled ordinal closeness)
+                        if t < len(responses) and 0 <= responses[t] < gpcm_probs.shape[1]:
+                            true_response = int(responses[t])
+                            agreement = self.compute_qwk_probability_agreement(
+                                true_response, gpcm_probs[t], K=gpcm_probs.shape[1]
+                            )
+                            prob_matrix[display_idx, t] = agreement
+                        else:
+                            prob_matrix[display_idx, t] = 0.0
+                            
+                    elif visualization_type == 'entropy':
+                        # Shannon entropy (uncertainty measure)
+                        entropy = -np.sum(gpcm_probs[t] * np.log(gpcm_probs[t] + 1e-10))
+                        # Convert to confidence (lower entropy = higher confidence)
+                        max_entropy = np.log(gpcm_probs.shape[1])  # Maximum possible entropy
+                        confidence = 1.0 - (entropy / max_entropy)
+                        prob_matrix[display_idx, t] = confidence
+                        
+                    elif visualization_type == 'expected_distance':
+                        # Distance between predicted expected category and true category
+                        if t < len(responses) and 0 <= responses[t] < gpcm_probs.shape[1]:
+                            true_response = int(responses[t])
+                            # Calculate expected category: E[Y] = Σ(k * P(Y=k))
+                            expected_category = sum(k * gpcm_probs[t, k] for k in range(gpcm_probs.shape[1]))
+                            # Distance from true category
+                            distance = abs(expected_category - true_response)
+                            prob_matrix[display_idx, t] = distance
+                        else:
+                            prob_matrix[display_idx, t] = np.nan
+                        
+                    else:  # Default: predicted category probability (original approach)
+                        predicted_category = np.argmax(gpcm_probs[t])  
+                        prob_matrix[display_idx, t] = gpcm_probs[t, predicted_category]
+            
+            # Configure visualization based on type
+            if visualization_type == 'expected_score':
+                colormap = 'viridis'
+                vmin, vmax = 0, 3  # 0-3 ordinal scale
+                cbar_label = 'Expected Category Score (0-3)'
+                title_suffix = 'Expected Ordinal Scores'
+            elif visualization_type == 'max_prob':
+                colormap = 'RdYlGn'
+                vmin, vmax = 0, 1
+                cbar_label = 'Maximum Probability (Confidence)'
+                title_suffix = 'Prediction Confidence'
+            elif visualization_type == 'ordinal_weighted':
+                colormap = 'RdYlBu'
+                vmin, vmax = 0, 1
+                cbar_label = 'Ordinal Distance-Weighted Accuracy'
+                title_suffix = 'Ordinal-Aware Accuracy'
+            elif visualization_type == 'qwk_agreement':
+                colormap = 'RdYlGn'
+                vmin, vmax = 0, 1
+                cbar_label = 'QWK Probability Agreement [0,1]'
+                title_suffix = 'QWK-Weighted Agreement'
+            elif visualization_type == 'entropy':
+                colormap = 'plasma'
+                vmin, vmax = 0, 1
+                cbar_label = 'Prediction Confidence (1 - normalized entropy)'
+                title_suffix = 'Entropy-Based Confidence'
+            elif visualization_type == 'expected_distance':
+                colormap = 'RdYlGn_r'  # Reversed red-green: red=bad (high distance), green=good (low distance)
+                vmin, vmax = 0, 3  # 0-3 maximum possible distance
+                cbar_label = 'Expected Category Distance (0=Perfect, 3=Maximum Error)'
+                title_suffix = 'Expected Category Distance'
+            else:
+                colormap = 'RdYlGn'
+                vmin, vmax = 0, 1
+                cbar_label = 'Probability of Predicted Category'
+                title_suffix = 'Predicted Category Probabilities'
             
             # Create heatmap
-            im = ax.imshow(prob_matrix, cmap='RdYlGn', aspect='auto', 
-                          interpolation='nearest', vmin=0, vmax=1)
+            im = ax.imshow(prob_matrix, cmap=colormap, aspect='auto', 
+                          interpolation='nearest', vmin=vmin, vmax=vmax)
             
             # Set labels and title
             ax.set_xlabel('Question/Time Steps')
             ax.set_ylabel('Students')
-            ax.set_title(f'{model_name.upper()}: GPCM Probabilities (using temporal α,β)', 
+            ax.set_title(f'{model_name.upper()}: GPCM {title_suffix}', 
                         color=model_color, fontweight='bold')
             
             # Add colorbar
             cbar = plt.colorbar(im, ax=ax)
-            cbar.set_label('Probability of Predicted Category', rotation=270, labelpad=15)
+            cbar.set_label(cbar_label, rotation=270, labelpad=15)
             
             # Set reasonable tick spacing
             if max_questions > 20:
@@ -1694,19 +1851,169 @@ class UnifiedIRTAnalyzer:
                 ax.set_xticks(x_ticks)
                 ax.set_xticklabels(x_ticks + 1)  # Questions start from 1
             
-            # Set y-ticks for students (show actual student IDs, every 4th)
-            y_ticks = np.arange(0, n_students, 4)
-            ax.set_yticks(y_ticks)
-            ax.set_yticklabels([student_labels[i] for i in y_ticks])  # Show actual student IDs
+            # Remove y-ticks but keep y-label 
+            ax.set_yticks([])
+            ax.set_ylabel('Students', fontweight='bold')
         
-        # Suptitle remains neutral - no green color, no emoji
-        title = 'Temporal GPCM Probability Heatmaps\n(Probabilities computed using temporal alpha and beta parameters)'
+        # Create informative title based on visualization type
+        if visualization_type == 'expected_score':
+            title = 'GPCM Expected Ordinal Scores\n(Accounts for full probability distribution across categories)'
+        elif visualization_type == 'qwk_agreement':
+            title = 'GPCM QWK Probability Agreement\n(Ordinal closeness using quadratic-weighted kappa principles)'
+        elif visualization_type == 'max_prob':
+            title = 'GPCM Prediction Confidence\n(Maximum probability across categories)'
+        elif visualization_type == 'ordinal_weighted':
+            title = 'GPCM Ordinal-Aware Accuracy\n(Weighted by distance from true category)'
+        elif visualization_type == 'entropy':
+            title = 'GPCM Prediction Confidence\n(Based on entropy of probability distribution)'
+        elif visualization_type == 'expected_distance':
+            title = 'GPCM Expected Category Distance\n(Distance between predicted expected category and true category)'
+        else:
+            title = 'Temporal GPCM Probability Heatmaps\n(Probabilities computed using temporal alpha and beta parameters)'
+            
         if best_model and best_model in temporal_data_dict:
             title += f'\nBest Model: {best_model.upper()}'
         plt.suptitle(title, fontsize=14, fontweight='bold')
         # Adaptive spacing based on number of models
         top_space = max(0.85, 1 - 0.05 / n_models)  # More space for title with fewer models
         plt.tight_layout(rect=[0, 0.03, 1, top_space])
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close()
+    
+    def plot_comprehensive_gpcm_analysis(self, temporal_data_dict, save_path, best_model=None, model_colors=None):
+        """Create comprehensive 4-panel GPCM visualization showing different probabilistic aspects."""
+        n_models = len(temporal_data_dict)
+        
+        # Create 4-panel layout: 2x2 for each model
+        fig, axes = plt.subplots(n_models * 2, 2, figsize=(16, 8 * n_models))
+        
+        if n_models == 1:
+            axes = axes.reshape(2, 2)
+        else:
+            axes = axes.reshape(n_models, 2, 2)
+        
+        # Visualization types for the 4 panels
+        viz_types = [
+            ('expected_score', 'Expected Ordinal Scores', 'viridis', (0, 3)),
+            ('qwk_agreement', 'QWK Probability Agreement', 'RdYlGn', (0, 1)),
+            ('max_prob', 'Prediction Confidence', 'RdYlGn', (0, 1)),
+            ('entropy', 'Entropy-Based Confidence', 'plasma', (0, 1))
+        ]
+        
+        # Select students consistently across all panels
+        selected_students, avg_scores = self.select_students_by_model_average_hit_rate(temporal_data_dict, n_students=20)
+        n_students = len(selected_students)
+        
+        # Limit to first 50 questions for better visualization
+        max_questions_limit = 50
+        
+        for model_idx, (model_name, temporal_data) in enumerate(temporal_data_dict.items()):
+            model_color = model_colors.get(model_name, self.get_model_color(model_name)) if model_colors else self.get_model_color(model_name)
+            actual_max_questions = max(len(q_seq) for q_seq in temporal_data['question_ids'])
+            max_questions = min(max_questions_limit, actual_max_questions)
+            
+            # Create data for all 4 visualizations
+            for panel_idx, (viz_type, panel_title, colormap, (vmin, vmax)) in enumerate(viz_types):
+                if n_models == 1:
+                    ax = axes[panel_idx // 2, panel_idx % 2]
+                else:
+                    ax = axes[model_idx, panel_idx // 2, panel_idx % 2]
+                
+                # Create probability matrix for this visualization type
+                prob_matrix = np.full((n_students, max_questions), np.nan)
+                
+                for display_idx, student_idx in enumerate(selected_students):
+                    gpcm_probs = temporal_data['gpcm_probabilities'][student_idx]
+                    responses = temporal_data['responses'][student_idx]
+                    seq_len = min(max_questions, len(gpcm_probs))
+                    
+                    for t in range(seq_len):
+                        if viz_type == 'expected_score':
+                            # Expected ordinal score
+                            expected_score = sum(k * gpcm_probs[t, k] for k in range(gpcm_probs.shape[1]))
+                            prob_matrix[display_idx, t] = expected_score
+                            
+                        elif viz_type == 'max_prob':
+                            # Maximum probability (confidence)
+                            prob_matrix[display_idx, t] = np.max(gpcm_probs[t])
+                            
+                        elif viz_type == 'qwk_agreement':
+                            # QWK-weighted probability agreement
+                            if t < len(responses) and 0 <= responses[t] < gpcm_probs.shape[1]:
+                                true_response = int(responses[t])
+                                agreement = self.compute_qwk_probability_agreement(
+                                    true_response, gpcm_probs[t], K=gpcm_probs.shape[1]
+                                )
+                                prob_matrix[display_idx, t] = agreement
+                            else:
+                                prob_matrix[display_idx, t] = 0.0
+                            
+                        elif viz_type == 'ordinal_weighted':
+                            # Ordinal distance-weighted accuracy
+                            if t < len(responses) and 0 <= responses[t] < gpcm_probs.shape[1]:
+                                true_response = int(responses[t])
+                                weights = np.array([1.0, 0.75, 0.25, 0.0])
+                                weighted_prob = 0.0
+                                for k in range(gpcm_probs.shape[1]):
+                                    distance = abs(true_response - k)
+                                    if distance < len(weights):
+                                        weighted_prob += weights[distance] * gpcm_probs[t, k]
+                                prob_matrix[display_idx, t] = weighted_prob
+                            else:
+                                prob_matrix[display_idx, t] = 0.0
+                                
+                        elif viz_type == 'entropy':
+                            # Entropy-based confidence
+                            entropy = -np.sum(gpcm_probs[t] * np.log(gpcm_probs[t] + 1e-10))
+                            max_entropy = np.log(gpcm_probs.shape[1])
+                            confidence = 1.0 - (entropy / max_entropy)
+                            prob_matrix[display_idx, t] = confidence
+                
+                # Create heatmap
+                im = ax.imshow(prob_matrix, cmap=colormap, aspect='auto', 
+                             interpolation='nearest', vmin=vmin, vmax=vmax)
+                
+                # Configure panel
+                ax.set_xlabel('Question/Time Steps')
+                ax.set_ylabel('Students' if panel_idx % 2 == 0 else '')
+                
+                if n_models == 1:
+                    ax.set_title(f'{panel_title}', fontweight='bold')
+                else:
+                    ax.set_title(f'{model_name.upper()}: {panel_title}', color=model_color, fontweight='bold')
+                
+                # Add colorbar
+                cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                if viz_type == 'expected_score':
+                    cbar.set_label('Expected Score (0-3)', rotation=270, labelpad=15)
+                elif viz_type == 'qwk_agreement':
+                    cbar.set_label('QWK Agreement', rotation=270, labelpad=15)
+                elif viz_type == 'max_prob':
+                    cbar.set_label('Max Probability', rotation=270, labelpad=15)
+                elif viz_type == 'ordinal_weighted':
+                    cbar.set_label('Weighted Accuracy', rotation=270, labelpad=15)
+                elif viz_type == 'entropy':
+                    cbar.set_label('Confidence', rotation=270, labelpad=15)
+                
+                # Set ticks
+                if max_questions > 20:
+                    x_ticks = np.arange(0, max_questions, max(1, max_questions // 10))
+                    ax.set_xticks(x_ticks)
+                    ax.set_xticklabels(x_ticks + 1)
+                
+                # Y-label for left panels only, no ticks
+                if panel_idx % 2 == 0:
+                    ax.set_ylabel('Students', fontweight='bold')
+                ax.set_yticks([])
+        
+        # Main title
+        title = 'Comprehensive GPCM Probabilistic Analysis\n'
+        title += '(Four perspectives on model probabilistic understanding)'
+        if best_model and best_model in temporal_data_dict:
+            title += f'\nBest Model: {best_model.upper()}'
+        
+        plt.suptitle(title, fontsize=16, fontweight='bold')
+        plt.tight_layout(rect=[0, 0.03, 1, 0.92])
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
         plt.close()
     
@@ -2182,9 +2489,32 @@ class UnifiedIRTAnalyzer:
             self.plot_temporal_theta_heatmap(temporal_data_dict, theta_heatmap_path, best_model=best_overall_model, model_colors=model_colors)
             print(f"Temporal theta heatmap saved to: {theta_heatmap_path}")
             
-            gpcm_heatmap_path = self.output_dir / 'gpcm_probs_heatmap.png'  # Shortened from temporal_gpcm_probs_heatmap.png
-            self.plot_temporal_gpcm_probs_heatmap(temporal_data_dict, gpcm_heatmap_path, best_model=best_overall_model, model_colors=model_colors)
-            print(f"Temporal GPCM probabilities heatmap saved to: {gpcm_heatmap_path}")
+            # Generate new probabilistic visualizations - use expected_score as default (better than hard matching)
+            gpcm_heatmap_path = self.output_dir / 'gpcm_probs_heatmap.png'  
+            self.plot_temporal_gpcm_probs_heatmap(temporal_data_dict, gpcm_heatmap_path, 
+                                                best_model=best_overall_model, model_colors=model_colors, 
+                                                visualization_type='expected_score')
+            print(f"GPCM expected scores heatmap saved to: {gpcm_heatmap_path}")
+            
+            # Generate comprehensive 4-panel analysis
+            comprehensive_path = self.output_dir / 'gpcm_comprehensive.png'
+            self.plot_comprehensive_gpcm_analysis(temporal_data_dict, comprehensive_path, 
+                                                best_model=best_overall_model, model_colors=model_colors)
+            print(f"Comprehensive GPCM analysis saved to: {comprehensive_path}")
+            
+            # Generate individual probabilistic perspectives for detailed analysis
+            for viz_type, description in [
+                ('qwk_agreement', 'qwk_agreement'),
+                ('max_prob', 'confidence'),
+                ('ordinal_weighted', 'ordinal_accuracy'), 
+                ('entropy', 'entropy_confidence'),
+                ('expected_distance', 'expected_distance')
+            ]:
+                viz_path = self.output_dir / f'gpcm_{description}.png'
+                self.plot_temporal_gpcm_probs_heatmap(temporal_data_dict, viz_path,
+                                                    best_model=best_overall_model, model_colors=model_colors,
+                                                    visualization_type=viz_type)
+                print(f"GPCM {description} heatmap saved to: {viz_path}")
             
             # Generate combined temporal parameters visualization
             combined_params_path = self.output_dir / 'params_combined.png'  # Shortened from temporal_parameters_combined.png
@@ -2254,9 +2584,9 @@ Examples:
                         help='Method for extracting student abilities')
     parser.add_argument('--item_method', default='average', choices=['average', 'last'],
                         help='Method for extracting item parameters')
-    parser.add_argument('--norm_method', default='custom', 
+    parser.add_argument('--norm_method', default='mean_sigma', 
                         choices=['custom', 'mean_sigma', 'raw'],
-                        help='Parameter normalization method: custom (original), mean_sigma (standard IRT), raw (none)')
+                        help='Parameter normalization method: mean_sigma (standard IRT, default), custom (original), raw (none)')
     
     # Analysis types
     parser.add_argument('--analysis_types', nargs='+', 

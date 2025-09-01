@@ -1,0 +1,96 @@
+================================================================================
+UNIFIED IRT ANALYSIS REPORT
+================================================================================
+
+Dataset: synthetic_5000_200_3
+Models analyzed: 3
+
+Analysis settings:
+- Student ability method: last
+- Item parameter method: average
+- Analysis types: recovery, temporal
+
+Parameter normalization:
+- Student ability (θ): Normal prior (mean=0, std=1)
+- Discrimination (α): Log-normal prior (mean=1, std=0.5)
+- Thresholds (β): Normal prior (mean=0, std=1)
+
+--------------------------------------------------------------------------------
+
+MODEL: DEEP_GPCM
+  Type: deep_gpcm
+
+  Student Ability (θ) Recovery:
+    Correlation: 0.0084
+    Students analyzed: 1000
+
+  Item Parameter Recovery:
+    Discrimination (α): 0.8783
+    Items analyzed: 199/200
+    Threshold correlations:
+      β_0: 0.8981
+      β_1: 0.8477
+    Average β correlation: 0.8729
+
+  Student ability statistics:
+    Range: [-1.706, 2.409]
+    Mean: 0.329, Std: 0.734
+
+  Discrimination statistics:
+    Range: [0.515, 1.941]
+    Mean: 1.034, Std: 0.267
+
+MODEL: ATTN_GPCM_LEARN
+  Type: attn_gpcm_learn
+
+  Student Ability (θ) Recovery:
+    Correlation: 0.0061
+    Students analyzed: 1000
+
+  Item Parameter Recovery:
+    Discrimination (α): 0.7327
+    Items analyzed: 199/200
+    Threshold correlations:
+      β_0: 0.9525
+      β_1: 0.9280
+    Average β correlation: 0.9402
+
+  Student ability statistics:
+    Range: [-1.464, 2.721]
+    Mean: 0.517, Std: 0.783
+
+  Discrimination statistics:
+    Range: [0.336, 1.906]
+    Mean: 0.835, Std: 0.285
+
+MODEL: ATTN_GPCM_LINEAR
+  Type: attn_gpcm_linear
+
+  Student Ability (θ) Recovery:
+    Correlation: 0.0062
+    Students analyzed: 1000
+
+  Item Parameter Recovery:
+    Discrimination (α): 0.9466
+    Items analyzed: 199/200
+    Threshold correlations:
+      β_0: 0.9782
+      β_1: 0.9534
+    Average β correlation: 0.9658
+
+  Student ability statistics:
+    Range: [-2.121, 2.430]
+    Mean: 0.462, Std: 0.739
+
+  Discrimination statistics:
+    Range: [0.385, 2.073]
+    Mean: 1.018, Std: 0.329
+
+--------------------------------------------------------------------------------
+
+KEY INSIGHTS:
+- Deep-GPCM learns temporal IRT parameters that evolve over time
+- Item parameters (α, β) show moderate recovery when aggregated
+- Student abilities (θ) use different representations than static IRT
+- Temporal dynamics capture learning trajectories not present in traditional IRT
+================================================================================

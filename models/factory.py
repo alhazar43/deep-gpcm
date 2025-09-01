@@ -9,9 +9,9 @@ from .implementations.ordinal_attention_gpcm import OrdinalAttentionGPCM
 
 # Enhanced model registry with configuration management
 MODEL_REGISTRY = {
-    'deep_gpcm': {
+    'DEEP-GPCM': {
         'class': DeepGPCM,
-        'color': '#ff7f0e',  # Orange
+        'color': "#0057E4",  # Orange
         'display_name': 'Deep-GPCM',
         'description': 'Deep learning GPCM with DKVMN memory',
         'default_params': {
@@ -35,9 +35,9 @@ MODEL_REGISTRY = {
         'loss_config': {
             'type': 'combined',
             'ce_weight': 0.0,        # Optimized from adaptive hyperopt
-            'focal_weight': 0.2,     # Reduced to make room for weighted ordinal
-            'qwk_weight': 0.2,       # Optimized from adaptive hyperopt
-            'weighted_ordinal_weight': 0.6,  # NEW: Simple weighted ordinal for class balance
+            'focal_weight': 0.5,     # Reduced to make room for weighted ordinal
+            'qwk_weight': 0.0,       # Optimized from adaptive hyperopt
+            'weighted_ordinal_weight': 0.5,  # NEW: Simple weighted ordinal for class balance
             'ordinal_penalty': 0.5   # Mild penalty for ordinal distance mistakes
         },
         'training_config': {
@@ -45,9 +45,9 @@ MODEL_REGISTRY = {
             'batch_size': 64          # Optimized batch size only
         }
     },
-    'attn_gpcm_learn': {
+    'ATTN-GPCM': {
         'class': EnhancedAttentionGPCM,
-        'color': "#1100FF",  # Blue
+        'color': "#00DD34",  # Blue
         'display_name': 'Attention-GPCM-Learned',
         'description': 'Attention-enhanced GPCM with multi-head attention and Learned embeddings',
         'default_params': {
@@ -129,9 +129,9 @@ MODEL_REGISTRY = {
     #     # }
     # },
 
-    'attn_gpcm_linear': {
+    'ATTN-GPCM-TD': {
         'class': OrdinalAttentionGPCM,
-        'color': '#d62728',  # red
+        'color': "#00E2D7",  # red
         'display_name': 'Ordinal-Attention-GPCM',
         'description': 'Enhanced ordinal embedding with adaptive weight suppression to reduce adjacent category interference',
         'default_params': {
