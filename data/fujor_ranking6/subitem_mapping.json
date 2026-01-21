@@ -1,0 +1,674 @@
+[
+  {
+    "subitem_id": 0,
+    "question_id": 183,
+    "question_type": "Ranking",
+    "answer_id": 184,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 1,
+    "question_id": 183,
+    "question_type": "Ranking",
+    "answer_id": 185,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 2,
+    "question_id": 183,
+    "question_type": "Ranking",
+    "answer_id": 186,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 3,
+    "question_id": 183,
+    "question_type": "Ranking",
+    "answer_id": 187,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 4,
+    "question_id": 183,
+    "question_type": "Ranking",
+    "answer_id": 188,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 5,
+    "question_id": 183,
+    "question_type": "Ranking",
+    "answer_id": 189,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 6,
+    "question_id": 195,
+    "question_type": "Ranking",
+    "answer_id": 196,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 7,
+    "question_id": 195,
+    "question_type": "Ranking",
+    "answer_id": 197,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 8,
+    "question_id": 195,
+    "question_type": "Ranking",
+    "answer_id": 198,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 9,
+    "question_id": 195,
+    "question_type": "Ranking",
+    "answer_id": 199,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 10,
+    "question_id": 195,
+    "question_type": "Ranking",
+    "answer_id": 200,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 11,
+    "question_id": 195,
+    "question_type": "Ranking",
+    "answer_id": 201,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 12,
+    "question_id": 202,
+    "question_type": "Ranking",
+    "answer_id": 203,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 13,
+    "question_id": 202,
+    "question_type": "Ranking",
+    "answer_id": 204,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 14,
+    "question_id": 202,
+    "question_type": "Ranking",
+    "answer_id": 205,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 15,
+    "question_id": 202,
+    "question_type": "Ranking",
+    "answer_id": 206,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 16,
+    "question_id": 202,
+    "question_type": "Ranking",
+    "answer_id": 207,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 17,
+    "question_id": 202,
+    "question_type": "Ranking",
+    "answer_id": 208,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 18,
+    "question_id": 221,
+    "question_type": "Matrix",
+    "answer_id": 222,
+    "question_option": 5,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 19,
+    "question_id": 221,
+    "question_type": "Matrix",
+    "answer_id": 223,
+    "question_option": 5,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 20,
+    "question_id": 221,
+    "question_type": "Matrix",
+    "answer_id": 224,
+    "question_option": 5,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 21,
+    "question_id": 221,
+    "question_type": "Matrix",
+    "answer_id": 225,
+    "question_option": 5,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 22,
+    "question_id": 221,
+    "question_type": "Matrix",
+    "answer_id": 226,
+    "question_option": 5,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 23,
+    "question_id": 265,
+    "question_type": "Matrix",
+    "answer_id": 266,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 24,
+    "question_id": 265,
+    "question_type": "Matrix",
+    "answer_id": 267,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 25,
+    "question_id": 265,
+    "question_type": "Matrix",
+    "answer_id": 268,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 26,
+    "question_id": 265,
+    "question_type": "Matrix",
+    "answer_id": 269,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 27,
+    "question_id": 265,
+    "question_type": "Matrix",
+    "answer_id": 270,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 28,
+    "question_id": 265,
+    "question_type": "Matrix",
+    "answer_id": 271,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 29,
+    "question_id": 330,
+    "question_type": "Ranking",
+    "answer_id": 331,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 30,
+    "question_id": 330,
+    "question_type": "Ranking",
+    "answer_id": 332,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 31,
+    "question_id": 330,
+    "question_type": "Ranking",
+    "answer_id": 333,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 32,
+    "question_id": 330,
+    "question_type": "Ranking",
+    "answer_id": 334,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 33,
+    "question_id": 330,
+    "question_type": "Ranking",
+    "answer_id": 335,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 34,
+    "question_id": 330,
+    "question_type": "Ranking",
+    "answer_id": 670,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 35,
+    "question_id": 355,
+    "question_type": "Matrix",
+    "answer_id": 356,
+    "question_option": 7,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 36,
+    "question_id": 355,
+    "question_type": "Matrix",
+    "answer_id": 357,
+    "question_option": 7,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 37,
+    "question_id": 355,
+    "question_type": "Matrix",
+    "answer_id": 358,
+    "question_option": 7,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 38,
+    "question_id": 355,
+    "question_type": "Matrix",
+    "answer_id": 359,
+    "question_option": 7,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 39,
+    "question_id": 355,
+    "question_type": "Matrix",
+    "answer_id": 360,
+    "question_option": 7,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 40,
+    "question_id": 355,
+    "question_type": "Matrix",
+    "answer_id": 416,
+    "question_option": 7,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 41,
+    "question_id": 355,
+    "question_type": "Matrix",
+    "answer_id": 421,
+    "question_option": 7,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 42,
+    "question_id": 489,
+    "question_type": "Ranking",
+    "answer_id": 491,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 43,
+    "question_id": 489,
+    "question_type": "Ranking",
+    "answer_id": 492,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 44,
+    "question_id": 489,
+    "question_type": "Ranking",
+    "answer_id": 493,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 45,
+    "question_id": 489,
+    "question_type": "Ranking",
+    "answer_id": 494,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 46,
+    "question_id": 489,
+    "question_type": "Ranking",
+    "answer_id": 495,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 47,
+    "question_id": 489,
+    "question_type": "Ranking",
+    "answer_id": 496,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 48,
+    "question_id": 497,
+    "question_type": "Matrix",
+    "answer_id": 499,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 49,
+    "question_id": 497,
+    "question_type": "Matrix",
+    "answer_id": 500,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 50,
+    "question_id": 497,
+    "question_type": "Matrix",
+    "answer_id": 501,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 51,
+    "question_id": 497,
+    "question_type": "Matrix",
+    "answer_id": 502,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 52,
+    "question_id": 497,
+    "question_type": "Matrix",
+    "answer_id": 503,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 53,
+    "question_id": 497,
+    "question_type": "Matrix",
+    "answer_id": 504,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 54,
+    "question_id": 505,
+    "question_type": "Ranking",
+    "answer_id": 507,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 55,
+    "question_id": 505,
+    "question_type": "Ranking",
+    "answer_id": 508,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 56,
+    "question_id": 505,
+    "question_type": "Ranking",
+    "answer_id": 509,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 57,
+    "question_id": 505,
+    "question_type": "Ranking",
+    "answer_id": 511,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 58,
+    "question_id": 505,
+    "question_type": "Ranking",
+    "answer_id": 512,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 59,
+    "question_id": 505,
+    "question_type": "Ranking",
+    "answer_id": 513,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 60,
+    "question_id": 514,
+    "question_type": "Ranking",
+    "answer_id": 515,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 61,
+    "question_id": 514,
+    "question_type": "Ranking",
+    "answer_id": 516,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 62,
+    "question_id": 514,
+    "question_type": "Ranking",
+    "answer_id": 517,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 63,
+    "question_id": 514,
+    "question_type": "Ranking",
+    "answer_id": 518,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 64,
+    "question_id": 514,
+    "question_type": "Ranking",
+    "answer_id": 519,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 65,
+    "question_id": 514,
+    "question_type": "Ranking",
+    "answer_id": 520,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 66,
+    "question_id": 561,
+    "question_type": "Ranking",
+    "answer_id": 562,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 67,
+    "question_id": 561,
+    "question_type": "Ranking",
+    "answer_id": 563,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 68,
+    "question_id": 561,
+    "question_type": "Ranking",
+    "answer_id": 564,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 69,
+    "question_id": 561,
+    "question_type": "Ranking",
+    "answer_id": 565,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 70,
+    "question_id": 561,
+    "question_type": "Ranking",
+    "answer_id": 566,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 71,
+    "question_id": 561,
+    "question_type": "Ranking",
+    "answer_id": 567,
+    "question_option": 6,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 72,
+    "question_id": 568,
+    "question_type": "Matrix",
+    "answer_id": 569,
+    "question_option": 5,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 73,
+    "question_id": 568,
+    "question_type": "Matrix",
+    "answer_id": 570,
+    "question_option": 5,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 74,
+    "question_id": 568,
+    "question_type": "Matrix",
+    "answer_id": 571,
+    "question_option": 5,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 75,
+    "question_id": 568,
+    "question_type": "Matrix",
+    "answer_id": 572,
+    "question_option": 5,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 76,
+    "question_id": 568,
+    "question_type": "Matrix",
+    "answer_id": 573,
+    "question_option": 5,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 77,
+    "question_id": 574,
+    "question_type": "Matrix",
+    "answer_id": 575,
+    "question_option": 7,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 78,
+    "question_id": 574,
+    "question_type": "Matrix",
+    "answer_id": 576,
+    "question_option": 7,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 79,
+    "question_id": 574,
+    "question_type": "Matrix",
+    "answer_id": 577,
+    "question_option": 7,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 80,
+    "question_id": 574,
+    "question_type": "Matrix",
+    "answer_id": 578,
+    "question_option": 7,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 81,
+    "question_id": 574,
+    "question_type": "Matrix",
+    "answer_id": 580,
+    "question_option": 7,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 82,
+    "question_id": 574,
+    "question_type": "Matrix",
+    "answer_id": 581,
+    "question_option": 7,
+    "answer_category": 6
+  },
+  {
+    "subitem_id": 83,
+    "question_id": 574,
+    "question_type": "Matrix",
+    "answer_id": 582,
+    "question_option": 7,
+    "answer_category": 6
+  }
+]

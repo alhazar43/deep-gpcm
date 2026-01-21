@@ -126,7 +126,10 @@ def load_trained_model(model_path, device):
     
     # Load checkpoint
     try:
-        checkpoint = torch.load(model_path, map_location=device)
+        # PyTorch 2.6 defaults to weights_only=True, which blocks loading checkpoints
+        # containing numpy scalars saved by our training pipeline. Disable the restriction
+        # for these trusted, locally generated files.
+        checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     except Exception as e:
         raise RuntimeError(f"Failed to load checkpoint: {e}")
     

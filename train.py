@@ -245,7 +245,27 @@ def pad_sequence_batch(batch):
             torch.tensor(masks, dtype=torch.bool))
 
 
-def create_data_loaders(train_data, test_data, batch_size=32):
+class BucketBatchSampler(data_utils.Sampler):
+    """Batch sampler that groups sequences with similar lengths to reduce padding."""
+    def __init__(self, data, batch_size, shuffle=True):
+        self.data = data
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+
+    def __iter__(self):
+        lengths = [len(seq[0]) for seq in self.data]
+        indices = np.argsort(lengths).tolist()
+        batches = [indices[i:i + self.batch_size] for i in range(0, len(indices), self.batch_size)]
+        if self.shuffle:
+            np.random.shuffle(batches)
+        for batch in batches:
+            yield batch
+
+    def __len__(self):
+        return (len(self.data) + self.batch_size - 1) // self.batch_size
+
+
+def create_data_loaders(train_data, test_data, batch_size=32, bucket_by_length=False):
     """Create data loaders."""
     class SequenceDataset(data_utils.Dataset):
         def __init__(self, data):
@@ -260,12 +280,22 @@ def create_data_loaders(train_data, test_data, batch_size=32):
     train_dataset = SequenceDataset(train_data)
     test_dataset = SequenceDataset(test_data)
     
-    train_loader = data_utils.DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, collate_fn=pad_sequence_batch
-    )
-    test_loader = data_utils.DataLoader(
-        test_dataset, batch_size=batch_size, shuffle=False, collate_fn=pad_sequence_batch
-    )
+    if bucket_by_length:
+        train_batch_sampler = BucketBatchSampler(train_data, batch_size, shuffle=True)
+        test_batch_sampler = BucketBatchSampler(test_data, batch_size, shuffle=False)
+        train_loader = data_utils.DataLoader(
+            train_dataset, batch_sampler=train_batch_sampler, collate_fn=pad_sequence_batch
+        )
+        test_loader = data_utils.DataLoader(
+            test_dataset, batch_sampler=test_batch_sampler, collate_fn=pad_sequence_batch
+        )
+    else:
+        train_loader = data_utils.DataLoader(
+            train_dataset, batch_size=batch_size, shuffle=True, collate_fn=pad_sequence_batch
+        )
+        test_loader = data_utils.DataLoader(
+            test_dataset, batch_size=batch_size, shuffle=False, collate_fn=pad_sequence_batch
+        )
     
     return train_loader, test_loader
 
@@ -443,15 +473,18 @@ def train_single_fold(model, train_loader, test_loader, device, epochs, model_na
             
             loss.backward()
             
-            # Monitor gradient norms with configurable clipping  
+            # Monitor gradient norms with configurable clipping
             max_norm = grad_clip if grad_clip is not None else 1.0
-            grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
-            grad_norms.append(grad_norm.item())
+            raw_grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
+            grad_norms.append(float(min(raw_grad_norm.item(), max_norm)))
             
-            # Skip update if gradients are still too large
-            if grad_norm > 50.0:
-                print(f"🚨 WARNING: Large gradient norm ({grad_norm:.1f}) in epoch {epoch+1}, batch {batch_idx}")
+            if torch.isnan(raw_grad_norm) or torch.isinf(raw_grad_norm):
+                print(f"🚨 WARNING: Non-finite gradient norm in epoch {epoch+1}, batch {batch_idx}")
+                optimizer.zero_grad(set_to_none=True)
                 continue
+            
+            if raw_grad_norm > 50.0:
+                print(f"🚨 WARNING: Large gradient norm ({raw_grad_norm:.1f}) in epoch {epoch+1}, batch {batch_idx} (clipped to {max_norm})")
             
             optimizer.step()
             
@@ -649,7 +682,9 @@ def perform_cross_validation(model_name, all_data, n_questions, n_cats, device, 
                 inner_val = [outer_train_data[i] for i in inner_val_idx]
                 
                 # Create data loaders with current batch size
-                train_loader, val_loader = create_data_loaders(inner_train, inner_val, params['batch_size'])
+                train_loader, val_loader = create_data_loaders(
+                    inner_train, inner_val, params['batch_size'], bucket_by_length=args.bucket_by_length
+                )
                 
                 # Create model with current hyperparameters
                 model_kwargs = {k: v for k, v in params.items() if k not in ['lr', 'batch_size']}
@@ -679,7 +714,7 @@ def perform_cross_validation(model_name, all_data, n_questions, n_cats, device, 
         
         # Train final model for this outer fold with best hyperparameters
         outer_train_loader, outer_test_loader = create_data_loaders(
-            outer_train_data, outer_test_data, best_params['batch_size']
+            outer_train_data, outer_test_data, best_params['batch_size'], bucket_by_length=args.bucket_by_length
         )
         
         model_kwargs = {k: v for k, v in best_params.items() if k not in ['lr', 'batch_size']}
@@ -784,6 +819,8 @@ def main():
         parser.add_argument('--adaptive_learning', action='store_true', default=True, help='Enable learning parameter optimization')
         parser.add_argument('--loss', type=str, default='factory', help='Loss function override (factory=use model default)')
         parser.add_argument('--seed', type=int, default=42, help='Random seed')
+        parser.add_argument('--bucket_by_length', action='store_true',
+                            help='Bucket sequences by length to reduce padding')
         parser.add_argument('--device', default=None, help='Device (cuda/cpu)')
         
         args = parser.parse_args()
@@ -1027,7 +1064,9 @@ def main():
             
             # Create data loaders with optimized batch size
             final_batch_size = int(best_params.get('batch_size', unified_training_config['batch_size']))
-            train_loader, test_loader = create_data_loaders(train_data, test_data, final_batch_size)
+            train_loader, test_loader = create_data_loaders(
+                train_data, test_data, final_batch_size, bucket_by_length=args.bucket_by_length
+            )
             
             # Create model with optimized parameters (filter out training-only parameters)
             model_params = {k: v for k, v in best_params.items() 
@@ -1134,7 +1173,9 @@ def main():
             print("📈 Single training (no cross-validation)")
             
             # Create data loaders
-            train_loader, test_loader = create_data_loaders(train_data, test_data, unified_training_config['batch_size'])
+            train_loader, test_loader = create_data_loaders(
+                train_data, test_data, unified_training_config['batch_size'], bucket_by_length=args.bucket_by_length
+            )
             
             # Create and train model
             # Prepare model kwargs
@@ -1328,7 +1369,10 @@ def main():
                 fold_test_data = [all_data[i] for i in test_idx]
                 
                 # Create data loaders
-                train_loader, test_loader = create_data_loaders(fold_train_data, fold_test_data, unified_training_config['batch_size'])
+                train_loader, test_loader = create_data_loaders(
+                    fold_train_data, fold_test_data, unified_training_config['batch_size'],
+                    bucket_by_length=args.bucket_by_length
+                )
                 
                 # Create and train model
                 # Prepare model kwargs

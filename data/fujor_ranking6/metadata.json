@@ -1,0 +1,16 @@
+{
+  "dataset_name": "fujor_ranking6",
+  "source": "fujor/q28_resp_full.csv",
+  "n_students": 783,
+  "n_questions": 84,
+  "n_cats": 6,
+  "response_type": "ordered_categorical",
+  "format": "new_format",
+  "description": "Fujor ranking and matrix items with 6 categories converted to sub-items.",
+  "train_students": 626,
+  "test_students": 157,
+  "seq_len_range": [
+    58,
+    84
+  ]
+}

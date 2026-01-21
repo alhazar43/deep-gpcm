@@ -44,6 +44,8 @@ class UnifiedArgumentParser:
                                help='Learning rate')
         train_group.add_argument('--patience', type=int, default=10,
                                help='Early stopping patience')
+        train_group.add_argument('--bucket_by_length', action='store_true',
+                               help='Bucket sequences by length to reduce padding')
         
         # Model architecture
         arch_group = self.parser.add_argument_group('Model Architecture')

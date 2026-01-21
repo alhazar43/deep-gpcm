@@ -1,0 +1,15 @@
+{
+  "dataset_name": "M1_P1_5_mid",
+  "n_students": 4096,
+  "n_questions": 242,
+  "n_cats": 5,
+  "response_type": "ordered_categorical",
+  "format": "new_format",
+  "description": "M1_P1 survey 5-category items filtered to seq_len [130,180]",
+  "train_students": 3263,
+  "test_students": 833,
+  "seq_len_range": [
+    130,
+    180
+  ]
+}

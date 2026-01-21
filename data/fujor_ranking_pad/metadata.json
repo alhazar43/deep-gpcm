@@ -1,0 +1,16 @@
+{
+  "dataset_name": "fujor_ranking_pad",
+  "source": "fujor/q28_resp_full.csv",
+  "n_students": 783,
+  "n_questions": 146,
+  "n_cats": 9,
+  "response_type": "ordered_categorical",
+  "format": "new_format",
+  "description": "Fujor ranking/matrix items padded to fixed slots (ranking=9, matrix=6).",
+  "train_students": 626,
+  "test_students": 157,
+  "seq_len_range": [
+    96,
+    146
+  ]
+}

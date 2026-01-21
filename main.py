@@ -35,8 +35,8 @@ def run_command(cmd, description):
 
 
 def run_complete_pipeline(models=None, dataset='synthetic_OC', 
-                         epochs=30, n_folds=5, cv=False, hyperopt=False, 
-                         adaptive=True, hyperopt_trials=50, **kwargs):
+                         epochs=30, n_folds=5, cv=False, hyperopt=False,
+                         adaptive=True, hyperopt_trials=50, bucket_by_length=False, **kwargs):
     """Run the complete Deep-GPCM pipeline with dynamic model discovery."""
     
     # Use all available models if none specified
@@ -131,6 +131,8 @@ def run_complete_pipeline(models=None, dataset='synthetic_OC',
                 cmd.extend([f"--{key}", str(value)])
             elif key == "device" and value is not None:
                 cmd.extend([f"--{key}", value])
+        if bucket_by_length:
+            cmd.append("--bucket_by_length")
             # Skip loss arguments - handled by factory configuration above
         
         success = run_command(cmd, f"Training {model.upper()}")
@@ -260,6 +262,8 @@ def main():
     parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--device', default=None, help='Device (cuda/cpu)')
+    parser.add_argument('--bucket_by_length', action='store_true',
+                        help='Bucket sequences by length to reduce padding')
     
     # Hyperparameter optimization
     parser.add_argument('--hyperopt', action='store_true', help='Enable Bayesian hyperparameter optimization')
@@ -344,6 +348,7 @@ def main():
             lr=args.lr,
             seed=args.seed,
             device=args.device,
+            bucket_by_length=args.bucket_by_length,
         )
     
     elif args.action == 'train':
@@ -365,6 +370,8 @@ def main():
             
             if args.device:
                 cmd.extend(["--device", args.device])
+            if args.bucket_by_length:
+                cmd.append("--bucket_by_length")
             
             # Add cv flag if enabled
             if args.cv:

@@ -7,6 +7,14 @@ Automatically adjusts subplot layout based on available metrics.
 import os
 import sys
 import json
+import matplotlib
+
+# Force a non-interactive backend unless the user explicitly supplied one.
+# This prevents Qt from trying to load unavailable X11 plugins (e.g., xcb)
+# on headless or minimal environments.
+if not os.environ.get("MPLBACKEND"):
+    matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import seaborn as sns
